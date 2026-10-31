@@ -1,0 +1,2 @@
+feature: automated-rollback
+mode: stateless_hexagonal

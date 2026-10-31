@@ -1,0 +1,2 @@
+feature: kubernetes-workload-provisioning
+mode: stateless_hexagonal

@@ -1,0 +1,2 @@
+feature: service-catalog
+mode: stateless_hexagonal

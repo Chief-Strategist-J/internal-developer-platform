@@ -1,0 +1,2 @@
+feature: gitops-reconciliation
+mode: stateless_hexagonal

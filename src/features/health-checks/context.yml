@@ -1,0 +1,2 @@
+feature: health-checks
+mode: stateless_hexagonal

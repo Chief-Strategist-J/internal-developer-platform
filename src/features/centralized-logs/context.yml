@@ -1,0 +1,2 @@
+feature: centralized-logs
+mode: stateless_hexagonal
