@@ -1,0 +1,2 @@
+feature: secrets-management
+mode: stateless_hexagonal

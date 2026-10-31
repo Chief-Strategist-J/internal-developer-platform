@@ -1,0 +1,2 @@
+feature: disaster-recovery
+mode: stateless_hexagonal
