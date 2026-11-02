@@ -13,9 +13,12 @@ import (
 	"time"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
+	"internal-developer-platform/src/api/rest/v1/middleware"
 	"internal-developer-platform/src/api/rest/v1/routers"
 	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
 	healthService "internal-developer-platform/src/features/health-checks/service"
+	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
+	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 )
@@ -61,10 +64,24 @@ func main() {
 		AdminAddr:  adminAddr,
 	}
 
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "127.0.0.1:6379"
+	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "platform-secure-jwt-signing-key-production"
+	}
+
+	revocationRepo := rbacAdapters.NewRedisRevocationAdapter(redisAddr, 2*time.Second)
+	tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(jwtSecret, "internal-developer-platform")
+	rbacSvc := rbacService.NewRBACService(tokenVerifier, revocationRepo)
+	rbacMW := middleware.NewRBACMiddleware(rbacSvc)
+
 	catalogRepo := catalogAdapters.NewMemoryServiceCatalogAdapter()
 	catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
 	catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
-	catalogRouter := routers.NewServiceCatalogRouter(catalogHandler)
+	catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
 
 	healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
 	healthSvc := healthService.NewHealthCheckService(healthRepo)

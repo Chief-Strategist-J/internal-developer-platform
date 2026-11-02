@@ -37,3 +37,21 @@ func NewConflictError(message string) *ApplicationError {
 		Retryable:     false,
 	}
 }
+
+func NewUnauthorizedError(message string) *ApplicationError {
+	return &ApplicationError{
+		StatusCode:    401,
+		CanonicalCode: "UNAUTHORIZED",
+		Message:       message,
+		Retryable:     false,
+	}
+}
+
+func NewForbiddenError(message string) *ApplicationError {
+	return &ApplicationError{
+		StatusCode:    403,
+		CanonicalCode: "FORBIDDEN",
+		Message:       message,
+		Retryable:     false,
+	}
+}
