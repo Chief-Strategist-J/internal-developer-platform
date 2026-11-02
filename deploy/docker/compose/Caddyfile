@@ -4,8 +4,11 @@
         format json
     }
 
+    # IDP Infrastructure Gateway Ingress
+    respond /healthz "Infrastructure Ingress Ready" 200
+    respond / "Infrastructure Ingress Ready" 200
+
     reverse_proxy /api/v1/* platform-api:8080
-    reverse_proxy /healthz platform-api:8080
     reverse_proxy /readyz platform-api:8080
     reverse_proxy /* developer-portal:7007
 }
