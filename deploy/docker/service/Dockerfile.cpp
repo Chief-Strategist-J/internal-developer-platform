@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 ARG BASE_IMAGE=debian:bookworm-slim
-ARG BUILDER_IMAGE=gcc:16.2.0-bookworm
+ARG BUILDER_IMAGE=gcc:14-bookworm
 
 FROM ${BUILDER_IMAGE} AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends cmake make \
