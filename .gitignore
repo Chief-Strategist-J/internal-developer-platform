@@ -2,6 +2,7 @@
 __pycache__/
 node_modules/
 dist/
+dist-test/
 .venv/
 
 # Environment files and secrets
@@ -19,3 +20,4 @@ cpp-modules/build/
 cpp-modules/platform_cpp
 target/
 deploy/helm/dist/
+dist-test/
