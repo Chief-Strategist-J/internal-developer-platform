@@ -44,8 +44,8 @@ for i in {1..20}; do
     sleep 0.5
 done
 
-# Run dedicated Go E2E client test
-echo -e "\033[1;34m[INFO]\033[0m Executing live E2E HTTP client suite..."
-go test -v -count=1 ./src/features/role-based-access-control/tests/ -run TestLiveE2E_FullHTTPServerFlow
+# Run curl-based E2E test script
+echo -e "\033[1;34m[INFO]\033[0m Executing live E2E HTTP verification suite..."
+"${SCRIPT_DIR}/test.curl-api.sh"
 
 echo -e "\033[1;32m[SUCCESS]\033[0m End-to-End Regression Test Completed Successfully."
