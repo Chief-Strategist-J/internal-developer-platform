@@ -1,5 +1,11 @@
-# Pod Disruption Budget
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: internal-developer-platform
+  name: platform-api-pdb
+  labels:
+    app.kubernetes.io/name: platform-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api

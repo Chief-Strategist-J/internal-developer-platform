@@ -1,1 +1,20 @@
-# Parameterized Service template
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "idp.fullname" . }}-api
+  labels:
+    {{- include "idp.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "idp.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api

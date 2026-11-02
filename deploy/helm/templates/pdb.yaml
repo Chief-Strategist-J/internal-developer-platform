@@ -1,1 +1,14 @@
-# Parameterized PDB template
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "idp.fullname" . }}-api
+  labels:
+    {{- include "idp.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "idp.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+{{- end }}

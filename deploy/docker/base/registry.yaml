@@ -1,3 +1,37 @@
-# Container registry endpoints and credentials
-registry:
-  url: "ghcr.io/scaibu"
+version: 1
+mirror: "${CONTAINER_REGISTRY_MIRROR:-ghcr.io/scaibu/mirror}"
+# Note: Base digests must be updated via CI/CD `cosign verify` and `docker buildx imagetools inspect`
+bases:
+  go:
+    upstream: "golang:1.27.3-bookworm"
+    runtime_upstream: "debian:bookworm-slim"
+    digest: "${GO_BASE_DIGEST:-}"
+    output: "${REGISTRY:-ghcr.io/scaibu}/base-go"
+    healthcheck_style: "binary-subcommand"
+  node:
+    upstream: "node:26.13.0-slim"
+    runtime_upstream: "node:26.13.0-slim"
+    digest: "${NODE_BASE_DIGEST:-}"
+    output: "${REGISTRY:-ghcr.io/scaibu}/base-node"
+    healthcheck_style: "exec-node"
+  rust:
+    upstream: "rust:1.99.1-slim-bookworm"
+    runtime_upstream: "debian:bookworm-slim"
+    digest: "${RUST_BASE_DIGEST:-}"
+    output: "${REGISTRY:-ghcr.io/scaibu}/base-rust"
+    healthcheck_style: "binary-subcommand"
+  cpp:
+    upstream: "gcc:16.2.0-bookworm"
+    runtime_upstream: "debian:bookworm-slim"
+    digest: "${CPP_BASE_DIGEST:-}"
+    output: "${REGISTRY:-ghcr.io/scaibu}/base-cpp"
+    healthcheck_style: "binary-subcommand"
+policy:
+  max_base_age_days: 30
+  scan:
+    tool: "trivy"
+    fail_on:
+      - "HIGH"
+      - "CRITICAL"
+    ignore_unfixed: true
+  sign: "cosign"
