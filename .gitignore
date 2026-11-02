@@ -11,6 +11,7 @@ dist/
 *.pem
 *.key
 *.crt
+deploy/docker/compose/secrets/
 
 # Build artifacts
 bin/

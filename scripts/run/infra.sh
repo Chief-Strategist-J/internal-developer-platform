@@ -23,11 +23,16 @@ validate_prerequisites() {
         exit 1
     fi
 
-    local secrets_dir="${SECRETS_DIR:-/tmp}"
+    local compose_dir
+    compose_dir="$(dirname "${COMPOSE_FILE}")"
+    local secrets_dir="${compose_dir}/secrets"
+    mkdir -p "${secrets_dir}"
     if [[ ! -f "${secrets_dir}/db_password.txt" ]]; then
-        log_info "Creating default development db_password secret..."
-        echo "postgres_dev_password_123" > "${secrets_dir}/db_password.txt"
+        echo -n "postgres_dev_password_123" > "${secrets_dir}/db_password.txt"
+        log_info "Generated default secrets/db_password.txt"
     fi
+    mkdir -p /tmp
+    echo -n "postgres_dev_password_123" > /tmp/db_password.txt
 }
 
 start_infrastructure() {
@@ -42,7 +47,7 @@ wait_for_services() {
 
     while [[ ${elapsed} -lt ${timeout} ]]; do
         local unhealthy
-        unhealthy=$(docker compose -f "${COMPOSE_FILE}" ps --format '{{.Service}}: {{.Health}}' | grep -v 'healthy' || true)
+        unhealthy=$(docker compose -f "${COMPOSE_FILE}" ps --format '{{.Service}}: {{.Health}}' | grep -v 'healthy' | grep -v 'otel-collector' || true)
 
         if [[ -z "${unhealthy}" ]]; then
             log_success "All infrastructure containers are healthy."
@@ -158,6 +163,15 @@ test_endpoints() {
     else
         log_error "Caddy Proxy failed (HTTP ${caddy_code})"
     fi
+
+    # OpenTelemetry Collector Extension Health
+    local otel_code
+    otel_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:13133/ || echo "000")
+    if [[ "${otel_code}" == "200" ]]; then
+        log_success "OpenTelemetry Collector health extension OK (HTTP 200) at http://127.0.0.1:13133"
+    else
+        log_error "OpenTelemetry Collector health failed (HTTP ${otel_code})"
+    fi
 }
 
 test_logs_ingestion() {
@@ -209,6 +223,7 @@ EOF
 
 down_infrastructure() {
     log_info "Stopping containers and wiping volumes for clean upgrade..."
+    validate_prerequisites
     docker compose -f "${COMPOSE_FILE}" down -v
 }
 
@@ -216,9 +231,7 @@ prune_obsolete_images() {
     log_info "Removing outdated container images to reclaim host memory and disk..."
     local old_images=(
         "postgres:16.4-bookworm"
-        "postgres:17-bookworm"
         "apache/kafka:3.7.0"
-        "grafana/grafana:11.2.0"
     )
     for img in "${old_images[@]}"; do
         if docker image inspect "${img}" >/dev/null 2>&1; then
