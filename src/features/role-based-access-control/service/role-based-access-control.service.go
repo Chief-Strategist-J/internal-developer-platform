@@ -22,7 +22,6 @@ func NewRBACService(verifier ports.TokenVerifierPort, revocation ports.Revocatio
 	}
 }
 
-// AuthenticateToken verifies the signature, expiration, and checks the revocation store
 func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error) {
 	subject, err := s.tokenVerifier.VerifyToken(ctx, rawToken)
 	if err != nil {
@@ -39,7 +38,6 @@ func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*
 	return subject, nil
 }
 
-// Authorize evaluates domain rules against the subject, resource, and action
 func (s *RBACService) Authorize(ctx context.Context, subject rbacContracts.Subject, targetTenant string, resource rbacContracts.Resource, action rbacContracts.Action) error {
 	req := rbacContracts.EvaluationRequest{
 		Subject:        subject,
@@ -56,7 +54,6 @@ func (s *RBACService) Authorize(ctx context.Context, subject rbacContracts.Subje
 	return nil
 }
 
-// AuthenticateAndAuthorize executes the complete pipeline: verifies token, checks revocation, and enforces permissions
 func (s *RBACService) AuthenticateAndAuthorize(ctx context.Context, rawToken string, targetTenant string, resource rbacContracts.Resource, action rbacContracts.Action) (*rbacContracts.Subject, error) {
 	subject, err := s.AuthenticateToken(ctx, rawToken)
 	if err != nil {

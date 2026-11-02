@@ -21,7 +21,6 @@ func NewRBACMiddleware(rbacSvc *rbacService.RBACService) *RBACMiddleware {
 	return &RBACMiddleware{rbacSvc: rbacSvc}
 }
 
-// RequirePermission validates the Bearer token, checks revocation, and enforces resource/action authorization
 func (m *RBACMiddleware) RequirePermission(resource rbacContracts.Resource, action rbacContracts.Action, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -46,7 +45,6 @@ func (m *RBACMiddleware) RequirePermission(resource rbacContracts.Resource, acti
 			return
 		}
 
-		// Inject subject into context
 		ctx := context.WithValue(r.Context(), SubjectContextKey, subject)
 		next(w, r.WithContext(ctx))
 	}

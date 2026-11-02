@@ -1,4 +1,13 @@
--- 002_create_rbac_tables.sql
+-- migration:      0002
+-- description:    create rbac roles and user bindings tables
+-- author:         chief-strategist
+-- date:           2026-11-02T18:35:00Z
+-- depends_on:     0001
+-- reversible:     YES
+-- lock_risk:      LOW
+-- rows_affected:  schema and seed
+-- reason:         initial schema creation for role-based-access-control feature
+
 CREATE TABLE IF NOT EXISTS rbac_roles (
     name VARCHAR(64) PRIMARY KEY,
     permissions JSONB NOT NULL DEFAULT '[]',
@@ -13,7 +22,6 @@ CREATE TABLE IF NOT EXISTS rbac_user_bindings (
     PRIMARY KEY (subject_id, tenant_id, role_name)
 );
 
--- Seed default roles
 INSERT INTO rbac_roles (name, permissions) VALUES
 ('PlatformAdmin', '[{"resource": "*", "action": "*"}]'),
 ('Developer', '[{"resource": "auth", "action": "read"}, {"resource": "service-catalog", "action": "read"}, {"resource": "service-catalog", "action": "write"}, {"resource": "service-catalog", "action": "update"}, {"resource": "infrastructure", "action": "read"}]'),

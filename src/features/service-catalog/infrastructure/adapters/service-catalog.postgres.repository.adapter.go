@@ -10,6 +10,7 @@ import (
 	"github.com/lib/pq"
 
 	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
+	catalogQueries "internal-developer-platform/src/features/service-catalog/infrastructure/queries"
 	"internal-developer-platform/src/shared/errors"
 )
 
@@ -22,18 +23,13 @@ func NewPostgresServiceCatalogAdapter(db *sql.DB) *PostgresServiceCatalogAdapter
 }
 
 func (a *PostgresServiceCatalogAdapter) GetServiceByID(ctx context.Context, tenantID string, id string) (*catalogContracts.ServiceDescriptor, error) {
-	query := `
-		SELECT id, tenant_id, name, owner, lifecycle, status, version, created_at, updated_at
-		FROM service_descriptors
-		WHERE tenant_id = $1 AND id = $2;
-	`
 	var (
 		svc       catalogContracts.ServiceDescriptor
 		createdAt time.Time
 		updatedAt time.Time
 	)
 
-	err := a.db.QueryRowContext(ctx, query, tenantID, id).Scan(
+	err := a.db.QueryRowContext(ctx, catalogQueries.FlowSelectServiceDescriptorByID, tenantID, id).Scan(
 		&svc.ID,
 		&svc.TenantID,
 		&svc.Name,
@@ -57,10 +53,6 @@ func (a *PostgresServiceCatalogAdapter) GetServiceByID(ctx context.Context, tena
 }
 
 func (a *PostgresServiceCatalogAdapter) RegisterService(ctx context.Context, service *catalogContracts.ServiceDescriptor) error {
-	query := `
-		INSERT INTO service_descriptors (id, tenant_id, name, owner, lifecycle, status, version, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-	`
 	now := time.Now().UTC()
 	service.CreatedAt = now.Format(time.RFC3339)
 	service.UpdatedAt = now.Format(time.RFC3339)
@@ -68,7 +60,7 @@ func (a *PostgresServiceCatalogAdapter) RegisterService(ctx context.Context, ser
 		service.Version = 1
 	}
 
-	_, err := a.db.ExecContext(ctx, query,
+	_, err := a.db.ExecContext(ctx, catalogQueries.FlowInsertServiceDescriptor,
 		service.ID,
 		service.TenantID,
 		service.Name,

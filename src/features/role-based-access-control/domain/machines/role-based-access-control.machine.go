@@ -49,7 +49,6 @@ func (m *TokenLifecycleMachine) Transition(event TokenTransitionEvent) (TokenSta
 			return m.currentState, true
 		}
 	case TokenStateRevoked, TokenStateExpired:
-		// Terminal states cannot transition back to active
 		return m.currentState, false
 	}
 	return m.currentState, false

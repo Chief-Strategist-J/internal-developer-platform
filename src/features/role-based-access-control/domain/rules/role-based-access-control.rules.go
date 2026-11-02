@@ -25,7 +25,6 @@ var DefaultRoleDefinitions = map[rbacContracts.RoleName][]rbacContracts.Permissi
 	},
 }
 
-// EvaluateAuthorization determines whether the subject is permitted to execute the action on the resource
 func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) rbacContracts.EvaluationResult {
 	if req.Subject.ID == "" {
 		return rbacContracts.EvaluationResult{Granted: false, Reason: "missing subject identity"}
@@ -43,7 +42,6 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 		}
 	}
 
-	// Tenant boundary check: non-global-admins must match target tenant
 	if !isGlobalAdmin {
 		if req.TargetTenantID != "" && req.Subject.TenantID != "" && req.Subject.TenantID != req.TargetTenantID {
 			return rbacContracts.EvaluationResult{
@@ -53,7 +51,6 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 		}
 	}
 
-	// Collect effective permissions
 	var effectivePermissions []rbacContracts.Permission
 	effectivePermissions = append(effectivePermissions, req.Subject.Permissions...)
 
