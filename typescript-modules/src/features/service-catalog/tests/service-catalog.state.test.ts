@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ServiceCatalogState } from "../state/service-catalog.state.js";
+import { ServiceCatalogState } from "../state/service-catalog.state";
 
 test("ServiceCatalogState: initializes with clean default properties", () => {
   const state = new ServiceCatalogState();

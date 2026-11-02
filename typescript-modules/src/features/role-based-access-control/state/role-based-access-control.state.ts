@@ -1,5 +1,5 @@
-import { BaseState } from "../../../shared/client-kernel/index.js";
-import { CallerIdentityModel, PolicyEvaluationModel } from "../models/role-based-access-control.model.js";
+import { BaseState } from "../../../shared/client-kernel/index";
+import { CallerIdentityModel, PolicyEvaluationModel } from "../models/role-based-access-control.model";
 
 export class RoleBasedAccessControlState extends BaseState {
   public token: string | null = null;

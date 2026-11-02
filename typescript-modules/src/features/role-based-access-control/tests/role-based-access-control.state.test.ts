@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RoleBasedAccessControlState } from "../state/role-based-access-control.state.js";
+import { RoleBasedAccessControlState } from "../state/role-based-access-control.state";
 
 test("RoleBasedAccessControlState: initializes with empty unauthenticated state", () => {
   const state = new RoleBasedAccessControlState();

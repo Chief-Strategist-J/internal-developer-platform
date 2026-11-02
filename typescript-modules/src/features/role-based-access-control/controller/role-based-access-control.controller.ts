@@ -1,7 +1,7 @@
-import { BaseController } from "../../../shared/client-kernel/index.js";
-import { RoleBasedAccessControlState } from "../state/role-based-access-control.state.js";
-import { RoleBasedAccessControlApiPort } from "../adapter/role-based-access-control.adapter.js";
-import { IssueTokenInputModel } from "../models/role-based-access-control.model.js";
+import { BaseController } from "../../../shared/client-kernel/index";
+import { RoleBasedAccessControlState } from "../state/role-based-access-control.state";
+import { RoleBasedAccessControlApiPort } from "../adapter/role-based-access-control.adapter";
+import { IssueTokenInputModel } from "../models/role-based-access-control.model";
 
 export class RoleBasedAccessControlController extends BaseController<RoleBasedAccessControlState> {
   private readonly apiPort: RoleBasedAccessControlApiPort;

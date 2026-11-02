@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RoleBasedAccessControlController } from "../controller/role-based-access-control.controller.js";
-import { RoleBasedAccessControlState } from "../state/role-based-access-control.state.js";
-import { RoleBasedAccessControlApiPort } from "../adapter/role-based-access-control.adapter.js";
-import { AuthTokenModel, CallerIdentityModel, IssueTokenInputModel, PolicyEvaluationModel } from "../models/role-based-access-control.model.js";
-import { Result, ok, err } from "../../../shared/client-kernel/index.js";
+import { RoleBasedAccessControlController } from "../controller/role-based-access-control.controller";
+import { RoleBasedAccessControlState } from "../state/role-based-access-control.state";
+import { RoleBasedAccessControlApiPort } from "../adapter/role-based-access-control.adapter";
+import { AuthTokenModel, CallerIdentityModel, IssueTokenInputModel, PolicyEvaluationModel } from "../models/role-based-access-control.model";
+import { Result, ok, err } from "../../../shared/client-kernel/index";
 
 class MockRBACApiPort implements RoleBasedAccessControlApiPort {
   public shouldFail = false;
