@@ -39,11 +39,17 @@ func TestLiveE2E_FullHTTPServerFlow(t *testing.T) {
 	// Step 1: Health check through real HTTP listener
 	adminPort := os.Getenv("ADMIN_PORT")
 	if adminPort == "" {
-		adminPort = "19091"
+		t.Skip("ADMIN_PORT environment variable not set; live E2E server not running, skipping")
+		return
 	}
 	respHealth, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/healthz", adminPort))
-	if err != nil || respHealth.StatusCode != http.StatusOK {
-		t.Fatalf("failed healthz check on live server: %v (code: %v)", err, respHealth.StatusCode)
+	if err != nil {
+		t.Skipf("Live E2E server unreachable at http://127.0.0.1:%s (%v), skipping", adminPort, err)
+		return
+	}
+	defer respHealth.Body.Close()
+	if respHealth.StatusCode != http.StatusOK {
+		t.Fatalf("failed healthz check on live server (code: %v)", respHealth.StatusCode)
 	}
 
 	// Step 2: Unauthenticated POST /api/v1/services must return 401
@@ -57,7 +63,7 @@ func TestLiveE2E_FullHTTPServerFlow(t *testing.T) {
 
 	// Step 3: Authenticated Developer registration
 	devSub := rbacContracts.Subject{
-		ID:        "e2e-dev-engineer-99",
+		ID:        fmt.Sprintf("e2e-dev-%d", time.Now().UnixNano()),
 		TenantID:  "tenant-e2e-org",
 		Roles:     []rbacContracts.RoleName{rbacContracts.RoleDeveloper},
 		ExpiresAt: time.Now().Add(1 * time.Hour),

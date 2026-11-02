@@ -1,0 +1,74 @@
+package routers
+
+import (
+	"net/http"
+
+	"internal-developer-platform/src/api/rest/v1/handlers"
+	"internal-developer-platform/src/api/rest/v1/middleware"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+)
+
+type RBACRouter struct {
+	handler    *handlers.RBACHandler
+	rbacMiddle *middleware.RBACMiddleware
+}
+
+func NewRBACRouter(h *handlers.RBACHandler, m *middleware.RBACMiddleware) *RBACRouter {
+	return &RBACRouter{
+		handler:    h,
+		rbacMiddle: m,
+	}
+}
+
+func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
+	// Public endpoint for token acquisition (OIDC token exchange / credentials)
+	mux.HandleFunc("/api/v1/auth/token", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.IssueToken(w, req)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Protected endpoint: Return current caller subject claims
+	meHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			r.handler.GetCallerIdentity(w, req)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/v1/auth/me", r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionRead,
+		meHandler,
+	))
+
+	// Protected admin endpoint: Revoke session or subject in revocation store
+	revokeHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.RevokeSession(w, req)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/v1/auth/revoke", r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAll,
+		rbacContracts.ActionAll,
+		revokeHandler,
+	))
+
+	// Protected PDP endpoint: Downstream microservice policy evaluation
+	evalHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.EvaluatePolicy(w, req)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/v1/auth/evaluate", r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionRead,
+		evalHandler,
+	))
+}
