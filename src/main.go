@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/lib/pq"
+
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/middleware"
 	"internal-developer-platform/src/api/rest/v1/routers"
@@ -20,6 +23,7 @@ import (
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
+	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 )
 
@@ -80,7 +84,26 @@ func main() {
 	rbacHandler := handlers.NewRBACHandler(rbacSvc)
 	rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
 
-	catalogRepo := catalogAdapters.NewMemoryServiceCatalogAdapter()
+	var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL != "" {
+		dbConn, err := sql.Open("postgres", databaseURL)
+		if err != nil {
+			log.Fatalf("failed to connect to database: %v", err)
+		}
+		dbConn.SetMaxOpenConns(25)
+		dbConn.SetMaxIdleConns(5)
+		dbConn.SetConnMaxLifetime(5 * time.Minute)
+		if err := dbConn.Ping(); err != nil {
+			log.Fatalf("database ping failed: %v", err)
+		}
+		log.Println("[INFO] Successfully connected to live PostgreSQL database")
+		catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(dbConn)
+	} else {
+		log.Println("[INFO] DATABASE_URL not set; using memory catalog adapter")
+		catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
+	}
+
 	catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
 	catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
 	catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
