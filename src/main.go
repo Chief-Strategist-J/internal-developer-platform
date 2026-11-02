@@ -77,6 +77,8 @@ func main() {
 	tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(jwtSecret, "internal-developer-platform")
 	rbacSvc := rbacService.NewRBACService(tokenVerifier, revocationRepo)
 	rbacMW := middleware.NewRBACMiddleware(rbacSvc)
+	rbacHandler := handlers.NewRBACHandler(rbacSvc)
+	rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
 
 	catalogRepo := catalogAdapters.NewMemoryServiceCatalogAdapter()
 	catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
@@ -99,6 +101,7 @@ func main() {
 	}
 
 	publicMux := http.NewServeMux()
+	rbacRouter.RegisterRoutes(publicMux)
 	catalogRouter.RegisterRoutes(publicMux)
 	healthRouter.RegisterPublicRoutes(publicMux)
 

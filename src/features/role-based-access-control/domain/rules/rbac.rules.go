@@ -12,12 +12,14 @@ var DefaultRoleDefinitions = map[rbacContracts.RoleName][]rbacContracts.Permissi
 		{Resource: rbacContracts.ResourceAll, Action: rbacContracts.ActionAll},
 	},
 	rbacContracts.RoleDeveloper: {
+		{Resource: rbacContracts.ResourceAuth, Action: rbacContracts.ActionRead},
 		{Resource: rbacContracts.ResourceServiceCatalog, Action: rbacContracts.ActionRead},
 		{Resource: rbacContracts.ResourceServiceCatalog, Action: rbacContracts.ActionWrite},
 		{Resource: rbacContracts.ResourceServiceCatalog, Action: rbacContracts.ActionUpdate},
 		{Resource: rbacContracts.ResourceInfrastructure, Action: rbacContracts.ActionRead},
 	},
 	rbacContracts.RoleViewer: {
+		{Resource: rbacContracts.ResourceAuth, Action: rbacContracts.ActionRead},
 		{Resource: rbacContracts.ResourceServiceCatalog, Action: rbacContracts.ActionRead},
 		{Resource: rbacContracts.ResourceInfrastructure, Action: rbacContracts.ActionRead},
 	},

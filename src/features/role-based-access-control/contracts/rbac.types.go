@@ -14,6 +14,7 @@ const (
 	ActionAll    Action = "*"
 
 	ResourceAll            Resource = "*"
+	ResourceAuth           Resource = "auth"
 	ResourceServiceCatalog Resource = "service-catalog"
 	ResourceInfrastructure Resource = "infrastructure"
 	ResourceSecrets        Resource = "secrets"
