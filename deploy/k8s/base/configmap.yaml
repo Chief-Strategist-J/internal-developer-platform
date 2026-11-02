@@ -1,5 +1,12 @@
-# Injected environment configurations
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: internal-developer-platform-config
+  labels:
+    app.kubernetes.io/name: internal-developer-platform
+    app.kubernetes.io/part-of: developer-platform
+data:
+  APP_ENV: "production"
+  PORT: "8080"
+  METRICS_PORT: "9090"
+  LOG_LEVEL: "info"

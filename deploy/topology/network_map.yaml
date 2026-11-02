@@ -1,8 +1,42 @@
-# Declares hostnames, ports & protocols for sibling services
+version: 1
 services:
-  - name: py-service-1
-    port: 8001
-  - name: py-service-2
-    port: 8002
-  - name: node-service-1
-    port: 3000
+  - name: "platform-api"
+    runtime: "go"
+    port: 8080
+    protocol: "HTTP/REST"
+    description: "Internal developer platform core Go control plane API"
+  - name: "developer-portal"
+    runtime: "typescript-react"
+    port: 7007
+    protocol: "HTTP/REST"
+    description: "Backstage developer portal and service catalog frontend"
+  - name: "rust-worker"
+    runtime: "rust"
+    port: 9000
+    protocol: "gRPC"
+    description: "High-throughput Rust execution worker"
+  - name: "cpp-engine"
+    runtime: "cpp"
+    port: 9090
+    protocol: "gRPC/TCP"
+    description: "Low-latency C++ performance engine"
+  - name: "envoy-gateway"
+    runtime: "caddy/envoy"
+    port: 8443
+    protocol: "HTTPS"
+    description: "Edge routing and mTLS gateway"
+  - name: "keycloak"
+    runtime: "java"
+    port: 8081
+    protocol: "HTTP/OIDC"
+    description: "Identity and SSO authentication provider"
+  - name: "vault"
+    runtime: "go"
+    port: 8200
+    protocol: "HTTP/REST"
+    description: "HashiCorp Vault secret lifecycle management"
+  - name: "prometheus"
+    runtime: "go"
+    port: 9091
+    protocol: "HTTP/REST"
+    description: "Metrics collection and platform monitoring"

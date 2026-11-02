@@ -1,0 +1,34 @@
+{{- if .Values.kyverno.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root-and-readonly-fs
+  annotations:
+    policies.kyverno.io/title: Require Non-Root and Read-Only Root Filesystem
+    policies.kyverno.io/category: Pod Security Standards (Restricted)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Containers must run as non-root and have readOnlyRootFilesystem set to true.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-security-context
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - {{ .Release.Namespace }}
+      validate:
+        message: "Running as root or with a writable root filesystem is strictly prohibited."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+{{- end }}

@@ -1,0 +1,11 @@
+:8080 {
+    log {
+        output stdout
+        format json
+    }
+
+    reverse_proxy /api/v1/* platform-api:8080
+    reverse_proxy /healthz platform-api:8080
+    reverse_proxy /readyz platform-api:8080
+    reverse_proxy /* developer-portal:7007
+}

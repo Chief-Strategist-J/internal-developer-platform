@@ -1,2 +1,101 @@
-# Multi-package coordination runner (2 Python + 1 Node.js)
-version: '3.8'
+include:
+  - path: docker-compose.infra.yml
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  restart: unless-stopped
+  logging: { driver: local, options: { max-size: "10m", max-file: "5" } }
+
+x-app-common: &app-common
+  <<: *hardening
+  networks: [frontend, backend]
+  tmpfs: [/tmp]
+  stop_grace_period: 30s
+  ulimits: { nofile: { soft: 65535, hard: 65535 } }
+
+services:
+  migrate:
+    <<: *hardening
+    restart: "no"
+    image: ${PLATFORM_API_IMAGE:-ghcr.io/scaibu/platform-api:latest}
+    command: ["/app/platform-svc", "migrate"]
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [backend]
+    secrets: [db_password]
+    tmpfs: [/tmp]
+
+  platform-api:
+    <<: *app-common
+    image: ${PLATFORM_API_IMAGE:-ghcr.io/scaibu/platform-api:latest}
+    depends_on:
+      db:      { condition: service_healthy, restart: true }
+      cache:   { condition: service_healthy, restart: true }
+      migrate: { condition: service_completed_successfully }
+    expose: ["8080"]
+    secrets: [db_password]
+    environment:
+      DB_HOST: db
+      CACHE_HOST: cache
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    healthcheck:
+      test: ["CMD", "/app/platform-svc", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    deploy: { resources: { limits: { cpus: "1.0", memory: 512M } } }
+
+  rust-worker:
+    <<: *app-common
+    image: ${RUST_WORKER_IMAGE:-ghcr.io/scaibu/rust-worker:latest}
+    depends_on:
+      db:           { condition: service_healthy, restart: true }
+      platform-api: { condition: service_healthy, restart: true }
+      migrate:      { condition: service_completed_successfully }
+    expose: ["9000"]
+    secrets: [db_password]
+    healthcheck:
+      test: ["CMD", "/app/service-bin", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy: { resources: { limits: { cpus: "1.0", memory: 512M } } }
+
+  cpp-engine:
+    <<: *app-common
+    image: ${CPP_ENGINE_IMAGE:-ghcr.io/scaibu/cpp-engine:latest}
+    depends_on:
+      cache:        { condition: service_healthy, restart: true }
+      platform-api: { condition: service_healthy, restart: true }
+    expose: ["9090"]
+    healthcheck:
+      test: ["CMD", "/app/service-bin", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy: { resources: { limits: { cpus: "2.0", memory: 1G } } }
+
+  developer-portal:
+    <<: *app-common
+    image: ${DEVELOPER_PORTAL_IMAGE:-ghcr.io/scaibu/developer-portal:latest}
+    depends_on:
+      platform-api: { condition: service_healthy, restart: true }
+      rust-worker:  { condition: service_healthy, restart: true }
+      cpp-engine:   { condition: service_healthy, restart: true }
+    expose: ["7007"]
+    environment:
+      NODE_ENV: production
+      BACKEND_URL: http://platform-api:8080
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7007/healthcheck').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    deploy: { resources: { limits: { cpus: "1.0", memory: 512M } } }

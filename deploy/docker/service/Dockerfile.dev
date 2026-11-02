@@ -1,1 +1,16 @@
-# Package-specific local development build with hot reload
+# syntax=docker/dockerfile:1.7
+ARG BUILDER_IMAGE=golang:1.27.3-bookworm
+FROM ${BUILDER_IMAGE} AS dev
+
+WORKDIR /app
+ENV CGO_ENABLED=0 GOOS=linux
+
+RUN go install github.com/air-verse/air@latest 2>/dev/null || true
+
+COPY go.mod go.sum* ./
+RUN go mod download || true
+
+COPY . .
+
+EXPOSE 8080
+CMD ["go", "run", "./src/..."]

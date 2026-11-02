@@ -1,5 +1,51 @@
-# Standalone runner for this package
-version: '3.8'
+include:
+  - path: docker-compose.infra.yml
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  restart: unless-stopped
+  logging: { driver: local, options: { max-size: "10m", max-file: "5" } }
+
 services:
+  migrate:
+    <<: *hardening
+    restart: "no"
+    image: ${PLATFORM_API_IMAGE:-ghcr.io/scaibu/platform-api:latest}
+    command: ["/app/platform-svc", "migrate"]
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [backend]
+    secrets: [db_password]
+    tmpfs: [/tmp]
+
   app:
-    build: ../service
+    <<: *hardening
+    image: ${PLATFORM_API_IMAGE:-ghcr.io/scaibu/platform-api:latest}
+    depends_on:
+      db:      { condition: service_healthy, restart: true }
+      cache:   { condition: service_healthy, restart: true }
+      migrate: { condition: service_completed_successfully }
+    networks: [frontend, backend]
+    expose: ["8080"]
+    environment:
+      DB_HOST: db
+      CACHE_HOST: cache
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    tmpfs: [/tmp]
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "/app/platform-svc", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:       { cpus: "1.0", memory: 512M }
+        reservations: { memory: 256M }
+    ulimits:
+      nofile: { soft: 65535, hard: 65535 }

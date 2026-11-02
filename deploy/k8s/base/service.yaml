@@ -1,5 +1,20 @@
-# Kubernetes Service routing
 apiVersion: v1
 kind: Service
 metadata:
-  name: internal-developer-platform
+  name: platform-api
+  labels:
+    app.kubernetes.io/name: platform-api
+    app.kubernetes.io/part-of: developer-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: platform-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

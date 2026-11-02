@@ -1,5 +1,28 @@
-# Ingress routing rules
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: internal-developer-platform
+  name: platform-api-ingress
+  labels:
+    app.kubernetes.io/name: platform-api
+  annotations:
+    kubernetes.io/ingress.class: "istio"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  rules:
+    - host: idp.internal.company.com
+      http:
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: platform-api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: developer-portal
+                port:
+                  number: 7007
