@@ -4,8 +4,17 @@ node_modules/
 dist/
 .venv/
 
+# Environment files and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
 # Build artifacts
 bin/
 cpp-modules/build/
 cpp-modules/platform_cpp
 target/
+deploy/helm/dist/

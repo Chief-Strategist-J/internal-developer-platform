@@ -1,0 +1,3 @@
+export const HEALTH_CHECK_QUERIES = {
+  FLOW_READ_HEALTH_METRIC: "SELECT 1"
+} as const;

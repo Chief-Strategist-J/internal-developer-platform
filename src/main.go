@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/routers"
+	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
+	healthService "internal-developer-platform/src/features/health-checks/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 )
@@ -37,9 +40,25 @@ func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	publicAddr := os.Getenv("PORT")
+	if publicAddr == "" {
+		publicAddr = "8081"
+	}
+	if !strings.Contains(publicAddr, ":") {
+		publicAddr = ":" + publicAddr
+	}
+
+	adminAddr := os.Getenv("ADMIN_PORT")
+	if adminAddr == "" {
+		adminAddr = "9091"
+	}
+	if !strings.Contains(adminAddr, ":") {
+		adminAddr = "127.0.0.1:" + adminAddr
+	}
+
 	cfg := Config{
-		PublicAddr: ":8080",
-		AdminAddr:  "127.0.0.1:8081",
+		PublicAddr: publicAddr,
+		AdminAddr:  adminAddr,
 	}
 
 	catalogRepo := catalogAdapters.NewMemoryServiceCatalogAdapter()
@@ -47,15 +66,13 @@ func main() {
 	catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
 	catalogRouter := routers.NewServiceCatalogRouter(catalogHandler)
 
+	healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
+	healthSvc := healthService.NewHealthCheckService(healthRepo)
+	healthHandler := handlers.NewHealthCheckHandler(healthSvc)
+	healthRouter := routers.NewHealthCheckRouter(healthHandler)
+
 	adminMux := http.NewServeMux()
-	adminMux.HandleFunc("/health/live", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"alive"}`))
-	})
-	adminMux.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ready"}`))
-	})
+	healthRouter.RegisterAdminRoutes(adminMux)
 
 	adminServer := &http.Server{
 		Addr:         cfg.AdminAddr,
@@ -66,6 +83,7 @@ func main() {
 
 	publicMux := http.NewServeMux()
 	catalogRouter.RegisterRoutes(publicMux)
+	healthRouter.RegisterPublicRoutes(publicMux)
 
 	publicServer := &http.Server{
 		Addr:         cfg.PublicAddr,

@@ -1,0 +1,10 @@
+feature: health-checks
+layer: domain
+tier: C
+status: production
+ports:
+  outbound:
+    - HealthChecksRepositoryPort
+contracts:
+  - HealthStatus
+  - ReadinessStatus

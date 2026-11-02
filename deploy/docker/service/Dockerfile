@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY src/ ./src/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /build/bin/platform-svc ./src/...
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /build/bin/platform-svc src/main.go
 
 FROM ${BASE_IMAGE} AS runtime
 ARG UID=10001
