@@ -20,7 +20,6 @@ func NewRBACHandler(s *rbacService.RBACService) *RBACHandler {
 	return &RBACHandler{rbacSvc: s}
 }
 
-// IssueToken handles POST /api/v1/auth/token
 func (h *RBACHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	w.Header().Set("Content-Type", "application/json")
@@ -86,7 +85,6 @@ func (h *RBACHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetCallerIdentity handles GET /api/v1/auth/me
 func (h *RBACHandler) GetCallerIdentity(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	w.Header().Set("Content-Type", "application/json")
@@ -125,7 +123,6 @@ func (h *RBACHandler) GetCallerIdentity(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// RevokeSession handles POST /api/v1/auth/revoke
 func (h *RBACHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	w.Header().Set("Content-Type", "application/json")
@@ -167,7 +164,6 @@ func (h *RBACHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// EvaluatePolicy handles POST /api/v1/auth/evaluate (PDP endpoint)
 func (h *RBACHandler) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	w.Header().Set("Content-Type", "application/json")

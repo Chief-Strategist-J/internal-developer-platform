@@ -8,9 +8,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	rbacQueries "internal-developer-platform/src/features/role-based-access-control/infrastructure/queries"
 )
 
-// RedisRevocationAdapter connects directly to Redis using RESP protocol (zero external deps)
 type RedisRevocationAdapter struct {
 	addr    string
 	timeout time.Duration
@@ -57,15 +58,17 @@ func (a *RedisRevocationAdapter) sendCommand(cmd string) (string, error) {
 
 func (a *RedisRevocationAdapter) IsRevoked(ctx context.Context, subjectID string, jti string) (bool, error) {
 	if subjectID != "" {
-		resp, err := a.sendCommand(fmt.Sprintf("EXISTS revocation:sub:%s", subjectID))
-		if err == nil && resp == ":1" {
+		cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationSubKey(subjectID))
+		resp, err := a.sendCommand(cmd)
+		if err == nil && resp == rbacQueries.ExistsPositiveResult {
 			return true, nil
 		}
 	}
 
 	if jti != "" {
-		resp, err := a.sendCommand(fmt.Sprintf("EXISTS revocation:jti:%s", jti))
-		if err == nil && resp == ":1" {
+		cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationJTIKey(jti))
+		resp, err := a.sendCommand(cmd)
+		if err == nil && resp == rbacQueries.ExistsPositiveResult {
 			return true, nil
 		}
 	}
@@ -74,22 +77,32 @@ func (a *RedisRevocationAdapter) IsRevoked(ctx context.Context, subjectID string
 }
 
 func (a *RedisRevocationAdapter) RevokeSubject(ctx context.Context, subjectID string) error {
-	resp, err := a.sendCommand(fmt.Sprintf("SETEX revocation:sub:%s 86400 revoked", subjectID))
+	cmd := rbacQueries.BuildSetexCommand(
+		rbacQueries.BuildRevocationSubKey(subjectID),
+		rbacQueries.DefaultTTLSeconds,
+		rbacQueries.RevokedSentinelValue,
+	)
+	resp, err := a.sendCommand(cmd)
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(resp, "+OK") {
+	if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
 		return fmt.Errorf("unexpected redis response: %s", resp)
 	}
 	return nil
 }
 
 func (a *RedisRevocationAdapter) RevokeJTI(ctx context.Context, jti string) error {
-	resp, err := a.sendCommand(fmt.Sprintf("SETEX revocation:jti:%s 86400 revoked", jti))
+	cmd := rbacQueries.BuildSetexCommand(
+		rbacQueries.BuildRevocationJTIKey(jti),
+		rbacQueries.DefaultTTLSeconds,
+		rbacQueries.RevokedSentinelValue,
+	)
+	resp, err := a.sendCommand(cmd)
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(resp, "+OK") {
+	if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
 		return fmt.Errorf("unexpected redis response: %s", resp)
 	}
 	return nil

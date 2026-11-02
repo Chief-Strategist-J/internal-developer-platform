@@ -1,4 +1,13 @@
--- 001_create_service_catalog.sql
+-- migration:      0001
+-- description:    create service catalog descriptors table
+-- author:         chief-strategist
+-- date:           2026-11-02T18:35:00Z
+-- depends_on:     NONE
+-- reversible:     YES
+-- lock_risk:      LOW
+-- rows_affected:  schema only
+-- reason:         initial schema creation for service-catalog feature
+
 CREATE TABLE IF NOT EXISTS service_descriptors (
     id VARCHAR(128) NOT NULL,
     tenant_id VARCHAR(128) NOT NULL,

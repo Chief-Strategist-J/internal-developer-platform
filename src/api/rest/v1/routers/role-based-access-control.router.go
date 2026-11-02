@@ -21,7 +21,6 @@ func NewRBACRouter(h *handlers.RBACHandler, m *middleware.RBACMiddleware) *RBACR
 }
 
 func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
-	// Public endpoint for token acquisition (OIDC token exchange / credentials)
 	mux.HandleFunc("/api/v1/auth/token", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
 			r.handler.IssueToken(w, req)
@@ -30,7 +29,6 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 	})
 
-	// Protected endpoint: Return current caller subject claims
 	meHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodGet {
 			r.handler.GetCallerIdentity(w, req)
@@ -44,7 +42,6 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		meHandler,
 	))
 
-	// Protected admin endpoint: Revoke session or subject in revocation store
 	revokeHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
 			r.handler.RevokeSession(w, req)
@@ -58,7 +55,6 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		revokeHandler,
 	))
 
-	// Protected PDP endpoint: Downstream microservice policy evaluation
 	evalHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
 			r.handler.EvaluatePolicy(w, req)
