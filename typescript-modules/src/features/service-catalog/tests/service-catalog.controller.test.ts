@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ServiceCatalogController } from "../controller/service-catalog.controller.js";
-import { ServiceCatalogState } from "../state/service-catalog.state.js";
-import { ServiceCatalogApiPort } from "../adapter/service-catalog.adapter.js";
-import { ServiceDescriptorModel, RegisterServiceInputModel } from "../models/service-catalog.model.js";
-import { Result, ok, err } from "../../../shared/client-kernel/index.js";
+import { ServiceCatalogController } from "../controller/service-catalog.controller";
+import { ServiceCatalogState } from "../state/service-catalog.state";
+import { ServiceCatalogApiPort } from "../adapter/service-catalog.adapter";
+import { ServiceDescriptorModel, RegisterServiceInputModel } from "../models/service-catalog.model";
+import { Result, ok, err } from "../../../shared/client-kernel/index";
 
 class MockServiceCatalogApiPort implements ServiceCatalogApiPort {
   public mockServices: ServiceDescriptorModel[] = [];

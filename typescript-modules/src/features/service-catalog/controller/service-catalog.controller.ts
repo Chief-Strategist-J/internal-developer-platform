@@ -1,7 +1,7 @@
-import { BaseController } from "../../../shared/client-kernel/index.js";
-import { ServiceCatalogState } from "../state/service-catalog.state.js";
-import { ServiceCatalogApiPort } from "../adapter/service-catalog.adapter.js";
-import { RegisterServiceInputModel, ServiceDescriptorModel } from "../models/service-catalog.model.js";
+import { BaseController } from "../../../shared/client-kernel/index";
+import { ServiceCatalogState } from "../state/service-catalog.state";
+import { ServiceCatalogApiPort } from "../adapter/service-catalog.adapter";
+import { RegisterServiceInputModel, ServiceDescriptorModel } from "../models/service-catalog.model";
 
 export class ServiceCatalogController extends BaseController<ServiceCatalogState> {
   private readonly apiPort: ServiceCatalogApiPort;

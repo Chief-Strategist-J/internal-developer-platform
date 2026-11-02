@@ -3,6 +3,8 @@ __pycache__/
 node_modules/
 dist/
 dist-test/
+.next/
+*.tsbuildinfo
 .venv/
 
 # Environment files and secrets
@@ -21,3 +23,5 @@ cpp-modules/platform_cpp
 target/
 deploy/helm/dist/
 dist-test/
+.next/
+*.tsbuildinfo

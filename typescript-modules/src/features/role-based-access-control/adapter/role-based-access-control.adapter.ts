@@ -1,5 +1,5 @@
-import { Result, ok, err } from "../../../shared/client-kernel/index.js";
-import { AuthTokenModel, CallerIdentityModel, IssueTokenInputModel, PolicyEvaluationModel } from "../models/role-based-access-control.model.js";
+import { Result, ok, err } from "../../../shared/client-kernel/index";
+import { AuthTokenModel, CallerIdentityModel, IssueTokenInputModel, PolicyEvaluationModel } from "../models/role-based-access-control.model";
 
 export interface RoleBasedAccessControlApiPort {
   issueToken(input: IssueTokenInputModel, traceId?: string): Promise<Result<AuthTokenModel, Error>>;

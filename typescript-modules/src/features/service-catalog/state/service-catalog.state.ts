@@ -1,5 +1,5 @@
-import { BaseState } from "../../../shared/client-kernel/index.js";
-import { ServiceDescriptorModel } from "../models/service-catalog.model.js";
+import { BaseState } from "../../../shared/client-kernel/index";
+import { ServiceDescriptorModel } from "../models/service-catalog.model";
 
 export class ServiceCatalogState extends BaseState {
   public services: ServiceDescriptorModel[] = [];

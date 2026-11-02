@@ -1,5 +1,5 @@
-import { ok, err, Result } from "../../../shared/client-kernel/index.js";
-import { RegisterServiceInputModel, ServiceDescriptorModel } from "../models/service-catalog.model.js";
+import { ok, err, Result } from "../../../shared/client-kernel/index";
+import { RegisterServiceInputModel, ServiceDescriptorModel } from "../models/service-catalog.model";
 
 export interface ServiceCatalogApiPort {
   listServices(token: string, traceId?: string): Promise<Result<ServiceDescriptorModel[], Error>>;
