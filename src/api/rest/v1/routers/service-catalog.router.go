@@ -4,18 +4,24 @@ import (
 	"net/http"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
+	"internal-developer-platform/src/api/rest/v1/middleware"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 )
 
 type ServiceCatalogRouter struct {
-	handler *handlers.ServiceCatalogHandler
+	handler    *handlers.ServiceCatalogHandler
+	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewServiceCatalogRouter(h *handlers.ServiceCatalogHandler) *ServiceCatalogRouter {
-	return &ServiceCatalogRouter{handler: h}
+func NewServiceCatalogRouter(h *handlers.ServiceCatalogHandler, m *middleware.RBACMiddleware) *ServiceCatalogRouter {
+	return &ServiceCatalogRouter{
+		handler:    h,
+		rbacMiddle: m,
+	}
 }
 
 func (r *ServiceCatalogRouter) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/v1/services", func(w http.ResponseWriter, req *http.Request) {
+	servicesHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.Method {
 		case http.MethodPost:
 			r.handler.RegisterService(w, req)
@@ -23,4 +29,14 @@ func (r *ServiceCatalogRouter) RegisterRoutes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
+
+	if r.rbacMiddle != nil {
+		mux.HandleFunc("/api/v1/services", r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceServiceCatalog,
+			rbacContracts.ActionWrite,
+			servicesHandler,
+		))
+	} else {
+		mux.HandleFunc("/api/v1/services", servicesHandler)
+	}
 }
