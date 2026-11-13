@@ -1,6 +1,250 @@
-# OpenAPI 3.1 REST Specification
 openapi: 3.1.0
 info:
   title: internal-developer-platform API
   version: 1.0.0
-paths: {}
+paths:
+  /api/v1/reconciliations:
+    post:
+      summary: Trigger GitOps reconciliation
+      operationId: triggerGitOpsReconciliation
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-idempotency-key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncCommand'
+      responses:
+        '202':
+          description: Reconciliation initiated or idempotently resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResultResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict or transition error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/reconciliations/{id}:
+    get:
+      summary: Get reconciliation status by ID
+      operationId: getGitOpsReconciliation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reconciliation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRecordResponse'
+        '404':
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    SyncCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - appName
+        - targetRevision
+        - idempotencyKey
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        appName:
+          type: string
+        targetRevision:
+          type: string
+        prune:
+          type: boolean
+        dryRun:
+          type: boolean
+        idempotencyKey:
+          type: string
+    ReconciliationRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - appName
+        - targetRevision
+        - currentRevision
+        - syncPhase
+        - healthStatus
+        - idempotencyKey
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        appName:
+          type: string
+        targetRevision:
+          type: string
+        currentRevision:
+          type: string
+        syncPhase:
+          type: string
+          enum: [PENDING, SYNCING, SYNCED, FAILED, DRIFT_DETECTED]
+        healthStatus:
+          type: string
+          enum: [HEALTHY, PROGRESSING, DEGRADED, MISSING, UNKNOWN]
+        idempotencyKey:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    SyncResult:
+      type: object
+      additionalProperties: false
+      required:
+        - reconciliation
+        - appliedHooks
+        - message
+      properties:
+        reconciliation:
+          $ref: '#/components/schemas/ReconciliationRecord'
+        appliedHooks:
+          type: integer
+        message:
+          type: string
+    ResponseMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - timestamp
+        - executionTimeMs
+        - apiVersion
+      properties:
+        requestId:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        executionTimeMs:
+          type: integer
+        apiVersion:
+          type: string
+    SyncResultResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/SyncResult'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    ReconciliationRecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/ReconciliationRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - error
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'

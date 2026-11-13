@@ -1,2 +1,58 @@
 feature: gitops-reconciliation
 mode: stateless_hexagonal
+
+entity: gitops_reconciliations
+owner: platform-core
+fields:
+  - name: id
+    type: varchar(128)
+    null: no
+    constraint: PK(tenant_id, id), immutable
+  - name: tenant_id
+    type: varchar(128)
+    null: no
+    constraint: PK(tenant_id, id), immutable
+  - name: service_id
+    type: varchar(128)
+    null: no
+    constraint: immutable, INDEX(tenant_id, service_id)
+  - name: app_name
+    type: varchar(256)
+    null: no
+    constraint: immutable, format RFC-1123
+  - name: target_revision
+    type: varchar(128)
+    null: no
+    constraint: immutable
+  - name: current_revision
+    type: varchar(128)
+    null: no
+    default: "''"
+  - name: sync_phase
+    type: varchar(64)
+    null: no
+    constraint: CHECK IN ('PENDING', 'SYNCING', 'SYNCED', 'FAILED', 'DRIFT_DETECTED'), INDEX(sync_phase)
+  - name: health_status
+    type: varchar(64)
+    null: no
+    constraint: CHECK IN ('HEALTHY', 'PROGRESSING', 'DEGRADED', 'MISSING', 'UNKNOWN')
+  - name: idempotency_key
+    type: varchar(256)
+    null: no
+    constraint: UNIQUE(tenant_id, idempotency_key), immutable
+  - name: version
+    type: bigint
+    null: no
+    default: 1
+  - name: created_at
+    type: timestamptz
+    null: no
+    default: now()
+  - name: updated_at
+    type: timestamptz
+    null: no
+    default: now()
+invariants:
+  - tenant_id and idempotency_key uniquely identify a reconciliation request
+  - sync_phase follows valid state machine transitions
+  - version increments on every successful update
