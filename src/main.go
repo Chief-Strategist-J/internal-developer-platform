@@ -25,6 +25,7 @@ import (
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
+	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
 )
 
 type Config struct {
@@ -85,9 +86,12 @@ func main() {
 	rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
 
 	var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
+	var gitopsStore gitopsreconciliation.StorePort
+	var dbConn *sql.DB
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL != "" {
-		dbConn, err := sql.Open("postgres", databaseURL)
+		var err error
+		dbConn, err = sql.Open("postgres", databaseURL)
 		if err != nil {
 			log.Fatalf("failed to connect to database: %v", err)
 		}
@@ -99,14 +103,21 @@ func main() {
 		}
 		log.Println("[INFO] Successfully connected to live PostgreSQL database")
 		catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(dbConn)
+		gitopsStore = gitopsreconciliation.NewPostgresStore(dbConn)
 	} else {
 		log.Println("[INFO] DATABASE_URL not set; using memory catalog adapter")
 		catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
+		gitopsStore = gitopsreconciliation.NewMemoryStore()
 	}
 
 	catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
 	catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
 	catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
+
+	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", os.Getenv("ARGOCD_TOKEN"))
+	gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
+	gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
+	gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
 
 	healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
 	healthSvc := healthService.NewHealthCheckService(healthRepo)
@@ -126,6 +137,7 @@ func main() {
 	publicMux := http.NewServeMux()
 	rbacRouter.RegisterRoutes(publicMux)
 	catalogRouter.RegisterRoutes(publicMux)
+	gitopsRouter.RegisterRoutes(publicMux)
 	healthRouter.RegisterPublicRoutes(publicMux)
 
 	publicServer := &http.Server{

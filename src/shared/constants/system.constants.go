@@ -16,6 +16,12 @@ const (
 )
 
 const (
+	EndpointReconciliations       = "/api/v1/reconciliations"
+	EndpointReconciliationsPrefix = "/api/v1/reconciliations/"
+	EndpointServices              = "/api/v1/services"
+)
+
+const (
 	ErrCodeValidationFailed   = "VALIDATION_FAILED"
 	ErrCodeConflict           = "CONFLICT"
 	ErrCodeNotFound           = "RESOURCE_NOT_FOUND"
