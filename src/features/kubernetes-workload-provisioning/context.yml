@@ -1,2 +1,67 @@
 feature: kubernetes-workload-provisioning
 mode: stateless_hexagonal
+
+entity: workload_provisions
+owner: platform-core
+fields:
+  - name: id
+    type: varchar(128)
+    null: no
+    constraint: PK(tenant_id, id), immutable
+  - name: tenant_id
+    type: varchar(128)
+    null: no
+    constraint: PK(tenant_id, id), immutable
+  - name: service_id
+    type: varchar(128)
+    null: no
+    constraint: immutable, INDEX(tenant_id, service_id)
+  - name: namespace
+    type: varchar(256)
+    null: no
+    constraint: immutable, format RFC-1123
+  - name: workload_name
+    type: varchar(256)
+    null: no
+    constraint: immutable, format RFC-1123
+  - name: cpu_request
+    type: varchar(32)
+    null: no
+  - name: cpu_limit
+    type: varchar(32)
+    null: no
+  - name: memory_request
+    type: varchar(32)
+    null: no
+  - name: memory_limit
+    type: varchar(32)
+    null: no
+  - name: replicas
+    type: integer
+    null: no
+    default: 2
+    constraint: CHECK (replicas >= 1 AND replicas <= 100)
+  - name: status
+    type: varchar(64)
+    null: no
+    constraint: CHECK IN ('SUBMITTED', 'VALIDATED', 'ADMITTED', 'ACTIVE', 'REJECTED'), INDEX(status)
+  - name: idempotency_key
+    type: varchar(256)
+    null: no
+    constraint: UNIQUE(tenant_id, idempotency_key), immutable
+  - name: version
+    type: bigint
+    null: no
+    default: 1
+  - name: created_at
+    type: timestamptz
+    null: no
+    default: now()
+  - name: updated_at
+    type: timestamptz
+    null: no
+    default: now()
+invariants:
+  - tenant_id and idempotency_key uniquely identify a provision request
+  - status transitions follow strict FSM rules
+  - version increments on every successful mutation

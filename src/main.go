@@ -26,6 +26,7 @@ import (
 	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
+	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 )
 
 type Config struct {
@@ -87,6 +88,7 @@ func main() {
 
 	var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
 	var gitopsStore gitopsreconciliation.StorePort
+	var workloadStore kubernetesworkloadprovisioning.StorePort
 	var dbConn *sql.DB
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL != "" {
@@ -104,10 +106,12 @@ func main() {
 		log.Println("[INFO] Successfully connected to live PostgreSQL database")
 		catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(dbConn)
 		gitopsStore = gitopsreconciliation.NewPostgresStore(dbConn)
+		workloadStore = kubernetesworkloadprovisioning.NewPostgresStore(dbConn)
 	} else {
 		log.Println("[INFO] DATABASE_URL not set; using memory catalog adapter")
 		catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
 		gitopsStore = gitopsreconciliation.NewMemoryStore()
+		workloadStore = kubernetesworkloadprovisioning.NewMemoryStore()
 	}
 
 	catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
@@ -118,6 +122,11 @@ func main() {
 	gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
 	gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
 	gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
+
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	workloadSvc := kubernetesworkloadprovisioning.NewService(workloadStore, k8sClient)
+	workloadHandler := handlers.NewKubernetesWorkloadHandler(workloadSvc)
+	workloadRouter := routers.NewKubernetesWorkloadRouter(workloadHandler, rbacMW)
 
 	healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
 	healthSvc := healthService.NewHealthCheckService(healthRepo)
@@ -138,6 +147,7 @@ func main() {
 	rbacRouter.RegisterRoutes(publicMux)
 	catalogRouter.RegisterRoutes(publicMux)
 	gitopsRouter.RegisterRoutes(publicMux)
+	workloadRouter.RegisterRoutes(publicMux)
 	healthRouter.RegisterPublicRoutes(publicMux)
 
 	publicServer := &http.Server{

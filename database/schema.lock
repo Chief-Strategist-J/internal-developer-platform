@@ -1,12 +1,14 @@
 {
   "version": "1.0.0",
-  "last_migration": "0003",
+  "last_migration": "0004",
   "checksums": {
     "0001_create_service_catalog.sql": "90498574bc124ca2b46467815d6bfbfbf5a1ca10e0b220a4532b8ac15da4f0c1",
     "0001_create_service_catalog.rollback.sql": "dfb372b8303a9668395abcd85df232464eda253b4a7d6ef61cafbc9064f668fe",
     "0002_create_rbac_tables.sql": "794a30aab49729d62e0daa4c81a89c21c48c6c244d28ec03df8bc2737c5297cb",
     "0002_create_rbac_tables.rollback.sql": "a45bf4771d8d8dd2ad66dd1ed56ed5e477b51d88d090a31be4189b6f0c4d9056",
     "0003_create_gitops_reconciliations.sql": "975be66aed2eb16f5a73909ca5ad739bd62a7d2a96a289af5e011b70d28d4f46",
-    "0003_create_gitops_reconciliations.rollback.sql": "e43fa47fac49799ff25c39b4a21b68f3035b6481d8871f91543f108b7712bdfc"
+    "0003_create_gitops_reconciliations.rollback.sql": "e43fa47fac49799ff25c39b4a21b68f3035b6481d8871f91543f108b7712bdfc",
+    "0004_create_workload_provisions.sql": "053f226bad4103db9baa2da183fddee666d3f369ec3c088b13726bbd23ac5978",
+    "0004_create_workload_provisions.rollback.sql": "88f316887d0737f6afa90ade289ab7df6761b0a6f20624ee33d0d532eb45e055"
   }
 }

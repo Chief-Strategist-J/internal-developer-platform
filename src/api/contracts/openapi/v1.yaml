@@ -81,6 +81,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/workloads:
+    post:
+      summary: Provision Kubernetes Workload
+      operationId: provisionKubernetesWorkload
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-idempotency-key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkloadProvisionCommand'
+      responses:
+        '201':
+          description: Workload admitted and provisioned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkloadProvisionResultResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict or transition error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/workloads/{id}:
+    get:
+      summary: Get workload provision by ID
+      operationId: getKubernetesWorkload
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workload details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkloadProvisionRecordResponse'
+        '404':
+          description: Workload not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     SyncCommand:
@@ -206,6 +284,156 @@ components:
           $ref: '#/components/schemas/SyncResult'
         meta:
           $ref: '#/components/schemas/ResponseMeta'
+    WorkloadProvisionCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - namespace
+        - workloadName
+        - image
+        - cpuRequest
+        - cpuLimit
+        - memoryRequest
+        - memoryLimit
+        - replicas
+        - idempotencyKey
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        namespace:
+          type: string
+        workloadName:
+          type: string
+        image:
+          type: string
+        cpuRequest:
+          type: string
+        cpuLimit:
+          type: string
+        memoryRequest:
+          type: string
+        memoryLimit:
+          type: string
+        replicas:
+          type: integer
+          minimum: 1
+          maximum: 100
+        idempotencyKey:
+          type: string
+    WorkloadProvisionRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - namespace
+        - workloadName
+        - cpuRequest
+        - cpuLimit
+        - memoryRequest
+        - memoryLimit
+        - replicas
+        - status
+        - idempotencyKey
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        namespace:
+          type: string
+        workloadName:
+          type: string
+        cpuRequest:
+          type: string
+        cpuLimit:
+          type: string
+        memoryRequest:
+          type: string
+        memoryLimit:
+          type: string
+        replicas:
+          type: integer
+        status:
+          type: string
+          enum: [SUBMITTED, VALIDATED, ADMITTED, ACTIVE, REJECTED]
+        idempotencyKey:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkloadProvisionResult:
+      type: object
+      additionalProperties: false
+      required:
+        - provision
+        - injectedSecurityContext
+        - injectedProbes
+        - pdbCreated
+        - message
+      properties:
+        provision:
+          $ref: '#/components/schemas/WorkloadProvisionRecord'
+        injectedSecurityContext:
+          type: boolean
+        injectedProbes:
+          type: boolean
+        pdbCreated:
+          type: boolean
+        message:
+          type: string
+    WorkloadProvisionResultResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/WorkloadProvisionResult'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    WorkloadProvisionRecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/WorkloadProvisionRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
     ReconciliationRecordResponse:
       type: object
       additionalProperties: false
@@ -221,6 +449,156 @@ components:
           type: integer
         data:
           $ref: '#/components/schemas/ReconciliationRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    WorkloadProvisionCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - namespace
+        - workloadName
+        - image
+        - cpuRequest
+        - cpuLimit
+        - memoryRequest
+        - memoryLimit
+        - replicas
+        - idempotencyKey
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        namespace:
+          type: string
+        workloadName:
+          type: string
+        image:
+          type: string
+        cpuRequest:
+          type: string
+        cpuLimit:
+          type: string
+        memoryRequest:
+          type: string
+        memoryLimit:
+          type: string
+        replicas:
+          type: integer
+          minimum: 1
+          maximum: 100
+        idempotencyKey:
+          type: string
+    WorkloadProvisionRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - namespace
+        - workloadName
+        - cpuRequest
+        - cpuLimit
+        - memoryRequest
+        - memoryLimit
+        - replicas
+        - status
+        - idempotencyKey
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        namespace:
+          type: string
+        workloadName:
+          type: string
+        cpuRequest:
+          type: string
+        cpuLimit:
+          type: string
+        memoryRequest:
+          type: string
+        memoryLimit:
+          type: string
+        replicas:
+          type: integer
+        status:
+          type: string
+          enum: [SUBMITTED, VALIDATED, ADMITTED, ACTIVE, REJECTED]
+        idempotencyKey:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkloadProvisionResult:
+      type: object
+      additionalProperties: false
+      required:
+        - provision
+        - injectedSecurityContext
+        - injectedProbes
+        - pdbCreated
+        - message
+      properties:
+        provision:
+          $ref: '#/components/schemas/WorkloadProvisionRecord'
+        injectedSecurityContext:
+          type: boolean
+        injectedProbes:
+          type: boolean
+        pdbCreated:
+          type: boolean
+        message:
+          type: string
+    WorkloadProvisionResultResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/WorkloadProvisionResult'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    WorkloadProvisionRecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/WorkloadProvisionRecord'
         meta:
           $ref: '#/components/schemas/ResponseMeta'
     ErrorResponse:
@@ -246,5 +624,155 @@ components:
               type: string
             message:
               type: string
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    WorkloadProvisionCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - namespace
+        - workloadName
+        - image
+        - cpuRequest
+        - cpuLimit
+        - memoryRequest
+        - memoryLimit
+        - replicas
+        - idempotencyKey
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        namespace:
+          type: string
+        workloadName:
+          type: string
+        image:
+          type: string
+        cpuRequest:
+          type: string
+        cpuLimit:
+          type: string
+        memoryRequest:
+          type: string
+        memoryLimit:
+          type: string
+        replicas:
+          type: integer
+          minimum: 1
+          maximum: 100
+        idempotencyKey:
+          type: string
+    WorkloadProvisionRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - serviceId
+        - namespace
+        - workloadName
+        - cpuRequest
+        - cpuLimit
+        - memoryRequest
+        - memoryLimit
+        - replicas
+        - status
+        - idempotencyKey
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        serviceId:
+          type: string
+        namespace:
+          type: string
+        workloadName:
+          type: string
+        cpuRequest:
+          type: string
+        cpuLimit:
+          type: string
+        memoryRequest:
+          type: string
+        memoryLimit:
+          type: string
+        replicas:
+          type: integer
+        status:
+          type: string
+          enum: [SUBMITTED, VALIDATED, ADMITTED, ACTIVE, REJECTED]
+        idempotencyKey:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkloadProvisionResult:
+      type: object
+      additionalProperties: false
+      required:
+        - provision
+        - injectedSecurityContext
+        - injectedProbes
+        - pdbCreated
+        - message
+      properties:
+        provision:
+          $ref: '#/components/schemas/WorkloadProvisionRecord'
+        injectedSecurityContext:
+          type: boolean
+        injectedProbes:
+          type: boolean
+        pdbCreated:
+          type: boolean
+        message:
+          type: string
+    WorkloadProvisionResultResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/WorkloadProvisionResult'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    WorkloadProvisionRecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/WorkloadProvisionRecord'
         meta:
           $ref: '#/components/schemas/ResponseMeta'
