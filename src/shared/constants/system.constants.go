@@ -19,6 +19,8 @@ const (
 	EndpointReconciliations       = "/api/v1/reconciliations"
 	EndpointReconciliationsPrefix = "/api/v1/reconciliations/"
 	EndpointServices              = "/api/v1/services"
+	EndpointWorkloads             = "/api/v1/workloads"
+	EndpointWorkloadsPrefix       = "/api/v1/workloads/"
 )
 
 const (

@@ -1,252 +1,339 @@
-I'll verify each claim against primary sources (Kubernetes docs, CNCF projects) before rebuilding the tree.
+There is no single gold standard for a government Kubernetes platform. There are recognized baselines (the CIS GKE Benchmark, Google's GKE hardening guide, Google's Binary Authorization and Backup for GKE guidance, SRE-style canary analysis), but the compliance numbers have to come from your regime. No baseline can name retention periods, data residency or RTO/RPO for you.
 
-[Certain] "Never assume anything" can't be done literally: I still haven't seen the `kubernetes-workload-provisioning` repo, so some facts about your system are unknown to me.
-
-I disagree because a tree with zero assumptions would have to be empty, and a tree that quietly fills the gaps is worse because it looks complete. Here's what I'd do instead, and what principal engineers do: every unknown becomes a named decision (`DEC-xx`) that blocks production until someone owns and answers it. Every platform fact is checked against upstream docs (`V-xx`, sources listed below the tree). Every invariant names where it is enforced. The risk in your approach is that "no assumptions" without decision records still lets assumptions in, just silently and in code review instead of on paper.
-
-[Likely] The uncomfortable part: several of the worst failures here produce no error at apply time. Pods get rejected by quota after the Deployment was accepted, a GitOps controller and an autoscaler fight over the replica count, and volumes are left behind after teardown. A design that only checks "did the API call succeed" will pass review and still fail in production.
+So in this final tree, your answers are followed exactly and marked `[YOU]`. Where you didn't decide or said "configurable", I applied a baseline as the platform floor, marked `[GS]`, and you can override it. Four items stay as blockers because guessing them would make the tree look complete while being wrong.
 
 ```
-KUBERNETES WORKLOAD PROVISIONING — PRODUCTION DESIGN TREE (v2)
-Legend   : [C] Verified (V-xx = source below)   [L] Strong inference, verify in your env
-           DEC-xx = open decision — NOT assumed; blocks production until answered
-Severity : LOSS | OUTAGE | SECURITY | DEGRADE | COST | COMPLIANCE
-Failure node format: Scenario → Impact → Handling → Detection
+KUBERNETES WORKLOAD PROVISIONING — FINAL BUSINESS TREE WITH DAILY OPERATIONS (v4)
+Legend   : [YOU] your decision   [GS] gold-standard default applied (overridable)
+           [C V-xx] verified (sources below)   [L] strong inference, verify in your environment
+           BLOCKER = cannot be defaulted; go-live waits for an answer
+Severity : LOSS | CORRUPT | OUTAGE | SECURITY | DEGRADE | COST | COMPLIANCE
+Branch   : Rules → Edge cases → Failures (Scenario → Impact → Handling → Detection)
 │
-├── 0. SCOPE CONTRACT  (nothing below is valid until these are answered)
-│   ├── DEC-01 Scope: in-cluster objects only | + cloud resources (IAM, DNS, LBs, disks, DBs) | + clusters
-│   ├── DEC-02 Tenancy unit: namespace-per-team | per-app | per-env | cluster-per-tenant
-│   ├── DEC-03 Write path: GitOps controller (which one) | direct API controller | both
-│   │          (both → forbidden unless a field-ownership map exists, see INV-03)
-│   ├── DEC-04 Admission engine: built-in ValidatingAdmissionPolicy (CEL) | webhook engine | both
-│   ├── DEC-05 Fleet: cluster count, regions, Kubernetes versions, managed vs self-managed
-│   ├── DEC-06 Approval policy: who approves what, auto-approve thresholds
-│   ├── DEC-07 Compliance regimes in scope (audit retention, data residency)
-│   ├── DEC-08 Ownership source of truth: IdP groups | service catalog | both (which wins)
-│   ├── DEC-09 Data retention on decommission: snapshot | delete | retain-with-owner, per class
-│   └── DEC-10 RTO/RPO of the provisioning system itself (not of the workloads)
+├── 0. DECISION REGISTER
+│   ├── Settled
+│   │   ├── Scope: clusters + cloud resources + workloads, each behind its own API     [YOU]
+│   │   ├── Tenancy: namespace per app per environment                                  [YOU, as read]
+│   │   ├── Single writer: Argo CD                                                       [YOU]
+│   │   ├── Admission: in-process CEL policies + one webhook engine                      [YOU]
+│   │   │   └── Image trust enforced by Binary Authorization                             [GS, C V-29]
+│   │   ├── Platform: GKE only                                                           [YOU]
+│   │   ├── Paging: all production workloads page 24/7                                   [YOU]
+│   │   ├── Approvals: decided by role                                                   [YOU]
+│   │   ├── Compliance: government project; all logs retained                           [YOU]
+│   │   ├── Secrets: Kubernetes Secrets                                                  [YOU]
+│   │   │   └── + application-layer encryption with your Cloud KMS key                   [GS, C V-34]
+│   │   ├── Certificates: public + private CA                                            [YOU]
+│   │   ├── Delivery: canary                                                             [YOU]
+│   │   │   └── via Argo Rollouts, traffic shifted by the mesh                           [GS, C V-31]
+│   │   ├── Service mesh: required                                                       [YOU]
+│   │   │   └── managed Cloud Service Mesh, mTLS STRICT                                  [GS, C V-30]
+│   │   ├── Operators/CRDs: platform team only; tenants cannot install                   [YOU]
+│   │   ├── Human access: requested just-in-time when required                           [YOU]
+│   │   ├── Access source: IdP groups mapped to RBAC                                    [GS, C V-28]
+│   │   └── Observability + on-call: phase 1, not later       [GS — overrides "not initial phase", see §6]
+│   ├── Configurable — within platform floors (§6)                                       [YOU + GS]
+│   │   └── Images, backup, DR, session length, decommission retention
+│   ├── Small open choices (defaulted, confirm)
+│   │   ├── Webhook engine: pick exactly one engine, never two                           [L]
+│   │   ├── Ownership metadata: service catalog; access always from IdP groups           [GS]
+│   │   └── GPU/batch: out of phase 1 unless requested (§4.19)                            [GS]
+│   └── BLOCKERS
+│       ├── B-1 Jurisdiction + regime → log retention period, data residency, key custody
+│       ├── B-2 RTO / RPO numbers per workload class AND for the platform itself
+│       ├── B-3 GKE Standard vs Autopilot; cluster and region count for phase 1
+│       └── B-4 Tenants: internal teams only, or external parties too
 │
-├── 1. COMPONENT MAP  (roles, not products)
-│   ├── C-API  Intake API — validates schema, assigns request ID (idempotency key)
-│   ├── C-ORC  Orchestrator — owns the lifecycle state machine (§3), persists before acting
-│   ├── C-LED  Ledger / inventory — every resource created, by which request, in which cluster
-│   ├── C-REC  Reconcilers — one per resource kind, level-triggered, idempotent
-│   ├── C-ADM  Admission policies — enforcement point for every invariant marked "admission"
-│   ├── C-CAP  Capacity & quota service — headroom, quota math, approval triggers
-│   ├── C-GC   Orphan sweeper — two-way diff: ledger ↔ cluster ↔ cloud
-│   ├── C-AUD  Audit trail — who requested, approved, changed, retired what, when
-│   └── C-OBS  Platform observability — SLOs of the provisioner itself
+├── 1. PURPOSE & VALUE
+│   ├── Government teams get compliant, owned, observable, recoverable workloads via three APIs
+│   ├── Every running thing traceable to owner, cost center, request, and approval
+│   └── Every daily operation is a paved, audited, tested path
 │
 ├── 2. ACTORS & AUTHORITY
-│   ├── Requester (human or CI) → may create/update within own tenancy unit only
-│   ├── Approver(s) → DEC-06; approval binds to a hash of the spec, not to the request ID
-│   ├── Platform team → policies, templates, reconcilers, fleet
-│   ├── Break-glass → time-boxed, audited, auto-expires, triggers drift reconciliation after
-│   └── Machines (GitOps controller, autoscalers) → each owns explicit fields only (INV-03)
+│   ├── Requester (human or CI) → acts only inside its app/env namespaces
+│   ├── Role-based approvers → approval binds to a hash of the spec                      [L]
+│   ├── Workload owner → 24/7 on-call, runbooks, restore drills
+│   ├── Platform team → all three APIs, policies, operators, mesh, fleet; its own on-call
+│   ├── Security → signing, keys, access policy, exceptions, audit review
+│   ├── Auditor → read-only access to audit logs and evidence
+│   └── Machines (Argo CD, Argo Rollouts, autoscalers, cert/secret controllers) → explicit fields only
 │
-├── 3. LIFECYCLE STATE MACHINE
-│   ├── REQUESTED → VALIDATED → PENDING_APPROVAL → APPROVED → PROVISIONING → READY
-│   ├── READY ⇄ DEGRADED            (health / SLO driven, never by the provisioner alone)
-│   ├── READY → UPDATING → READY     (spec change; re-validation + re-approval if delta crosses DEC-06)
-│   ├── READY → DECOMMISSIONING → RETIRED
-│   ├── PROVISIONING → FAILED_RETRYABLE → PROVISIONING   (bounded retries, backoff)
-│   ├── PROVISIONING → COMPENSATING → FAILED_NEEDS_HUMAN  (rollback incomplete)
-│   ├── VALIDATED | PENDING_APPROVAL → REJECTED          (terminal, reason recorded)
-│   └── Transition rules
-│       ├── T-1 Intent is written to C-LED BEFORE the side effect, outcome AFTER [L]
-│       ├── T-2 Every transition idempotent by (request ID, target state)
-│       ├── T-3 No transition skips a state; illegal transitions rejected, not ignored
-│       └── T-4 Terminal states are immutable; a new request is required to reopen
+├── 3. OFFERINGS — THE THREE APIS
+│   ├── Cluster API → creates and lifecycles GKE clusters to the hardened baseline (§4.1)
+│   ├── Cloud Resource API → IAM bindings, DNS, load balancers, disks, data stores (§4.2)
+│   ├── Workload API → namespaces per app/env, workloads, add-ons (§4.3)
+│   ├── Shared across all three
+│   │   ├── One request ID and one ledger spanning all three APIs                       [L]
+│   │   ├── One approval model, one audit trail
+│   │   └── Cross-API ordering: cluster → cloud resources → workload; teardown in reverse [L]
+│   └── Workload classes: service | worker | batch | stateful | (GPU deferred) | node-level (platform only)
 │
-├── 4. INVARIANTS  (each with its enforcement point)
-│   ├── INV-01 Every object carries owner, cost-center, env, request-ID labels           [C V-11]
-│   │   └── Enforced: admission. Label values ≤63 chars → request ID format must fit
-│   ├── INV-02 Desired state has exactly one source of truth (DEC-03)                     [L]
-│   │   └── Enforced: write RBAC — only the chosen writer can mutate managed objects
-│   ├── INV-03 Every field has exactly one owner (GitOps vs HPA vs operators)             [C V-12]
-│   │   └── Enforced: field-ownership map per kind; replicas omitted from Git when HPA exists
-│   ├── INV-04 Quota + LimitRange exist BEFORE the first workload object in a namespace   [C V-03]
-│   │   └── Enforced: orchestrator ordering + admission rejects workloads in quota-less ns
-│   ├── INV-05 Pod Security labels present with an explicitly pinned version              [C V-04]
-│   │   └── Enforced: namespace admission policy rejects unlabeled / unpinned namespaces
-│   ├── INV-06 Policies guarding prod fail closed; prefer in-process evaluation           [C V-01, V-02]
-│   ├── INV-07 Admission machinery is excluded from its own policies (no self-deadlock)   [L]
-│   ├── INV-08 Provisioning is idempotent: same request ID ⇒ same result, never duplicates [L]
-│   ├── INV-09 No data deleted without an explicit DEC-09 decision recorded per volume    [C V-07]
-│   ├── INV-10 Ledger ↔ reality: no resource without ledger entry, no ledger entry without
-│   │          resource after the GC grace window                                          [L]
-│   ├── INV-11 Names are deterministic and validated (DNS label rules) before any API call [C V-11]
-│   ├── INV-12 Manifests use only APIs served by every fleet version AND the next target   [C V-09]
-│   ├── INV-13 Replicated prod workloads have a PDB that cannot block drains forever       [C V-06]
-│   ├── INV-14 HPA and VPA never act on the same resource metric                           [C V-14]
-│   ├── INV-15 Zonal block storage uses topology-aware binding                             [C V-13]
-│   └── INV-16 Every cluster stays inside the upstream / provider support window           [C V-10]
+├── 4. DAILY OPERATIONS
+│   │
+│   ├── 4.1 CLUSTER PROVISIONING (Cluster API)
+│   │   ├── Rules — hardened baseline on every cluster                                   [GS, C V-28]
+│   │   │   ├── Private nodes; control-plane endpoint not publicly exposed
+│   │   │   ├── Shielded GKE Nodes with secure boot and integrity monitoring
+│   │   │   ├── Workload Identity Federation; no exported service-account keys
+│   │   │   ├── Enrolled in a release channel; versions inside support window (V-10)
+│   │   │   ├── Google Groups for RBAC; application-layer secrets encryption (V-34)
+│   │   │   ├── Binary Authorization enforcement + continuous validation (V-29)
+│   │   │   └── Backup for GKE agent enabled at creation (V-33)
+│   │   ├── Edge cases
+│   │   │   ├── Cluster created but a baseline control failed to apply → not READY       [L]
+│   │   │   ├── Cluster API itself unavailable while workloads keep running              [L]
+│   │   │   └── Baseline changes after cluster creation → drift across fleet            [L]
+│   │   └── Failures
+│   │       ├── Non-baseline cluster reaches prod [SECURITY | COMPLIANCE]
+│   │       │   → READY gated on every control verified → posture scan per cluster
+│   │       └── Fleet drift [COMPLIANCE] → continuous baseline diff → drift count per cluster
+│   │
+│   ├── 4.2 CLOUD RESOURCE PROVISIONING (Cloud Resource API)
+│   │   ├── Rules
+│   │   │   ├── Declarative, reconciled through Argo CD like everything else             [L]
+│   │   │   ├── IAM granted to workload identities, never to keys or individuals         [C V-28]
+│   │   │   ├── Every cloud resource carries request ID + owner + cost center
+│   │   │   └── Cloud resources outlive no workload without a recorded decision          [L]
+│   │   ├── Edge cases
+│   │   │   ├── Cloud quota exhausted → resource pending, workload waiting               [L]
+│   │   │   ├── Cloud-side deletion protection blocks teardown                           [L]
+│   │   │   └── Resource created outside the API (console) → unmanaged                   [L]
+│   │   └── Failures
+│   │       ├── Orphaned cloud resources [COST | SECURITY] (V-08) → ledger-driven teardown + sweep
+│   │       └── Over-broad IAM [SECURITY] → least-privilege templates → IAM recommender findings
+│   │
+│   ├── 4.3 WORKLOAD ONBOARDING (Workload API)
+│   │   ├── Rules
+│   │   │   ├── Namespace per app per env, with quota, LimitRange, pinned Pod Security,
+│   │   │   │   default-deny network policy, mesh injection, ownership labels            [V-03, V-04, V-11]
+│   │   │   ├── Idempotent by request ID; approval bound to spec hash                    [L]
+│   │   │   └── READY = available replicas observed, not "apply succeeded"               [V-03]
+│   │   ├── Edge cases: quota-rejected pods behind an accepted Deployment; surge headroom; name
+│   │   │   collisions after normalization; spec edited during approval                 [V-03, L]
+│   │   └── Failures: partial provisioning [OUTAGE]; silent quota rejection [OUTAGE]   (from v3 §4.1)
+│   │
+│   ├── 4.4 IMAGE SUPPLY CHAIN — configurable above floor
+│   │   ├── Floor (tenants may tighten, never loosen)                                    [GS]
+│   │   │   ├── Images by digest; pull policy explicit                                  [V-20, V-21]
+│   │   │   ├── Attested by your CI; enforced at deploy by Binary Authorization         [C V-29]
+│   │   │   ├── Continuous validation on, matching the enforcement policy               [C V-29]
+│   │   │   └── Only approved registries; per-region mirror                             [L]
+│   │   ├── Edge cases
+│   │   │   ├── Policy tightened → running pods are not re-checked by enforcement        [C V-29]
+│   │   │   ├── Breakglass deploy bypasses enforcement; only monitoring still sees it    [C V-29]
+│   │   │   ├── Tag re-push; registry outage; expired pull credentials                   [V-21, L]
+│   │   │   └── Attestor key rotated or compromised                                     [L]
+│   │   └── Failures
+│   │       ├── Non-conformant image running after policy change [SECURITY]
+│   │       │   → continuous validation → violation log alerts
+│   │       └── Breakglass never reviewed [COMPLIANCE] → audit event alert + mandatory review
+│   │
+│   ├── 4.5 DELIVER, CANARY & ROLL BACK
+│   │   ├── Rules
+│   │   │   ├── Same digest promoted dev → nonprod → prod; never rebuilt                 [L]
+│   │   │   ├── Canary steps and metric analysis owned by Argo Rollouts                 [C V-31]
+│   │   │   ├── Mesh routes are written by Argo Rollouts only (single field owner)     [V-12, L]
+│   │   │   ├── Automated abort on analysis failure; promotion gates per role approval  [C V-31, YOU]
+│   │   │   ├── Rollback for config or code = Git revert through Argo CD                [L]
+│   │   │   └── Schema changes expand/contract; one release backward compatible         [L]
+│   │   ├── Edge cases
+│   │   │   ├── Analysis metric missing → treat as failure, never as pass               [L]
+│   │   │   ├── Canary too small to produce significant signal → false pass             [L]
+│   │   │   ├── Argo CD sync fights Rollouts-managed traffic weights                    [V-12, L]
+│   │   │   ├── Undo reverts pod template only, not data or in-place config             [V-22]
+│   │   │   └── Release across several clusters half done                               [L]
+│   │   └── Failures
+│   │       ├── Bad release promoted [OUTAGE] → analysis gates → canary vs stable error delta
+│   │       └── Forward-only migration [LOSS | CORRUPT] → expand/contract review gate
+│   │
+│   ├── 4.6 SECRETS, CONFIG & CERTIFICATES
+│   │   ├── Rules
+│   │   │   ├── Kubernetes Secrets + application-layer encryption with your KMS key     [YOU + C V-34]
+│   │   │   ├── KMS key in a separate project; key custody per regime (B-1)             [C V-34, BLOCKER]
+│   │   │   ├── Consumer inventory per secret; dual-valid rotation window               [V-15, L]
+│   │   │   ├── No subPath mounts for rotating material; env-var consumers restarted    [V-15]
+│   │   │   ├── Public certs: automated renewal against shrinking lifetimes             [V-17, V-18]
+│   │   │   └── Private CA issues mesh workload certificates                             [C V-30]
+│   │   ├── Edge cases: env-var secrets frozen; subPath frozen; app caches secrets; renewal failing
+│   │   │   silently; KMS key disabled or destroyed → Secrets unreadable                [V-15, V-17, L]
+│   │   └── Failures
+│   │       ├── Expired cert [OUTAGE] → automated renewal + days-to-expiry alerts
+│   │       ├── KMS key loss [LOSS | OUTAGE] → key destruction protection + key admin separation
+│   │       └── Secret leaked [SECURITY] → volume delivery, log scrubbing, rotation runbook
+│   │
+│   ├── 4.7 NETWORKING & SERVICE MESH
+│   │   ├── Rules
+│   │   │   ├── Managed Cloud Service Mesh; mTLS STRICT for all prod namespaces         [GS, C V-30]
+│   │   │   ├── No in-cluster Istio alongside the managed mesh                          [C V-30]
+│   │   │   ├── Default-deny network policy + mesh authorization policies per namespace [L]
+│   │   │   ├── DNS zones owned by the Cloud Resource API; no manual records            [L]
+│   │   │   └── Egress allowlisted per tenant through egress gateway or policy          [L]
+│   │   ├── Edge cases
+│   │   │   ├── Required mesh features unsupported in managed mode (e.g. EnvoyFilter)   [C V-30]
+│   │   │   ├── Switching STRICT on before every client has a sidecar → outages        [L]
+│   │   │   ├── Default-deny blocks DNS egress                                          [L]
+│   │   │   └── Mesh upgrade changes proxy behavior fleet-wide                          [L]
+│   │   └── Failures
+│   │       ├── Plaintext traffic in prod [SECURITY | COMPLIANCE] → STRICT + verification
+│   │       │   → non-mTLS connection count must be zero
+│   │       └── Mesh control-plane issue [OUTAGE] → staged mesh upgrades per cluster ring
+│   │
+│   ├── 4.8 OBSERVE & AUDIT (compliance-critical)
+│   │   ├── Rules
+│   │   │   ├── Data Access audit logs enabled — they're off by default                 [GS, C V-32]
+│   │   │   ├── Logs routed to user-defined buckets with locked retention + CMEK        [GS, C V-32]
+│   │   │   ├── Retention period = regime requirement                                    [BLOCKER B-1]
+│   │   │   ├── If the regime requires > 400 days, Admin Activity logs exported too     [C V-32]
+│   │   │   ├── Container logs shipped off-node continuously                           [V-23]
+│   │   │   ├── Alerts route to owners resolved from catalog; synthetic route tests     [L]
+│   │   │   └── PII scrubbed before storage                                              [L]
+│   │   ├── Edge cases
+│   │   │   ├── Data Access logs left in default bucket → 30-day retention              [C V-32]
+│   │   │   ├── Log bucket in wrong location for residency rules                         [BLOCKER B-1]
+│   │   │   ├── Evicted pod → node logs gone; kubectl shows newest file only            [V-23]
+│   │   │   └── Audit log volume cost surprise                                          [L]
+│   │   └── Failures
+│   │       ├── Audit evidence missing [COMPLIANCE] → locked buckets + routing tests
+│   │       └── Logs missing during incident [DEGRADE] → agent lag and drop alerts
+│   │
+│   ├── 4.9 ACCESS & DEBUG
+│   │   ├── Rules
+│   │   │   ├── No standing prod access; JIT requests approved by role                  [YOU]
+│   │   │   ├── Session length configurable under a security-owned ceiling (§6)        [YOU + GS]
+│   │   │   ├── RBAC bound to IdP groups only; group removal revokes access             [C V-28]
+│   │   │   ├── Exec RBAC verified per Kubernetes/kubectl version                      [V-24]
+│   │   │   ├── No human or monitoring role holds nodes/proxy                          [V-25]
+│   │   │   └── Every session audited (Data Access logs on)                            [C V-32]
+│   │   ├── Edge cases: create-only or get-only exec roles breaking across versions; ephemeral
+│   │   │   containers permanent; debug image blocked by policy mid-incident; grant never expires
+│   │   │                                                               [V-24, V-26, L]
+│   │   └── Failures: locked out during incident [OUTAGE]; standing privilege [SECURITY]
+│   │
+│   ├── 4.10 ON-CALL & INCIDENTS (phase 1)
+│   │   ├── Rules                                                                        [GS, L]
+│   │   │   ├── 24/7 paging owner per prod workload                                     [YOU]
+│   │   │   ├── Runbook per alert; no runbook → no page
+│   │   │   ├── Deploys, canary steps, rotations visible on the incident timeline
+│   │   │   ├── Mitigate first: abort canary, revert, fail over
+│   │   │   └── Platform on-call + tested break-glass write path when Argo CD is the incident
+│   │   └── Failures: nobody paged; fix can't ship because the platform is down [OUTAGE]
+│   │
+│   ├── 4.11 SCALE & CAPACITY
+│   │   └── One replica owner; HPA/VPA separation; drainable PDBs; topology-aware storage
+│   │                                                                 (V-06, V-12, V-13, V-14)
+│   │
+│   ├── 4.12 BACKUP & RESTORE — configurable above floor
+│   │   ├── Floor                                                                        [GS]
+│   │   │   ├── Backup for GKE plans include Secrets and volume data                    [C V-33]
+│   │   │   ├── Backups stored in a second region; retention locked                     [C V-33]
+│   │   │   ├── Databases: application-consistent method per data store                 [V-27, L]
+│   │   │   ├── Restore drills on schedule, measured against RTO/RPO                    [BLOCKER B-2]
+│   │   │   └── Backups protected like secrets (they contain them)                      [L]
+│   │   ├── Edge cases
+│   │   │   ├── Restore needs an existing target cluster; it isn't created for you       [C V-33]
+│   │   │   ├── Cross-region backup storage adds transfer cost                         [C V-33]
+│   │   │   ├── Restore reactivates since-revoked credentials                           [L]
+│   │   │   └── Restored workloads reconnect to live dependencies                       [L]
+│   │   └── Failures: restore never tested [LOSS]; inconsistent DB restore [CORRUPT]
+│   │
+│   ├── 4.13 DR & MULTI-CLUSTER — configurable above floor
+│   │   ├── Floor                                                                        [GS, L]
+│   │   │   ├── Standby cluster pre-created via Cluster API with the same baseline (§4.1)
+│   │   │   ├── Restore plans pre-defined targeting that cluster (V-33)
+│   │   │   ├── KMS keys, registry mirror, certs, DNS usable in DR region independently
+│   │   │   ├── One writer per data set during failover (fencing)
+│   │   │   └── Failover and failback drilled
+│   │   ├── Topology per workload class: active-passive | active-active             [YOU: configurable]
+│   │   └── Failures: DR drifted; split brain [CORRUPT]; failback loses data [LOSS]
+│   │
+│   ├── 4.14 UPGRADE & MAINTENANCE
+│   │   ├── Release channel drives cadence; upgrades staged by cluster ring             [C V-28, L]
+│   │   ├── Removed APIs scanned; PDBs drainable; Pod Security pinned        (V-04, V-06, V-09)
+│   │   └── Exec RBAC and mesh behavior re-tested every upgrade                        [V-24, L]
+│   │
+│   ├── 4.15 OPERATORS & CRDs (platform-only)                                           [YOU]
+│   │   ├── Rules
+│   │   │   ├── Platform team installs, upgrades, and removes all operators and CRDs
+│   │   │   ├── Operators upgraded before CRDs they serve are removed; never the reverse [V-05]
+│   │   │   └── Admission blocks tenant-created CRDs and cluster-scoped objects          [L]
+│   │   └── Failures
+│   │       ├── Operator removed before its custom resources → stuck namespaces [OUTAGE] (V-05)
+│   │       └── CRD version removed under live resources [OUTAGE] → upgrade gate (V-09)
+│   │
+│   ├── 4.16 PEOPLE LIFECYCLE
+│   │   ├── Rules
+│   │   │   ├── Access granted only via IdP groups → leaving a group revokes access      [C V-28]
+│   │   │   ├── JIT grants expire automatically                                         [YOU + L]
+│   │   │   └── Team reorg → ownership transferred before old group is deleted          [L]
+│   │   └── Failures: leaver retains access [SECURITY]; workloads with no owner [COMPLIANCE]
+│   │
+│   ├── 4.17 COST & CHARGEBACK
+│   │   └── Mandatory owner/cost-center labels; orphan sweep; audit-log and backup storage tracked
+│   │
+│   ├── 4.18 DECOMMISSION — configurable above floor
+│   │   ├── Floor: no data deleted without recorded decision; retention ≥ regime    [GS, BLOCKER B-1]
+│   │   ├── Order: traffic → workload → bindings → storage → identity → DNS → audit record
+│   │   └── Edge: stuck namespaces; LB finalizers; locked backups outlive the workload (V-05, V-08, V-33)
+│   │
+│   └── 4.19 GPU & BATCH — deferred                                                    [GS]
+│       └── Re-opened only on request: dedicated node pools, queueing, quota per team
 │
-├── 5. EDGE CASES
-│   ├── 5.1 Intake
-│   │   ├── Same request ID, different payload → reject (idempotency key reuse), never merge
-│   │   ├── Spec edited while pending approval → approval invalidated (hash mismatch)
-│   │   ├── Generated name >63 chars or collides after truncation → reject before any call
-│   │   ├── Case/Unicode variants of the same name across tenants → normalize, then uniqueness check
-│   │   ├── Owner group missing in IdP / cost center invalid → reject at VALIDATED
-│   │   └── Two concurrent requests target the same namespace → serialize per tenancy unit
-│   ├── 5.2 Quota & capacity
-│   │   ├── Deployment accepted, pods rejected by quota → object exists, nothing runs  [C V-03]
-│   │   ├── Quota lowered below usage → running pods unaffected, next create/scale fails [C V-03]
-│   │   ├── Rolling update needs surge headroom → quota sized for replicas + maxSurge   [L]
-│   │   ├── Init containers + pod overhead count against quota                          [C V-03]
-│   │   └── Object-count quotas (LoadBalancers, NodePorts, PVCs) hit before CPU/memory  [C V-03]
-│   ├── 5.3 Admission
-│   │   ├── Webhook unreachable + Fail policy → every matching create/update rejected   [C V-01]
-│   │   ├── Webhook slow → each request waits up to its timeout                         [C V-01]
-│   │   ├── Stricter policy rolled out → existing pods only warned, fail later on reschedule [C V-04, L]
-│   │   └── Unpinned "latest" Pod Security version changes behavior on cluster upgrade  [C V-04]
-│   ├── 5.4 Apply & ownership
-│   │   ├── GitOps and HPA both set replicas → continuous flapping                      [C V-12]
-│   │   ├── Removing replicas from Git without ownership transfer → replica reset risk   [C V-12]
-│   │   ├── Custom resource applied before its CRD is established → ordering failure     [L]
-│   │   └── Immutable field change (selectors, Job template, StatefulSet claim templates)
-│   │       → requires orchestrated delete/recreate, never a blind force-apply            [L]
-│   ├── 5.5 Storage
-│   │   ├── Volume provisioned in zone A, pod constrained to zone B → unschedulable      [C V-13]
-│   │   ├── StatefulSet deleted/scaled down → claims retained by default                 [C V-07]
-│   │   └── Claim deleted but class reclaim is Retain → disk lives on, still billed       [C V-07]
-│   ├── 5.6 Network
-│   │   ├── Default-deny egress also blocks DNS unless explicitly allowed                [L]
-│   │   └── Cloud LB quota exhausted → Service stuck without external address            [L]
-│   ├── 5.7 Decommission
-│   │   ├── Namespace stuck Terminating: finalizer with no controller / broken APIService [C V-05]
-│   │   ├── Operator uninstalled before its custom resources → finalizers never clear    [C V-05]
-│   │   ├── LoadBalancer Service held by cleanup finalizer until cloud cleanup completes [C V-08]
-│   │   ├── Pods still referencing claims → protection finalizers block deletion         [C V-05]
-│   │   └── External resources (IAM, DNS, buckets) are outside Kubernetes GC entirely    [L]
-│   ├── 5.8 Upgrades
-│   │   ├── Beta APIs removed in a target version → manifests fail to apply              [C V-09]
-│   │   └── Cluster drifts out of support window → no security patches                   [C V-10]
-│   ├── 5.9 Disruption
-│   │   ├── PDB minAvailable == replicas → drain blocked forever                         [C V-06]
-│   │   ├── Crash-looping pods block drain under the default unhealthy-pod policy        [C V-06]
-│   │   └── Direct pod/deployment deletion bypasses PDBs                                 [C V-06]
-│   └── 5.10 The provisioner itself
-│       ├── Crash between side effect and ledger write → orphan or duplicate risk        [L]
-│       ├── Provisioner down → existing workloads must keep running (control ≠ data plane) [L]
-│       └── Backlog after outage → replay in order per tenancy unit, idempotently        [L]
+├── 5. PLATFORM-WIDE INVARIANTS
+│   ├── One writer per object (Argo CD), one owner per field
+│   ├── Prod guardrails fail closed                                                    (V-01, V-02)
+│   ├── Everything traceable across all three APIs by one request ID
+│   ├── Every automated path has a tested manual fallback
+│   └── "Done" means observed in the running system, not accepted by an API
 │
-├── 6. FAILURE MODES
-│   ├── F-01 Partial provisioning [OUTAGE]
-│   │   └── Namespace created, RBAC or IAM binding failed → tenant blocked, half state
-│   │       → resume from ledger (T-1) or compensate in reverse order
-│   │       → alert on time-in-PROVISIONING > threshold
-│   ├── F-02 Admission outage, fail-closed [OUTAGE]
-│   │   └── Policy webhook down → all deploys in matched scope rejected
-│   │       → HA replicas, PDB, in-process policies where possible (INV-06), exclude system ns
-│   │       → webhook error rate + admission latency SLO
-│   ├── F-03 Admission bypass, fail-open [SECURITY | COMPLIANCE]
-│   │   └── Policy set to Ignore, webhook down → unvetted workloads admitted silently
-│   │       → Fail for prod scopes; periodic audit scan of running objects
-│   │       → scan findings > 0 on prod
-│   ├── F-04 Silent quota rejection [OUTAGE]
-│   │   └── Apply succeeds, ReplicaSet cannot create pods → "deployed" service with zero pods
-│   │       → READY requires observed available replicas, not apply success
-│   │       → ReplicaFailure conditions, available < desired for N minutes
-│   ├── F-05 Field-ownership fight [DEGRADE]
-│   │   └── Git and HPA both own replicas → scale-up undone every sync
-│   │       → INV-03 ownership map; replicas removed from Git via ownership transfer
-│   │       → replica count oscillation alert
-│   ├── F-06 Drift [DEGRADE | COMPLIANCE]
-│   │   └── Manual change in cluster → Git ≠ reality, fix reverted or hidden
-│   │       → restricted write RBAC, self-heal per DEC-03 tool
-│   │       → out-of-sync duration alert
-│   ├── F-07 Namespace stuck Terminating [COST | OUTAGE for re-provisioning same name]
-│   │   └── Finalizer or broken APIService blocks deletion indefinitely
-│   │       → teardown order: custom resources before operators; APIService health gate
-│   │       → Terminating > threshold; namespace deletion conditions
-│   ├── F-08 Orphaned external resources [COST | SECURITY]
-│   │   └── LB, IAM binding, DNS record outlive workload
-│   │       → ledger-driven reverse teardown + C-GC sweep across cloud APIs
-│   │       → orphan count and spend per sweep
-│   ├── F-09 Data loss on decommission [LOSS]
-│   │   └── Claim retention Delete + class reclaim Delete → data gone on teardown
-│   │       → DEC-09 per volume, snapshot gate before delete
-│   │       → audit: no volume deletion without recorded decision
-│   ├── F-10 Orphaned volumes [COST]
-│   │   └── Retain everywhere → disks accumulate indefinitely
-│   │       → retain-with-owner + expiry + C-GC
-│   │       → unbound PV count and age
-│   ├── F-11 Drain blocked [OUTAGE of maintenance]
-│   │   └── Misconfigured PDB stops node upgrades fleet-wide
-│   │       → admission rejects PDBs that allow zero disruptions; AlwaysAllow for unhealthy pods
-│   │       → drain duration and eviction-rejected events
-│   ├── F-12 Upgrade breaks manifests [OUTAGE]
-│   │   └── Removed API versions in templates or tenant manifests
-│   │       → CI gate against target version; deprecated-API metric must be zero before upgrade
-│   │       → deprecated API request metric + audit annotations
-│   ├── F-13 Zonal mismatch [OUTAGE]
-│   │   └── Volume and pod constraints in different zones → Pending forever
-│   │       → topology-aware binding (INV-15)
-│   │       → Pending pods with volume-node-affinity conflicts
-│   ├── F-14 Autoscaler feedback loop [DEGRADE | COST]
-│   │   └── HPA and VPA on the same metric chase each other
-│   │       → INV-14 enforced at admission
-│   │       → replica and request oscillation
-│   ├── F-15 Ledger ↔ reality divergence [COST | SECURITY]
-│   │   └── Provisioner crash mid-step → untracked resource exists
-│   │       → intent-first writes (T-1), C-GC two-way diff
-│   │       → divergence count per sweep must trend to zero
-│   ├── F-16 Ownership decay [COMPLIANCE | COST]
-│   │   └── Owner group deleted or renamed → unowned prod workloads
-│   │       → flag, never auto-delete; periodic ownership attestation
-│   │       → unowned workload report
-│   └── F-17 Cross-tenant name collision [SECURITY]
-│       └── Truncated or normalized names map two tenants to one namespace
-│           → INV-11 uniqueness check after normalization, before creation
-│           → collision rejections logged
+├── 6. CONFIGURABLE-VALUE MODEL (your "configurable" answers)
+│   ├── Every configurable item has three platform-owned values: floor, default, ceiling
+│   ├── Tenants can only tighten between floor and ceiling; never go below the floor
+│   ├── Floors come from the regime (B-1) and business RTO/RPO (B-2)
+│   ├── Applies to: image rules, backup, DR topology, session length, retention, canary steps
+│   └── Why observability + on-call aren't deferred: "keep all logs" (your compliance answer)
+│       can't be met if logs aren't shipped from day one, and a 24/7 system needs someone paged
 │
-└── 7. HOW A PRINCIPAL ENGINEER RUNS THIS
-    ├── Each DEC-xx becomes a decision record with owner, date, alternatives, and revisit trigger
-    ├── Pre-mortem per state transition: "this step failed halfway — what exists now?"
-    ├── Failure injection before go-live
-    │   ├── Kill the provisioner between side effect and ledger write (F-15)
-    │   ├── Take admission down in each policy mode (F-02, F-03)
-    │   ├── Drain a node against a zero-disruption PDB (F-11)
-    │   ├── Decommission with a missing operator and a broken APIService (F-07)
-    │   └── Apply the full template set against the next Kubernetes version (F-12)
-    ├── Policy rollouts go warn → audit → enforce, one cluster ring at a time
-    ├── The provisioner has its own SLOs: request→READY latency, success rate, orphan count
-    └── Every F-node has a runbook and an alert before production, not after the first incident
+├── 7. KPIs
+│   ├── Lead time per API; self-serve rate
+│   ├── Canary abort rate; change failure rate; time to roll back; MTTR
+│   ├── Cert-expiry incidents (target zero); rotation success rate
+│   ├── Restore drill pass rate; measured RTO/RPO vs B-2
+│   ├── Binary Authorization violations in running pods (target zero)
+│   ├── Standing privileged access (target zero); JIT grants expired on time
+│   └── Audit-log routing test pass rate; orphaned spend
+│
+└── 8. GO-LIVE GATES
+    ├── Every cluster passes the hardened-baseline scan (§4.1)
+    ├── Admission down in each mode; Argo CD down → break-glass path works
+    ├── Unsigned image rejected; breakglass deploy detected by continuous validation
+    ├── Canary with injected errors aborts automatically
+    ├── Secret rotation with env-var consumers; cert renewal with failing issuer
+    ├── Exec/debug with every role on the next GKE version
+    ├── Restore into the pre-created DR cluster, data validated; failover + failback
+    ├── Audit evidence retrievable for a sampled request end to end
+    └── Decommission with a missing operator; locked backups retained correctly
 ```
 
-**Verification sources for each V-xx tag**
+**Sources for the new tags.** V-01 to V-27 carry over from v2 and v3.
 
-- **V-01 Webhook defaults:** [Certain] In the v1 webhook API, the failure policy defaults to Fail, and the timeout must be between 1 and 30 seconds, defaulting to 10. The older v1beta1 API defaulted to Ignore, so policies migrated from it can change behavior silently.
-- **V-02 In-process admission:** [Certain] CEL-based admission control became stable in 1.30. Its design rationale is that in-process evaluation is far safer in fail-closed mode because it removes the network as a failure domain.
-- **V-03 Quota behavior:**
-  - [Certain] When quota is enabled and a pod doesn't specify requests for the quota'd resources, creation fails with 403; a LimitRange can inject defaults first to avoid this.
-  - [Certain] Contention or quota changes don't affect already-running pods.
-  - [Certain] For Deployments, the rejection shows up in the ReplicaFailure condition, not at apply time.
-  - [Certain] Init containers and pod overhead are counted, and quotas also cover object counts such as load balancers, node ports, and PVCs.
-- **V-04 Pod Security labels:**
-  - [Certain] The version label is optional and defaults to latest.
-  - [Certain] When an enforce label changes, existing pods are tested against the new policy but violations come back only as warnings.
-- **V-05 Stuck namespaces:**
-  - [Certain] The cause is almost always a finalizer no controller is removing, or an unavailable APIService.
-  - [Certain] One broken APIService is enough to stall the entire deletion.
-  - [Certain] PV/PVC protection finalizers also hold it while pods reference claims.
-- **V-06 PDBs:**
-  - [Certain] Deleting deployments or pods bypasses PDBs.
-  - [Certain] The docs recommend the AlwaysAllow unhealthy-pod eviction policy because the default waits for pods to become healthy before a drain proceeds.
-- **V-07 Storage retention:**
-  - [Certain] StatefulSet claims default to Retain on both deletion and scale-down.
-  - [Certain] A storage class with reclaim Retain still leaves orphaned disks regardless of the StatefulSet policy.
-- **V-08 LoadBalancer cleanup:** [Certain] The service controller attaches a cleanup finalizer that's only removed after the cloud load balancer is cleaned up. The docs acknowledge known corner cases where cloud resources are orphaned after the Service is deleted.
-- **V-09 Deprecated APIs:**
-  - [Certain] Requests to deprecated APIs carry a "k8s.io/deprecated" audit annotation, which identifies the specific clients and objects to fix.
-  - [Certain] GA versions can be deprecated but not removed within a major version, while alpha can be removed in any release.
-- **V-10 Support window:** [Certain] Each release is supported for 14 months (12 months of support plus 2 of upgrade period). New minor versions ship roughly every four months.
-- **V-11 Naming limits:** [Certain] Label values must be 63 characters or less and begin and end with an alphanumeric. Namespace names must be RFC 1123 labels.
-- **V-12 Field ownership:**
-  - [Certain] Force-applying conflicts takes ownership away from the previous manager, so a manifest that declares replicas fights the HPA.
-  - [Certain] When removing the field, ensure the HPA has written to the target at least once, or use the server-side apply ownership transfer procedure.
-- **V-13 Volume binding:** [Certain] Immediate mode provisions the volume before any pod uses it, so a pod can later land in a different zone; WaitForFirstConsumer delays provisioning until a consuming pod is scheduled.
-- **V-14 Autoscalers:** [Certain] The upstream VPA project warns against using VPA and HPA on the same CPU or memory metric because the two controllers can chase each other.
+- **V-28 GKE hardening:**
+  - [Certain] Google's hardening guide maps CIS GKE recommendations to Shielded GKE Nodes, Workload Identity Federation as the recommended way to authenticate to Google Cloud APIs, and private nodes.
+  - [Certain] Google's GKE policy automation set also checks Google Groups for RBAC, Kubernetes secrets encryption, release channel enrollment, and a private control-plane endpoint.
+- **V-29 Binary Authorization:**
+  - [Certain] It enforces policy for attempted deployments and can continuously validate workloads running on GKE.
+  - [Certain] When the enforcement policy is updated, only images deployed afterwards are validated; running Pods aren't affected.
+  - [Certain] Breakglass deploys bypass enforcement and log a single audit event, while continuous validation keeps logging the violating Pods.
+- **V-30 Cloud Service Mesh:**
+  - [Certain] The managed control plane lists Certificate Authority Service support and mTLS STRICT mode.
+  - [Certain] It must not be deployed in a cluster that also runs OSS Istio or an in-cluster control plane.
+  - [Certain] The EnvoyFilter and WasmPlugin APIs are unsupported.
+- **V-31 Argo Rollouts:** [Certain] It integrates with service meshes such as Istio to shift traffic gradually, and queries metrics to drive automated promotion or rollback.
+- **V-32 Cloud Logging:**
+  - [Certain] Admin Activity audit logs go to the _Required bucket with a fixed 400-day retention. Data Access audit logs land in the _Default bucket, which keeps entries for 30 days unless configured. User-defined buckets can be locked against updates.
+  - [Certain] Data Access logs are disabled by default for most services.
+- **V-33 Backup for GKE:**
+  - [Certain] You must create the target cluster before a restore plan; the service doesn't create it during a restore. Backups stored in a different region incur outbound transfer charges.
+  - [Certain] Backup plans can retain backups and lock them for a set period after creation.
+- **V-34 GKE Secrets encryption:** [Certain] GKE encrypts Secrets at rest by default, but application-layer Secrets encryption with a customer-managed key is disabled by default. Google recommends separate projects for the key and the cluster.
 
+**What closes the tree:** answer B-1 (jurisdiction and regime), B-2 (RTO/RPO numbers), B-3 (Standard or Autopilot, cluster and region count) and B-4 (internal or external tenants). Every floor in §6 then becomes a real number, and nothing in the tree is defaulted on your behalf. Nothing has been changed in any codebase.
