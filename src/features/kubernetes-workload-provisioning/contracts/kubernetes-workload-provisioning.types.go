@@ -1,8 +1,3 @@
-/*
-Package contracts defines strongly typed data models, commands, records, and manifest envelopes
-for the Kubernetes Workload Provisioning hexagonal feature. All inputs, records, and outputs are
-strictly typecasted without raw dictionaries or untyped interfaces.
-*/
 package contracts
 
 import "time"
@@ -10,12 +5,37 @@ import "time"
 type WorkloadStatus string
 
 const (
-	StatusSubmitted WorkloadStatus = "SUBMITTED"
-	StatusValidated WorkloadStatus = "VALIDATED"
-	StatusAdmitted  WorkloadStatus = "ADMITTED"
-	StatusActive    WorkloadStatus = "ACTIVE"
-	StatusRejected  WorkloadStatus = "REJECTED"
+	StatusSubmitted     WorkloadStatus = "SUBMITTED"
+	StatusValidated     WorkloadStatus = "VALIDATED"
+	StatusAdmitted      WorkloadStatus = "ADMITTED"
+	StatusProvisioning  WorkloadStatus = "PROVISIONING"
+	StatusActive        WorkloadStatus = "ACTIVE"
+	StatusObservedReady WorkloadStatus = "OBSERVED_READY"
+	StatusDegraded      WorkloadStatus = "DEGRADED"
+	StatusRejected      WorkloadStatus = "REJECTED"
 )
+
+type ResourceQuotaSpec struct {
+	HardCPU    string `json:"hardCpu"`
+	HardMemory string `json:"hardMemory"`
+	UsedCPU    string `json:"usedCpu"`
+	UsedMemory string `json:"usedMemory"`
+}
+
+type QuotaCheckResult struct {
+	SufficientHeadroom bool   `json:"sufficientHeadroom"`
+	AvailableCPU       string `json:"availableCpu"`
+	AvailableMemory    string `json:"availableMemory"`
+	ViolationMessage   string `json:"violationMessage,omitempty"`
+}
+
+type GitOpsAppConfig struct {
+	ProjectName    string `json:"projectName"`
+	RepoURL        string `json:"repoUrl"`
+	TargetRevision string `json:"targetRevision"`
+	Path           string `json:"path"`
+	ServerURL      string `json:"serverUrl"`
+}
 
 type WorkloadProvisionCommand struct {
 	ID             string `json:"id"`
@@ -51,12 +71,13 @@ type WorkloadProvisionRecord struct {
 }
 
 type ManifestBundle struct {
-	NamespaceYAML     string `json:"namespaceYaml"`
-	ResourceQuotaYAML string `json:"resourceQuotaYaml"`
-	LimitRangeYAML    string `json:"limitRangeYaml"`
-	NetworkPolicyYAML string `json:"networkPolicyYaml"`
-	DeploymentYAML    string `json:"deploymentYaml"`
-	PDBYAML           string `json:"pdbYaml,omitempty"`
+	NamespaceYAML         string `json:"namespaceYaml"`
+	ResourceQuotaYAML     string `json:"resourceQuotaYaml"`
+	LimitRangeYAML        string `json:"limitRangeYaml"`
+	NetworkPolicyYAML     string `json:"networkPolicyYaml"`
+	DeploymentYAML        string `json:"deploymentYaml"`
+	PDBYAML               string `json:"pdbYaml,omitempty"`
+	ArgoCDApplicationYAML string `json:"argocdApplicationYaml,omitempty"`
 }
 
 type AdmissionViolation struct {

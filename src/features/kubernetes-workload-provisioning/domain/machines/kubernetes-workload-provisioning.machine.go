@@ -10,10 +10,13 @@ import (
 type WorkloadEvent string
 
 const (
-	EventValidate WorkloadEvent = "VALIDATE"
-	EventAdmit    WorkloadEvent = "ADMIT"
-	EventActivate WorkloadEvent = "ACTIVATE"
-	EventReject   WorkloadEvent = "REJECT"
+	EventValidate      WorkloadEvent = "VALIDATE"
+	EventAdmit         WorkloadEvent = "ADMIT"
+	EventApply         WorkloadEvent = "APPLY"
+	EventActivate      WorkloadEvent = "ACTIVATE"
+	EventReplicasReady WorkloadEvent = "REPLICAS_READY"
+	EventDegrade       WorkloadEvent = "DEGRADE"
+	EventReject        WorkloadEvent = "REJECT"
 )
 
 func TransitionWorkloadState(current contracts.WorkloadStatus, event WorkloadEvent) (contracts.WorkloadStatus, error) {
@@ -34,13 +37,44 @@ func TransitionWorkloadState(current contracts.WorkloadStatus, event WorkloadEve
 		}
 	case contracts.StatusAdmitted:
 		switch event {
+		case EventApply:
+			return contracts.StatusProvisioning, nil
 		case EventActivate:
 			return contracts.StatusActive, nil
 		case EventReject:
 			return contracts.StatusRejected, nil
 		}
+	case contracts.StatusProvisioning:
+		switch event {
+		case EventReplicasReady:
+			return contracts.StatusObservedReady, nil
+		case EventActivate:
+			return contracts.StatusActive, nil
+		case EventDegrade:
+			return contracts.StatusDegraded, nil
+		case EventReject:
+			return contracts.StatusRejected, nil
+		}
 	case contracts.StatusActive:
 		switch event {
+		case EventReplicasReady:
+			return contracts.StatusObservedReady, nil
+		case EventDegrade:
+			return contracts.StatusDegraded, nil
+		case EventReject:
+			return contracts.StatusRejected, nil
+		}
+	case contracts.StatusObservedReady:
+		switch event {
+		case EventDegrade:
+			return contracts.StatusDegraded, nil
+		case EventReject:
+			return contracts.StatusRejected, nil
+		}
+	case contracts.StatusDegraded:
+		switch event {
+		case EventReplicasReady:
+			return contracts.StatusObservedReady, nil
 		case EventReject:
 			return contracts.StatusRejected, nil
 		}

@@ -1,8 +1,3 @@
-/*
-Package ports declares the inbound and outbound ports for the Kubernetes Workload Provisioning hexagonal architecture.
-WorkloadStorePort defines persistence contracts for workload provisioning records.
-K8sClientPort defines operations for generating, applying, and observing Kubernetes resource manifests.
-*/
 package ports
 
 import (
@@ -26,4 +21,6 @@ type K8sClientPort interface {
 	GetWorkloadHealth(ctx context.Context, namespace string, workloadName string) (contracts.WorkloadStatus, error)
 	GenerateManifestBundle(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (*contracts.ManifestBundle, error)
 	GetAppliedManifests(ctx context.Context, namespace string, workloadName string) (*contracts.ManifestBundle, error)
+	GetNamespaceQuota(ctx context.Context, namespace string) (*contracts.ResourceQuotaSpec, error)
+	ObserveWorkloadReadiness(ctx context.Context, namespace string, workloadName string, desiredReplicas int) (bool, error)
 }
