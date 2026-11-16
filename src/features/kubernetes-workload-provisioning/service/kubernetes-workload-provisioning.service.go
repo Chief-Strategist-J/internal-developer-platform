@@ -1,3 +1,9 @@
+/*
+Package service coordinates the domain lifecycle of Kubernetes workload provisioning.
+It enforces idempotent execution, invokes admission rules, executes workflow DAG steps,
+interacts with the Kubernetes client adapter to generate and apply manifests, and
+persists state transitions according to the strict state machine.
+*/
 package service
 
 import (
@@ -34,16 +40,30 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		return nil, err
 	}
 	if existing != nil {
+		var bundle contracts.ManifestBundle
+		if applied, bErr := s.k8sClient.GetAppliedManifests(ctx, existing.Namespace, existing.WorkloadName); bErr == nil && applied != nil {
+			bundle = *applied
+		}
 		return &contracts.WorkloadProvisionResult{
 			Provision:               *existing,
 			InjectedSecurityContext: true,
 			InjectedProbes:          true,
 			PDBCreated:              existing.Replicas >= 2,
-			Message:                 "idempotent replay",
+			Manifests:               bundle,
+			Admission: contracts.AdmissionReport{
+				Admitted:   true,
+				Violations: nil,
+			},
+			Message: "idempotent replay",
 		}, nil
 	}
 
 	mutations := rules.EvaluateWorkloadMutations(cmd)
+	admissionReport, err := rules.ValidateAdmission(cmd, mutations)
+	if err != nil {
+		return nil, err
+	}
+
 	_ = workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
 
 	now := time.Now().UTC()
@@ -110,11 +130,18 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		return nil, err
 	}
 
+	bundle, err := s.k8sClient.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		return nil, err
+	}
+
 	return &contracts.WorkloadProvisionResult{
 		Provision:               record,
 		InjectedSecurityContext: true,
 		InjectedProbes:          true,
 		PDBCreated:              mutations.PDBRequired,
+		Manifests:               *bundle,
+		Admission:               admissionReport,
 		Message:                 "workload provisioned and admitted successfully",
 	}, nil
 }
@@ -132,4 +159,3 @@ func (s *WorkloadProvisioningService) ListWorkloads(ctx context.Context, filter 
 	}
 	return s.store.List(ctx, filter)
 }
-
