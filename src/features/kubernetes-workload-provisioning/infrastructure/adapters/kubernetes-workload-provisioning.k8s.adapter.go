@@ -229,15 +229,22 @@ spec:
 	}
 
 	argoYAML := rules.GenerateArgoCDApplicationYAML(cmd, contracts.GitOpsAppConfig{})
+	rolloutCfg := rules.EvaluateDefaultRolloutConfig(cmd)
+	rolloutYAML := rules.GenerateArgoRolloutYAML(cmd, mutations, rolloutCfg)
+	analysisYAML := rules.GenerateAnalysisTemplateYAML(cmd, rolloutCfg.AnalysisMetrics)
+	authzYAML := rules.GenerateMeshAuthorizationPolicyYAML(cmd, contracts.MeshSecurityConfig{MtlsMode: "STRICT"})
 
 	return &contracts.ManifestBundle{
-		NamespaceYAML:         nsYAML,
-		ResourceQuotaYAML:     quotaYAML,
-		LimitRangeYAML:        limitRangeYAML,
-		NetworkPolicyYAML:     netpolYAML,
-		DeploymentYAML:        deployYAML,
-		PDBYAML:               pdbYAML,
-		ArgoCDApplicationYAML: argoYAML,
+		NamespaceYAML:           nsYAML,
+		ResourceQuotaYAML:       quotaYAML,
+		LimitRangeYAML:          limitRangeYAML,
+		NetworkPolicyYAML:       netpolYAML,
+		DeploymentYAML:          deployYAML,
+		PDBYAML:                 pdbYAML,
+		ArgoCDApplicationYAML:   argoYAML,
+		RolloutYAML:             rolloutYAML,
+		AnalysisTemplateYAML:    analysisYAML,
+		AuthorizationPolicyYAML: authzYAML,
 	}, nil
 }
 
