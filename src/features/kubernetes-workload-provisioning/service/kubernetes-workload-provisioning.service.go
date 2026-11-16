@@ -1,9 +1,3 @@
-/*
-Package service coordinates the domain lifecycle of Kubernetes workload provisioning.
-It enforces idempotent execution, invokes admission rules, executes workflow DAG steps,
-interacts with the Kubernetes client adapter to generate and apply manifests, and
-persists state transitions according to the strict state machine.
-*/
 package service
 
 import (
@@ -59,6 +53,15 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	}
 
 	mutations := rules.EvaluateWorkloadMutations(cmd)
+
+	quota, qErr := s.k8sClient.GetNamespaceQuota(ctx, cmd.Namespace)
+	if qErr == nil && quota != nil {
+		headroom := rules.EvaluateResourceQuotaHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas)
+		if !headroom.SufficientHeadroom {
+			return nil, errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
+		}
+	}
+
 	admissionReport, err := rules.ValidateAdmission(cmd, mutations)
 	if err != nil {
 		return nil, err
@@ -101,6 +104,12 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	}
 	record.Status = admittedStatus
 
+	provisioningStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventApply)
+	if err != nil {
+		return nil, err
+	}
+	record.Status = provisioningStatus
+
 	if err := s.k8sClient.ApplyDeployment(ctx, cmd, mutations); err != nil {
 		rejectedStatus, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
 		record.Status = rejectedStatus
@@ -119,11 +128,18 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		}
 	}
 
-	activeStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventActivate)
-	if err != nil {
-		return nil, err
+	ready, _ := s.k8sClient.ObserveWorkloadReadiness(ctx, cmd.Namespace, cmd.WorkloadName, cmd.Replicas)
+	if ready {
+		observedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady)
+		if err == nil {
+			record.Status = observedStatus
+		}
+	} else {
+		degradedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventDegrade)
+		if err == nil {
+			record.Status = degradedStatus
+		}
 	}
-	record.Status = activeStatus
 	record.Version = 2
 
 	if err := s.store.Update(ctx, record); err != nil {

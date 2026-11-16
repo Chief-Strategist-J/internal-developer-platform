@@ -1,10 +1,3 @@
-/*
-Package adapters provides infrastructure adapters for the Kubernetes client.
-The KubernetesClientAdapter generates RFC-compliant, CIS-hardened Kubernetes manifests
-including Namespaces, ResourceQuotas, LimitRanges, NetworkPolicies, Deployments, and
-PodDisruptionBudgets. It simulates cluster application, tracks observed replica states,
-and ensures that a workload is marked READY only when available replicas are observed.
-*/
 package adapters
 
 import (
@@ -22,6 +15,7 @@ type KubernetesClientAdapter struct {
 	mu               sync.RWMutex
 	appliedBundles   map[string]contracts.ManifestBundle
 	observedReplicas map[string]int
+	quotas           map[string]contracts.ResourceQuotaSpec
 }
 
 func NewKubernetesClientAdapter(endpoint string) *KubernetesClientAdapter {
@@ -29,6 +23,14 @@ func NewKubernetesClientAdapter(endpoint string) *KubernetesClientAdapter {
 		clusterEndpoint:  endpoint,
 		appliedBundles:   make(map[string]contracts.ManifestBundle),
 		observedReplicas: make(map[string]int),
+		quotas: map[string]contracts.ResourceQuotaSpec{
+			"default": {
+				HardCPU:    "10",
+				HardMemory: "20Gi",
+				UsedCPU:    "2",
+				UsedMemory: "4Gi",
+			},
+		},
 	}
 }
 
@@ -226,13 +228,16 @@ spec:
 		)
 	}
 
+	argoYAML := rules.GenerateArgoCDApplicationYAML(cmd, contracts.GitOpsAppConfig{})
+
 	return &contracts.ManifestBundle{
-		NamespaceYAML:     nsYAML,
-		ResourceQuotaYAML: quotaYAML,
-		LimitRangeYAML:    limitRangeYAML,
-		NetworkPolicyYAML: netpolYAML,
-		DeploymentYAML:    deployYAML,
-		PDBYAML:           pdbYAML,
+		NamespaceYAML:         nsYAML,
+		ResourceQuotaYAML:     quotaYAML,
+		LimitRangeYAML:        limitRangeYAML,
+		NetworkPolicyYAML:     netpolYAML,
+		DeploymentYAML:        deployYAML,
+		PDBYAML:               pdbYAML,
+		ArgoCDApplicationYAML: argoYAML,
 	}, nil
 }
 
@@ -293,7 +298,7 @@ func (k *KubernetesClientAdapter) GetWorkloadHealth(ctx context.Context, namespa
 		return contracts.StatusRejected, errors.NewNotFoundError("workload not found or zero replicas observed")
 	}
 
-	return contracts.StatusActive, nil
+	return contracts.StatusObservedReady, nil
 }
 
 func (k *KubernetesClientAdapter) GetAppliedManifests(ctx context.Context, namespace string, workloadName string) (*contracts.ManifestBundle, error) {
@@ -306,4 +311,33 @@ func (k *KubernetesClientAdapter) GetAppliedManifests(ctx context.Context, names
 		return nil, errors.NewNotFoundError("manifest bundle not found for workload")
 	}
 	return &bundle, nil
+}
+
+func (k *KubernetesClientAdapter) GetNamespaceQuota(ctx context.Context, namespace string) (*contracts.ResourceQuotaSpec, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if q, exists := k.quotas[namespace]; exists {
+		return &q, nil
+	}
+	defaultQuota := k.quotas["default"]
+	return &defaultQuota, nil
+}
+
+func (k *KubernetesClientAdapter) SetNamespaceQuota(namespace string, quota contracts.ResourceQuotaSpec) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.quotas[namespace] = quota
+}
+
+func (k *KubernetesClientAdapter) ObserveWorkloadReadiness(ctx context.Context, namespace string, workloadName string, desiredReplicas int) (bool, error) {
+	key := fmt.Sprintf("%s/%s", namespace, workloadName)
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	observed, exists := k.observedReplicas[key]
+	if !exists {
+		return false, nil
+	}
+	return observed >= desiredReplicas, nil
 }
