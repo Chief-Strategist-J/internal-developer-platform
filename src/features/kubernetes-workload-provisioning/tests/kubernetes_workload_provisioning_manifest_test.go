@@ -171,3 +171,4 @@ func TestKubernetesAdapterHealthCheck(t *testing.T) {
 		t.Errorf("expected non-empty deployment manifest in applied bundle")
 	}
 }
+

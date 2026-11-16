@@ -41,3 +41,4 @@ const (
 		WHERE tenant_id = $3 AND id = $4 AND version = $5
 	`
 )
+
