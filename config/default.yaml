@@ -1,11 +1,32 @@
 server:
   name: "internal-developer-platform"
-  bind_address: "0.0.0.0:8080"
-  admin_bind_address: "127.0.0.1:8081"
+  port: 8080
+  admin_port: 8081
   idle_timeout_seconds: 75
   header_timeout_seconds: 15
   drain_deadline_seconds: 15
-  propagation_wait_seconds: 5
   shutdown_deadline_seconds: 30
+
+database:
+  url: "postgres://postgres:postgres@127.0.0.1:5432/idp_db?sslmode=disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 5
+
+redis:
+  address: "127.0.0.1:6379"
+  timeout_seconds: 2
+
+auth:
+  jwt_secret: "platform-secure-jwt-signing-key-production"
+  issuer: "internal-developer-platform"
+
+kubernetes:
+  endpoint: "https://k8s-api.internal:6443"
+
+argocd:
+  endpoint: "https://argocd.internal:443"
+  token: ""
+
 endpoints:
   base_path: "/api/v1"
