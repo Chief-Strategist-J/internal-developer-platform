@@ -1,3 +1,8 @@
+/*
+Package contracts defines strongly typed data models, commands, records, and manifest envelopes
+for the Kubernetes Workload Provisioning hexagonal feature. All inputs, records, and outputs are
+strictly typecasted without raw dictionaries or untyped interfaces.
+*/
 package contracts
 
 import "time"
@@ -45,11 +50,32 @@ type WorkloadProvisionRecord struct {
 	UpdatedAt      time.Time      `json:"updatedAt"`
 }
 
+type ManifestBundle struct {
+	NamespaceYAML     string `json:"namespaceYaml"`
+	ResourceQuotaYAML string `json:"resourceQuotaYaml"`
+	LimitRangeYAML    string `json:"limitRangeYaml"`
+	NetworkPolicyYAML string `json:"networkPolicyYaml"`
+	DeploymentYAML    string `json:"deploymentYaml"`
+	PDBYAML           string `json:"pdbYaml,omitempty"`
+}
+
+type AdmissionViolation struct {
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+type AdmissionReport struct {
+	Admitted   bool                 `json:"admitted"`
+	Violations []AdmissionViolation `json:"violations,omitempty"`
+}
+
 type WorkloadProvisionResult struct {
 	Provision               WorkloadProvisionRecord `json:"provision"`
 	InjectedSecurityContext bool                    `json:"injectedSecurityContext"`
 	InjectedProbes          bool                    `json:"injectedProbes"`
 	PDBCreated              bool                    `json:"pdbCreated"`
+	Manifests               ManifestBundle          `json:"manifests"`
+	Admission               AdmissionReport         `json:"admission"`
 	Message                 string                  `json:"message"`
 }
 
