@@ -120,3 +120,82 @@ func TestGenerateArgoCDApplicationYAML(t *testing.T) {
 		t.Errorf("expected destination namespace fintech-prod in YAML")
 	}
 }
+
+
+func TestGenerateArgoRolloutYAML(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		TenantID:     "tenant-commerce",
+		Namespace:    "commerce-prod",
+		WorkloadName: "cart-service",
+		Replicas:     4,
+		Image:        "gcr.io/shop/cart:v1.2.0",
+	}
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	cfg := rules.EvaluateDefaultRolloutConfig(cmd)
+
+	yaml := rules.GenerateArgoRolloutYAML(cmd, mutations, cfg)
+	if !strings.Contains(yaml, "kind: Rollout") {
+		t.Errorf("expected kind: Rollout")
+	}
+	if !strings.Contains(yaml, "replicas: 4") {
+		t.Errorf("expected replicas: 4")
+	}
+	if !strings.Contains(yaml, "templateName: cart-service-canary-analysis") {
+		t.Errorf("expected templateName cart-service-canary-analysis")
+	}
+	if !strings.Contains(yaml, "setWeight: 10") {
+		t.Errorf("expected canary step setWeight: 10")
+	}
+}
+
+func TestGenerateAnalysisTemplateYAML(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		TenantID:     "tenant-commerce",
+		Namespace:    "commerce-prod",
+		WorkloadName: "cart-service",
+	}
+	cfg := rules.EvaluateDefaultRolloutConfig(cmd)
+
+	yaml := rules.GenerateAnalysisTemplateYAML(cmd, cfg.AnalysisMetrics)
+	if !strings.Contains(yaml, "kind: AnalysisTemplate") {
+		t.Errorf("expected kind: AnalysisTemplate")
+	}
+	if !strings.Contains(yaml, "name: cart-service-canary-analysis") {
+		t.Errorf("expected name cart-service-canary-analysis")
+	}
+	if !strings.Contains(yaml, "name: success-rate") {
+		t.Errorf("expected success-rate metric")
+	}
+	if !strings.Contains(yaml, "name: latency-p99") {
+		t.Errorf("expected latency-p99 metric")
+	}
+}
+
+func TestGenerateMeshAuthorizationPolicyYAML(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		TenantID:     "tenant-sec",
+		Namespace:    "security-prod",
+		WorkloadName: "vault-gateway",
+	}
+	secCfg := contracts.MeshSecurityConfig{
+		MtlsMode: "STRICT",
+		AllowedPrincipals: []string{
+			"cluster.local/ns/security-prod/sa/trusted-client",
+		},
+		AllowedMethods: []string{"GET", "POST"},
+	}
+
+	yaml := rules.GenerateMeshAuthorizationPolicyYAML(cmd, secCfg)
+	if !strings.Contains(yaml, "kind: AuthorizationPolicy") {
+		t.Errorf("expected kind: AuthorizationPolicy")
+	}
+	if !strings.Contains(yaml, `security.istio.io/mtls: "STRICT"`) {
+		t.Errorf("expected STRICT mtls label")
+	}
+	if !strings.Contains(yaml, "trusted-client") {
+		t.Errorf("expected trusted-client principal in rules")
+	}
+	if !strings.Contains(yaml, "vault-gateway") {
+		t.Errorf("expected workload principal in rules")
+	}
+}

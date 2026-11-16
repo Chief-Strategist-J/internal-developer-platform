@@ -353,3 +353,225 @@ spec:
         - /spec/replicas
 `, cmd.WorkloadName, cmd.TenantID, project, repo, revision, path, server, cmd.Namespace)
 }
+
+
+func EvaluateDefaultRolloutConfig(cmd contracts.WorkloadProvisionCommand) contracts.RolloutConfig {
+	strategy := cmd.Strategy
+	if strategy == "" {
+		strategy = contracts.StrategyCanary
+	}
+
+	return contracts.RolloutConfig{
+		Strategy: strategy,
+		CanarySteps: []contracts.CanaryStep{
+			{SetWeight: 10, PauseDurationSeconds: 60},
+			{SetWeight: 25, PauseDurationSeconds: 120},
+			{SetWeight: 50, PauseDurationSeconds: 180},
+			{SetWeight: 100, PauseDurationSeconds: 0},
+		},
+		AnalysisMetrics: []contracts.AnalysisMetric{
+			{
+				Name:             "success-rate",
+				Interval:         "30s",
+				SuccessCondition: "result[0] >= 0.99",
+				FailureLimit:     3,
+				Query:            `sum(rate(istio_requests_total{reporter="destination",response_code!~"5.*"}[1m])) / sum(rate(istio_requests_total{reporter="destination"}[1m]))`,
+			},
+			{
+				Name:             "latency-p99",
+				Interval:         "30s",
+				SuccessCondition: "result[0] <= 500",
+				FailureLimit:     3,
+				Query:            `histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket{reporter="destination"}[1m])) by (le))`,
+			},
+		},
+	}
+}
+
+func GenerateAnalysisTemplateYAML(cmd contracts.WorkloadProvisionCommand, metrics []contracts.AnalysisMetric) string {
+	var metricsBuilder strings.Builder
+	for _, m := range metrics {
+		metricsBuilder.WriteString(fmt.Sprintf(`    - name: %s
+      interval: %s
+      successCondition: %s
+      failureLimit: %d
+      provider:
+        prometheus:
+          address: http://prometheus-k8s.monitoring.svc:9090
+          query: %s
+`, m.Name, m.Interval, m.SuccessCondition, m.FailureLimit, m.Query))
+	}
+
+	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: %s-canary-analysis
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/part-of: %s
+spec:
+  metrics:
+%s`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID, metricsBuilder.String())
+}
+
+func GenerateArgoRolloutYAML(cmd contracts.WorkloadProvisionCommand, mutations WorkloadMutations, rolloutCfg contracts.RolloutConfig) string {
+	var stepsBuilder strings.Builder
+	for _, step := range rolloutCfg.CanarySteps {
+		stepsBuilder.WriteString(fmt.Sprintf(`        - setWeight: %d
+`, step.SetWeight))
+		if step.PauseDurationSeconds > 0 {
+			stepsBuilder.WriteString(fmt.Sprintf(`        - pause: { duration: %ds }
+`, step.PauseDurationSeconds))
+		}
+	}
+
+	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/part-of: %s
+spec:
+  replicas: %d
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  strategy:
+    canary:
+      analysis:
+        templates:
+          - templateName: %s-canary-analysis
+        args:
+          - name: service-name
+            value: %s
+      steps:
+%s  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: %s
+        app.kubernetes.io/part-of: %s
+    spec:
+      securityContext:
+        runAsNonRoot: %t
+        runAsUser: %d
+        runAsGroup: %d
+        seccompProfile:
+          type: %s
+      containers:
+      - name: %s
+        image: %s
+        securityContext:
+          allowPrivilegeEscalation: %t
+          readOnlyRootFilesystem: %t
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: "%s"
+            memory: "%s"
+          limits:
+            cpu: "%s"
+            memory: "%s"
+        startupProbe:
+          httpGet:
+            path: %s
+            port: %d
+        livenessProbe:
+          httpGet:
+            path: %s
+            port: %d
+        readinessProbe:
+          httpGet:
+            path: %s
+            port: %d
+`,
+		cmd.WorkloadName,
+		cmd.Namespace,
+		cmd.WorkloadName,
+		cmd.TenantID,
+		cmd.Replicas,
+		cmd.WorkloadName,
+		cmd.WorkloadName,
+		cmd.WorkloadName,
+		stepsBuilder.String(),
+		cmd.WorkloadName,
+		cmd.TenantID,
+		mutations.SecurityContext.RunAsNonRoot,
+		mutations.SecurityContext.RunAsUser,
+		mutations.SecurityContext.RunAsGroup,
+		mutations.SecurityContext.SeccompProfileType,
+		cmd.WorkloadName,
+		cmd.Image,
+		mutations.SecurityContext.AllowPrivilegeEscalation,
+		mutations.SecurityContext.ReadOnlyRootFilesystem,
+		mutations.CPURequest,
+		mutations.MemoryRequest,
+		mutations.CPULimit,
+		mutations.MemoryLimit,
+		mutations.Probes.StartupPath,
+		mutations.Probes.Port,
+		mutations.Probes.LivenessPath,
+		mutations.Probes.Port,
+		mutations.Probes.ReadinessPath,
+		mutations.Probes.Port,
+	)
+}
+
+func GenerateMeshAuthorizationPolicyYAML(cmd contracts.WorkloadProvisionCommand, secCfg contracts.MeshSecurityConfig) string {
+	mode := secCfg.MtlsMode
+	if mode == "" {
+		mode = "STRICT"
+	}
+
+	principal := fmt.Sprintf("cluster.local/ns/%s/sa/%s", cmd.Namespace, cmd.WorkloadName)
+	principals := []string{principal}
+	for _, p := range secCfg.AllowedPrincipals {
+		if p != "" && p != principal {
+			principals = append(principals, p)
+		}
+	}
+
+	methods := secCfg.AllowedMethods
+	if len(methods) == 0 {
+		methods = []string{"GET", "POST", "PUT", "DELETE"}
+	}
+
+	var principalsBuilder strings.Builder
+	for _, p := range principals {
+		principalsBuilder.WriteString(fmt.Sprintf(`        - "%s"
+`, p))
+	}
+
+	var methodsBuilder strings.Builder
+	for _, m := range methods {
+		methodsBuilder.WriteString(fmt.Sprintf(`        - "%s"
+`, m))
+	}
+
+	return fmt.Sprintf(`apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: %s-authz
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/part-of: %s
+    security.istio.io/mtls: "%s"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+%s    to:
+    - operation:
+        methods:
+%s`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID, mode, cmd.WorkloadName, principalsBuilder.String(), methodsBuilder.String())
+}
