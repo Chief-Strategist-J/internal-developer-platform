@@ -125,7 +125,7 @@ func (h *KubernetesWorkloadHandler) writeError(w http.ResponseWriter, status int
 	resp := types.ApiResponse{
 		Success:    false,
 		StatusCode: status,
-		Error: &types.ApiError{
+		Error: &types.ResponseError{
 			Code:    code,
 			Message: msg,
 		},
