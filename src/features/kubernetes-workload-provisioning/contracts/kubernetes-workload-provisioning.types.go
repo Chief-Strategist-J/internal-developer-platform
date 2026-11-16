@@ -15,6 +15,39 @@ const (
 	StatusRejected      WorkloadStatus = "REJECTED"
 )
 
+type DeploymentStrategy string
+
+const (
+	StrategyRollingUpdate DeploymentStrategy = "RollingUpdate"
+	StrategyRecreate      DeploymentStrategy = "Recreate"
+	StrategyCanary        DeploymentStrategy = "Canary"
+)
+
+type CanaryStep struct {
+	SetWeight            int `json:"setWeight"`
+	PauseDurationSeconds int `json:"pauseDurationSeconds,omitempty"`
+}
+
+type AnalysisMetric struct {
+	Name             string `json:"name"`
+	Interval         string `json:"interval"`
+	SuccessCondition string `json:"successCondition"`
+	FailureLimit     int    `json:"failureLimit"`
+	Query            string `json:"query"`
+}
+
+type RolloutConfig struct {
+	Strategy        DeploymentStrategy `json:"strategy"`
+	CanarySteps     []CanaryStep       `json:"canarySteps,omitempty"`
+	AnalysisMetrics []AnalysisMetric   `json:"analysisMetrics,omitempty"`
+}
+
+type MeshSecurityConfig struct {
+	MtlsMode          string   `json:"mtlsMode"`
+	AllowedPrincipals []string `json:"allowedPrincipals,omitempty"`
+	AllowedMethods    []string `json:"allowedMethods,omitempty"`
+}
+
 type ResourceQuotaSpec struct {
 	HardCPU    string `json:"hardCpu"`
 	HardMemory string `json:"hardMemory"`
@@ -38,46 +71,51 @@ type GitOpsAppConfig struct {
 }
 
 type WorkloadProvisionCommand struct {
-	ID             string `json:"id"`
-	TenantID       string `json:"tenantId"`
-	ServiceID      string `json:"serviceId"`
-	Namespace      string `json:"namespace"`
-	WorkloadName   string `json:"workloadName"`
-	Image          string `json:"image"`
-	CPURequest     string `json:"cpuRequest"`
-	CPULimit       string `json:"cpuLimit"`
-	MemoryRequest  string `json:"memoryRequest"`
-	MemoryLimit    string `json:"memoryLimit"`
-	Replicas       int    `json:"replicas"`
-	IdempotencyKey string `json:"idempotencyKey"`
+	ID             string             `json:"id"`
+	TenantID       string             `json:"tenantId"`
+	ServiceID      string             `json:"serviceId"`
+	Namespace      string             `json:"namespace"`
+	WorkloadName   string             `json:"workloadName"`
+	Image          string             `json:"image"`
+	CPURequest     string             `json:"cpuRequest"`
+	CPULimit       string             `json:"cpuLimit"`
+	MemoryRequest  string             `json:"memoryRequest"`
+	MemoryLimit    string             `json:"memoryLimit"`
+	Replicas       int                `json:"replicas"`
+	Strategy       DeploymentStrategy `json:"strategy,omitempty"`
+	IdempotencyKey string             `json:"idempotencyKey"`
 }
 
 type WorkloadProvisionRecord struct {
-	ID             string         `json:"id"`
-	TenantID       string         `json:"tenantId"`
-	ServiceID      string         `json:"serviceId"`
-	Namespace      string         `json:"namespace"`
-	WorkloadName   string         `json:"workloadName"`
-	CPURequest     string         `json:"cpuRequest"`
-	CPULimit       string         `json:"cpuLimit"`
-	MemoryRequest  string         `json:"memoryRequest"`
-	MemoryLimit    string         `json:"memoryLimit"`
-	Replicas       int            `json:"replicas"`
-	Status         WorkloadStatus `json:"status"`
-	IdempotencyKey string         `json:"idempotencyKey"`
-	Version        int64          `json:"version"`
-	CreatedAt      time.Time      `json:"createdAt"`
-	UpdatedAt      time.Time      `json:"updatedAt"`
+	ID             string             `json:"id"`
+	TenantID       string             `json:"tenantId"`
+	ServiceID      string             `json:"serviceId"`
+	Namespace      string             `json:"namespace"`
+	WorkloadName   string             `json:"workloadName"`
+	CPURequest     string             `json:"cpuRequest"`
+	CPULimit       string             `json:"cpuLimit"`
+	MemoryRequest  string             `json:"memoryRequest"`
+	MemoryLimit    string             `json:"memoryLimit"`
+	Replicas       int                `json:"replicas"`
+	Strategy       DeploymentStrategy `json:"strategy"`
+	Status         WorkloadStatus     `json:"status"`
+	IdempotencyKey string             `json:"idempotencyKey"`
+	Version        int64              `json:"version"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	UpdatedAt      time.Time          `json:"updatedAt"`
 }
 
 type ManifestBundle struct {
-	NamespaceYAML         string `json:"namespaceYaml"`
-	ResourceQuotaYAML     string `json:"resourceQuotaYaml"`
-	LimitRangeYAML        string `json:"limitRangeYaml"`
-	NetworkPolicyYAML     string `json:"networkPolicyYaml"`
-	DeploymentYAML        string `json:"deploymentYaml"`
-	PDBYAML               string `json:"pdbYaml,omitempty"`
-	ArgoCDApplicationYAML string `json:"argocdApplicationYaml,omitempty"`
+	NamespaceYAML           string `json:"namespaceYaml"`
+	ResourceQuotaYAML       string `json:"resourceQuotaYaml"`
+	LimitRangeYAML          string `json:"limitRangeYaml"`
+	NetworkPolicyYAML       string `json:"networkPolicyYaml"`
+	DeploymentYAML          string `json:"deploymentYaml"`
+	PDBYAML                 string `json:"pdbYaml,omitempty"`
+	ArgoCDApplicationYAML   string `json:"argocdApplicationYaml,omitempty"`
+	RolloutYAML             string `json:"rolloutYaml,omitempty"`
+	AnalysisTemplateYAML    string `json:"analysisTemplateYaml,omitempty"`
+	AuthorizationPolicyYAML string `json:"authorizationPolicyYaml,omitempty"`
 }
 
 type AdmissionViolation struct {
