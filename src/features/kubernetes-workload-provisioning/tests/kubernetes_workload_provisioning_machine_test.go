@@ -20,14 +20,24 @@ func TestTransitionWorkloadStateFlow(t *testing.T) {
 		t.Fatalf("expected ADMITTED, got %v, err=%v", s2, err)
 	}
 
-	s3, err := machines.TransitionWorkloadState(s2, machines.EventActivate)
-	if err != nil || s3 != contracts.StatusActive {
-		t.Fatalf("expected ACTIVE, got %v, err=%v", s3, err)
+	s3, err := machines.TransitionWorkloadState(s2, machines.EventApply)
+	if err != nil || s3 != contracts.StatusProvisioning {
+		t.Fatalf("expected PROVISIONING, got %v, err=%v", s3, err)
 	}
 
-	s4, err := machines.TransitionWorkloadState(s3, machines.EventReject)
-	if err != nil || s4 != contracts.StatusRejected {
-		t.Fatalf("expected REJECTED, got %v, err=%v", s4, err)
+	s4, err := machines.TransitionWorkloadState(s3, machines.EventReplicasReady)
+	if err != nil || s4 != contracts.StatusObservedReady {
+		t.Fatalf("expected OBSERVED_READY, got %v, err=%v", s4, err)
+	}
+
+	s5, err := machines.TransitionWorkloadState(s4, machines.EventDegrade)
+	if err != nil || s5 != contracts.StatusDegraded {
+		t.Fatalf("expected DEGRADED, got %v, err=%v", s5, err)
+	}
+
+	s6, err := machines.TransitionWorkloadState(s5, machines.EventReject)
+	if err != nil || s6 != contracts.StatusRejected {
+		t.Fatalf("expected REJECTED, got %v, err=%v", s6, err)
 	}
 }
 
@@ -38,4 +48,3 @@ func TestTransitionWorkloadStateInvalid(t *testing.T) {
 		t.Errorf("expected error activating unvalidated workload")
 	}
 }
-
