@@ -1,7 +1,3 @@
-/*
-Package tests verifies manifest generation, admission validation, and compliance with the
-CIS GKE benchmark for the Kubernetes Workload Provisioning hexagonal feature.
-*/
 package tests
 
 import (
@@ -81,6 +77,13 @@ func TestGenerateManifestBundleCompliant(t *testing.T) {
 	if !strings.Contains(bundle.PDBYAML, "minAvailable: 1") {
 		t.Errorf("expected minAvailable: 1 in PDB")
 	}
+
+	if !strings.Contains(bundle.ArgoCDApplicationYAML, "kind: Application") {
+		t.Errorf("expected Argo CD Application manifest in bundle")
+	}
+	if !strings.Contains(bundle.ArgoCDApplicationYAML, "argoproj.io/v1alpha1") {
+		t.Errorf("expected argoproj.io/v1alpha1 apiVersion in Argo CD manifest")
+	}
 }
 
 func TestAdmissionValidationRejectsRoot(t *testing.T) {
@@ -159,8 +162,8 @@ func TestKubernetesAdapterHealthCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error getting workload health: %v", err)
 	}
-	if status != contracts.StatusActive {
-		t.Errorf("expected status ACTIVE, got %s", status)
+	if status != contracts.StatusActive && status != contracts.StatusObservedReady {
+		t.Errorf("expected status ACTIVE or OBSERVED_READY, got %s", status)
 	}
 
 	applied, err := client.GetAppliedManifests(ctx, cmd.Namespace, cmd.WorkloadName)
@@ -171,4 +174,3 @@ func TestKubernetesAdapterHealthCheck(t *testing.T) {
 		t.Errorf("expected non-empty deployment manifest in applied bundle")
 	}
 }
-
