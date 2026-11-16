@@ -136,3 +136,4 @@ func TestGetWorkloadHttpSuccess(t *testing.T) {
 		t.Errorf("expected success: true")
 	}
 }
+

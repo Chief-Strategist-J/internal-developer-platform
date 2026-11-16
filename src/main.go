@@ -1,196 +1,129 @@
 package main
 
 import (
-	"context"
-	"database/sql"
-	"flag"
-	"fmt"
-	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 	"time"
-
-	_ "github.com/lib/pq"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/middleware"
 	"internal-developer-platform/src/api/rest/v1/routers"
+	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
 	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
 	healthService "internal-developer-platform/src/features/health-checks/service"
+	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	"internal-developer-platform/src/infra/chassis"
 )
 
-type Config struct {
-	PublicAddr string
-	AdminAddr  string
+type AppServices struct {
+	RBACRouter     *routers.RBACRouter
+	CatalogRouter  *routers.ServiceCatalogRouter
+	GitOpsRouter   *routers.GitOpsReconciliationRouter
+	WorkloadRouter *routers.KubernetesWorkloadRouter
+	HealthRouter   *routers.HealthCheckRouter
 }
 
 func main() {
-	var configPath string
-	var validateOnly bool
-	flag.StringVar(&configPath, "config", "config/default.yaml", "path to configuration file")
-	flag.BoolVar(&validateOnly, "validate-only", false, "validate configuration and desired state without starting")
-	flag.Parse()
+	os.Exit(chassis.Run(describeService(), os.Args[1:], os.Environ()))
+}
 
-	if validateOnly {
-		fmt.Println("Configuration and desired state valid")
-		os.Exit(0)
+func describeService() chassis.ServiceSpec {
+	return chassis.ServiceSpec{
+		Identity: func() chassis.Identity {
+			return chassis.Identity{
+				Name:    "internal-developer-platform",
+				Team:    "platform-core",
+				Tier:    "tier-1",
+				Version: "1.0.0",
+			}
+		},
+		Needs: func() chassis.InfrastructureNeeds {
+			return chassis.InfrastructureNeeds{
+				Database: true,
+				Redis:    true,
+				Producer: false,
+				Consumer: false,
+				Flags:    false,
+			}
+		},
+		DependsOn: func() []chassis.DownstreamDependency {
+			return []chassis.DownstreamDependency{
+				{Name: "kubernetes-api", Criticality: chassis.CriticalitySoft},
+				{Name: "argocd-server", Criticality: chassis.CriticalitySoft},
+			}
+		},
+		Contracts: func() chassis.ServiceContracts {
+			return chassis.ServiceContracts{
+				ApiSchemas:     []string{"contracts/openapi/v1.yaml"},
+				ProducedTopics: nil,
+				ConsumedTopics: nil,
+			}
+		},
+		BuildServices: func(deps chassis.Dependencies) (interface{}, error) {
+			revocationRepo := rbacAdapters.NewRedisRevocationAdapter(deps.Config.Redis.Address, time.Duration(deps.Config.Redis.TimeoutSeconds)*time.Second)
+			tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(deps.Config.Auth.JWTSecret, deps.Config.Auth.Issuer)
+			rbacSvc := rbacService.NewRBACService(tokenVerifier, revocationRepo)
+			rbacMW := middleware.NewRBACMiddleware(rbacSvc)
+			rbacHandler := handlers.NewRBACHandler(rbacSvc)
+			rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
+
+			var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
+			var gitopsStore gitopsreconciliation.StorePort
+			var workloadStore kubernetesworkloadprovisioning.StorePort
+
+			if deps.DB != nil {
+				catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
+				gitopsStore = gitopsreconciliation.NewPostgresStore(deps.DB)
+				workloadStore = kubernetesworkloadprovisioning.NewPostgresStore(deps.DB)
+			} else {
+				catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
+				gitopsStore = gitopsreconciliation.NewMemoryStore()
+				workloadStore = kubernetesworkloadprovisioning.NewMemoryStore()
+			}
+
+			catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
+			catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
+			catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
+
+			argoClient := gitopsreconciliation.NewArgoCDClient(deps.Config.ArgoCD.Endpoint, deps.Config.ArgoCD.Token)
+			gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
+			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
+			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
+
+			k8sClient := kubernetesworkloadprovisioning.NewK8sClient(deps.Config.Kubernetes.Endpoint)
+			workloadSvc := kubernetesworkloadprovisioning.NewService(workloadStore, k8sClient)
+			workloadHandler := handlers.NewKubernetesWorkloadHandler(workloadSvc)
+			workloadRouter := routers.NewKubernetesWorkloadRouter(workloadHandler, rbacMW)
+
+			healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
+			healthSvc := healthService.NewHealthCheckService(healthRepo)
+			healthHandler := handlers.NewHealthCheckHandler(healthSvc)
+			healthRouter := routers.NewHealthCheckRouter(healthHandler)
+
+			return &AppServices{
+				RBACRouter:     rbacRouter,
+				CatalogRouter:  catalogRouter,
+				GitOpsRouter:   gitopsRouter,
+				WorkloadRouter: workloadRouter,
+				HealthRouter:   healthRouter,
+			}, nil
+		},
+		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
+			appServices := services.(*AppServices)
+			appServices.RBACRouter.RegisterRoutes(mux)
+			appServices.CatalogRouter.RegisterRoutes(mux)
+			appServices.GitOpsRouter.RegisterRoutes(mux)
+			appServices.WorkloadRouter.RegisterRoutes(mux)
+			appServices.HealthRouter.RegisterPublicRoutes(mux)
+		},
+		RegisterAdminRoutes: func(mux *http.ServeMux, services interface{}) {
+			appServices := services.(*AppServices)
+			appServices.HealthRouter.RegisterAdminRoutes(mux)
+		},
 	}
-
-	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	publicAddr := os.Getenv("PORT")
-	if publicAddr == "" {
-		publicAddr = "8081"
-	}
-	if !strings.Contains(publicAddr, ":") {
-		publicAddr = ":" + publicAddr
-	}
-
-	adminAddr := os.Getenv("ADMIN_PORT")
-	if adminAddr == "" {
-		adminAddr = "9091"
-	}
-	if !strings.Contains(adminAddr, ":") {
-		adminAddr = "127.0.0.1:" + adminAddr
-	}
-
-	cfg := Config{
-		PublicAddr: publicAddr,
-		AdminAddr:  adminAddr,
-	}
-
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "127.0.0.1:6379"
-	}
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "platform-secure-jwt-signing-key-production"
-	}
-
-	revocationRepo := rbacAdapters.NewRedisRevocationAdapter(redisAddr, 2*time.Second)
-	tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(jwtSecret, "internal-developer-platform")
-	rbacSvc := rbacService.NewRBACService(tokenVerifier, revocationRepo)
-	rbacMW := middleware.NewRBACMiddleware(rbacSvc)
-	rbacHandler := handlers.NewRBACHandler(rbacSvc)
-	rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
-
-	var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
-	var gitopsStore gitopsreconciliation.StorePort
-	var workloadStore kubernetesworkloadprovisioning.StorePort
-	var dbConn *sql.DB
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL != "" {
-		var err error
-		dbConn, err = sql.Open("postgres", databaseURL)
-		if err != nil {
-			log.Fatalf("failed to connect to database: %v", err)
-		}
-		dbConn.SetMaxOpenConns(25)
-		dbConn.SetMaxIdleConns(5)
-		dbConn.SetConnMaxLifetime(5 * time.Minute)
-		if err := dbConn.Ping(); err != nil {
-			log.Fatalf("database ping failed: %v", err)
-		}
-		log.Println("[INFO] Successfully connected to live PostgreSQL database")
-		catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(dbConn)
-		gitopsStore = gitopsreconciliation.NewPostgresStore(dbConn)
-		workloadStore = kubernetesworkloadprovisioning.NewPostgresStore(dbConn)
-	} else {
-		log.Println("[INFO] DATABASE_URL not set; using memory catalog adapter")
-		catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
-		gitopsStore = gitopsreconciliation.NewMemoryStore()
-		workloadStore = kubernetesworkloadprovisioning.NewMemoryStore()
-	}
-
-	catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
-	catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
-	catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
-
-	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", os.Getenv("ARGOCD_TOKEN"))
-	gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
-	gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
-	gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
-
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	workloadSvc := kubernetesworkloadprovisioning.NewService(workloadStore, k8sClient)
-	workloadHandler := handlers.NewKubernetesWorkloadHandler(workloadSvc)
-	workloadRouter := routers.NewKubernetesWorkloadRouter(workloadHandler, rbacMW)
-
-	healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
-	healthSvc := healthService.NewHealthCheckService(healthRepo)
-	healthHandler := handlers.NewHealthCheckHandler(healthSvc)
-	healthRouter := routers.NewHealthCheckRouter(healthHandler)
-
-	adminMux := http.NewServeMux()
-	healthRouter.RegisterAdminRoutes(adminMux)
-
-	adminServer := &http.Server{
-		Addr:         cfg.AdminAddr,
-		Handler:      adminMux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
-	publicMux := http.NewServeMux()
-	rbacRouter.RegisterRoutes(publicMux)
-	catalogRouter.RegisterRoutes(publicMux)
-	gitopsRouter.RegisterRoutes(publicMux)
-	workloadRouter.RegisterRoutes(publicMux)
-	healthRouter.RegisterPublicRoutes(publicMux)
-
-	publicServer := &http.Server{
-		Addr:         cfg.PublicAddr,
-		Handler:      publicMux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  75 * time.Second,
-	}
-
-	fatalChan := make(chan error, 2)
-
-	go func() {
-		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fatalChan <- fmt.Errorf("admin listener failed: %w", err)
-		}
-	}()
-
-	go func() {
-		if err := publicServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fatalChan <- fmt.Errorf("public listener failed: %w", err)
-		}
-	}()
-
-	log.Println("Server running (Phase 7: Run)")
-
-	select {
-	case <-rootCtx.Done():
-		log.Println("Termination signal received, beginning Phase 8: Shutdown")
-	case err := <-fatalChan:
-		log.Printf("Fatal runtime error: %v, shutting down\n", err)
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	if err := publicServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Public server shutdown error: %v\n", err)
-	}
-	if err := adminServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Admin server shutdown error: %v\n", err)
-	}
-
-	log.Println("Shutdown complete, exiting with code 0")
-	os.Exit(0)
 }
