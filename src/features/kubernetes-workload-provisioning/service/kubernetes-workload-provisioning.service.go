@@ -69,6 +69,11 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 
 	_ = workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
 
+	strategy := cmd.Strategy
+	if strategy == "" {
+		strategy = contracts.StrategyCanary
+	}
+
 	now := time.Now().UTC()
 	record := contracts.WorkloadProvisionRecord{
 		ID:             cmd.ID,
@@ -81,6 +86,7 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		MemoryRequest:  mutations.MemoryRequest,
 		MemoryLimit:    mutations.MemoryLimit,
 		Replicas:       cmd.Replicas,
+		Strategy:       strategy,
 		Status:         contracts.StatusSubmitted,
 		IdempotencyKey: cmd.IdempotencyKey,
 		Version:        1,

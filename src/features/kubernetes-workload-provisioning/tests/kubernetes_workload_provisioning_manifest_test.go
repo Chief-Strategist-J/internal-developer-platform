@@ -84,6 +84,25 @@ func TestGenerateManifestBundleCompliant(t *testing.T) {
 	if !strings.Contains(bundle.ArgoCDApplicationYAML, "argoproj.io/v1alpha1") {
 		t.Errorf("expected argoproj.io/v1alpha1 apiVersion in Argo CD manifest")
 	}
+
+	if !strings.Contains(bundle.RolloutYAML, "kind: Rollout") {
+		t.Errorf("expected kind: Rollout in bundle")
+	}
+	if !strings.Contains(bundle.RolloutYAML, "setWeight: 10") {
+		t.Errorf("expected canary steps in rollout")
+	}
+	if !strings.Contains(bundle.AnalysisTemplateYAML, "kind: AnalysisTemplate") {
+		t.Errorf("expected kind: AnalysisTemplate in bundle")
+	}
+	if !strings.Contains(bundle.AnalysisTemplateYAML, "success-rate") {
+		t.Errorf("expected success-rate metric in analysis template")
+	}
+	if !strings.Contains(bundle.AuthorizationPolicyYAML, "kind: AuthorizationPolicy") {
+		t.Errorf("expected kind: AuthorizationPolicy in bundle")
+	}
+	if !strings.Contains(bundle.AuthorizationPolicyYAML, `security.istio.io/mtls: "STRICT"`) {
+		t.Errorf("expected mTLS STRICT in authorization policy")
+	}
 }
 
 func TestAdmissionValidationRejectsRoot(t *testing.T) {
