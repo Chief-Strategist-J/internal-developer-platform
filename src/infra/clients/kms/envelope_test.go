@@ -1,4 +1,4 @@
-package envelope
+package kms
 
 import (
 	"context"
@@ -98,3 +98,4 @@ func TestEnvelopeEncryptionValidationErrors(t *testing.T) {
 		t.Fatalf("expected error for nil envelope")
 	}
 }
+
