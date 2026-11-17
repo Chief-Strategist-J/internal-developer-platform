@@ -1,4 +1,4 @@
-package envelope
+package kms
 
 import (
 	"context"
@@ -134,3 +134,4 @@ func (e *EnvelopeEncryptionEngine) DecryptSecret(ctx context.Context, env *Encry
 		KeyURI:    env.KeyURI,
 	}, nil
 }
+

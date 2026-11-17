@@ -117,3 +117,4 @@ func TestGenerateCertificateValidationErrors(t *testing.T) {
 		t.Fatalf("expected error for empty issuer spec")
 	}
 }
+

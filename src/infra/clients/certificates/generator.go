@@ -142,3 +142,4 @@ spec:
 
 	return "", errors.NewValidationError("unsupported issuer type: " + string(spec.Type))
 }
+

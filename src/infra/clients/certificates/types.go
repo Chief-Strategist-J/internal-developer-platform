@@ -46,3 +46,4 @@ type IssuerSpec struct {
 	Email              string
 	CAServerSecretName string
 }
+

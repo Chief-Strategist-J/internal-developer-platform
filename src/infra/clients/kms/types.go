@@ -1,4 +1,4 @@
-package envelope
+package kms
 
 import (
 	"time"
@@ -24,3 +24,4 @@ type DecryptedPayload struct {
 	Plaintext []byte
 	KeyURI    string
 }
+
