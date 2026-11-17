@@ -7,11 +7,13 @@ import (
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/shared/errors"
 )
 
 type KubernetesClientAdapter struct {
 	clusterEndpoint  string
+	client           *kubernetes.KubernetesClient
 	mu               sync.RWMutex
 	appliedBundles   map[string]contracts.ManifestBundle
 	observedReplicas map[string]int
@@ -21,6 +23,7 @@ type KubernetesClientAdapter struct {
 func NewKubernetesClientAdapter(endpoint string) *KubernetesClientAdapter {
 	return &KubernetesClientAdapter{
 		clusterEndpoint:  endpoint,
+		client:           nil,
 		appliedBundles:   make(map[string]contracts.ManifestBundle),
 		observedReplicas: make(map[string]int),
 		quotas: map[string]contracts.ResourceQuotaSpec{
@@ -32,6 +35,12 @@ func NewKubernetesClientAdapter(endpoint string) *KubernetesClientAdapter {
 			},
 		},
 	}
+}
+
+func NewLiveKubernetesClientAdapter(client *kubernetes.KubernetesClient) *KubernetesClientAdapter {
+	adapter := NewKubernetesClientAdapter("in-cluster")
+	adapter.client = client
+	return adapter
 }
 
 func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (*contracts.ManifestBundle, error) {
@@ -321,6 +330,19 @@ func (k *KubernetesClientAdapter) GetAppliedManifests(ctx context.Context, names
 }
 
 func (k *KubernetesClientAdapter) GetNamespaceQuota(ctx context.Context, namespace string) (*contracts.ResourceQuotaSpec, error) {
+	if k.client != nil {
+		quota, err := k.client.GetResourceQuota(ctx, namespace, "compute-quota")
+		if err == nil && quota != nil {
+			spec := contracts.ResourceQuotaSpec{
+				HardCPU:    quota.Status.Hard.Cpu().String(),
+				HardMemory: quota.Status.Hard.Memory().String(),
+				UsedCPU:    quota.Status.Used.Cpu().String(),
+				UsedMemory: quota.Status.Used.Memory().String(),
+			}
+			return &spec, nil
+		}
+	}
+
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
@@ -338,6 +360,13 @@ func (k *KubernetesClientAdapter) SetNamespaceQuota(namespace string, quota cont
 }
 
 func (k *KubernetesClientAdapter) ObserveWorkloadReadiness(ctx context.Context, namespace string, workloadName string, desiredReplicas int) (bool, error) {
+	if k.client != nil {
+		ready, err := k.client.GetDeploymentReadyReplicas(ctx, namespace, workloadName)
+		if err == nil {
+			return int(ready) >= desiredReplicas, nil
+		}
+	}
+
 	key := fmt.Sprintf("%s/%s", namespace, workloadName)
 	k.mu.RLock()
 	defer k.mu.RUnlock()
