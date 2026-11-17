@@ -37,10 +37,14 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	)
 	defer span.End()
 
+	_, valSpan := tracer.StartSpan(ctx, "kubernetes.workload.validate_command")
 	if err := contracts.ValidateWorkloadCommand(cmd); err != nil {
+		observability.RecordError(valSpan, err)
+		valSpan.End()
 		observability.RecordError(span, err)
 		return nil, err
 	}
+	valSpan.End()
 
 	existing, err := s.store.GetByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey)
 	if err != nil {
@@ -67,23 +71,46 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		}, nil
 	}
 
+	_, mutSpan := tracer.StartSpan(ctx, "kubernetes.workload.evaluate_mutations")
 	mutations := rules.EvaluateWorkloadMutations(cmd)
+	mutSpan.SetAttributes(
+		attribute.String("mutated.cpu_request", mutations.CPURequest),
+		attribute.String("mutated.memory_request", mutations.MemoryRequest),
+		attribute.Bool("mutated.pdb_required", mutations.PDBRequired),
+	)
+	mutSpan.End()
 
+	_, quotaSpan := tracer.StartSpan(ctx, "kubernetes.workload.verify_quota_headroom",
+		attribute.String("namespace", cmd.Namespace),
+	)
 	quota, qErr := s.k8sClient.GetNamespaceQuota(ctx, cmd.Namespace)
-	if qErr == nil && quota != nil {
+	if qErr != nil {
+		observability.RecordError(quotaSpan, qErr)
+		quotaSpan.End()
+		observability.RecordError(span, qErr)
+		return nil, qErr
+	}
+	if quota != nil {
 		headroom := rules.EvaluateResourceQuotaHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas)
 		if !headroom.SufficientHeadroom {
 			quotaErr := errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
+			observability.RecordError(quotaSpan, quotaErr)
+			quotaSpan.End()
 			observability.RecordError(span, quotaErr)
 			return nil, quotaErr
 		}
 	}
+	quotaSpan.End()
 
+	_, admSpan := tracer.StartSpan(ctx, "kubernetes.workload.validate_admission")
 	admissionReport, err := rules.ValidateAdmission(cmd, mutations)
 	if err != nil {
+		observability.RecordError(admSpan, err)
+		admSpan.End()
 		observability.RecordError(span, err)
 		return nil, err
 	}
+	admSpan.End()
 
 	_ = workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
 
@@ -117,8 +144,11 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		return nil, err
 	}
 
+	_, smSpan := tracer.StartSpan(ctx, "kubernetes.workload.state_machine_transition")
 	validatedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventValidate)
 	if err != nil {
+		observability.RecordError(smSpan, err)
+		smSpan.End()
 		observability.RecordError(span, err)
 		return nil, err
 	}
@@ -126,6 +156,8 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 
 	admittedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventAdmit)
 	if err != nil {
+		observability.RecordError(smSpan, err)
+		smSpan.End()
 		observability.RecordError(span, err)
 		return nil, err
 	}
@@ -133,12 +165,22 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 
 	provisioningStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventApply)
 	if err != nil {
+		observability.RecordError(smSpan, err)
+		smSpan.End()
 		observability.RecordError(span, err)
 		return nil, err
 	}
 	record.Status = provisioningStatus
+	smSpan.End()
 
+	_, applySpan := tracer.StartSpan(ctx, "kubernetes.workload.apply_deployment",
+		attribute.String("workload.name", cmd.WorkloadName),
+		attribute.String("namespace", cmd.Namespace),
+	)
 	if err := s.k8sClient.ApplyDeployment(ctx, cmd, mutations); err != nil {
+		observability.RecordError(applySpan, err)
+		applySpan.End()
+
 		rejectedStatus, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
 		record.Status = rejectedStatus
 		record.Version = 2
@@ -147,9 +189,17 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		observability.RecordError(span, k8sErr)
 		return nil, k8sErr
 	}
+	applySpan.End()
 
 	if mutations.PDBRequired {
+		_, pdbSpan := tracer.StartSpan(ctx, "kubernetes.workload.apply_pdb",
+			attribute.String("workload.name", cmd.WorkloadName),
+			attribute.Int("min.available", mutations.MinAvailable),
+		)
 		if err := s.k8sClient.ApplyPDB(ctx, cmd.Namespace, cmd.WorkloadName, mutations.MinAvailable); err != nil {
+			observability.RecordError(pdbSpan, err)
+			pdbSpan.End()
+
 			rejectedStatus, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
 			record.Status = rejectedStatus
 			record.Version = 2
@@ -158,8 +208,10 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 			observability.RecordError(span, pdbErr)
 			return nil, pdbErr
 		}
+		pdbSpan.End()
 	}
 
+	_, observeSpan := tracer.StartSpan(ctx, "kubernetes.workload.observe_readiness")
 	ready, _ := s.k8sClient.ObserveWorkloadReadiness(ctx, cmd.Namespace, cmd.WorkloadName, cmd.Replicas)
 	if ready {
 		observedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady)
@@ -172,6 +224,8 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 			record.Status = degradedStatus
 		}
 	}
+	observeSpan.SetAttributes(attribute.Bool("workload.ready", ready))
+	observeSpan.End()
 	record.Version = 2
 
 	if err := s.store.Update(ctx, record); err != nil {
