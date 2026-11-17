@@ -99,3 +99,34 @@ func TestWorkloadProvisioningQuotaExceeded(t *testing.T) {
 		t.Errorf("expected insufficient quota headroom in error, got: %v", err)
 	}
 }
+
+
+func TestPostgresAdapterValidationGuards(t *testing.T) {
+	ctx := context.Background()
+	adapter := kubernetesworkloadprovisioning.NewPostgresStore(nil)
+
+	err := adapter.Save(ctx, contracts.WorkloadProvisionRecord{})
+	if err == nil {
+		t.Fatalf("expected validation error for empty record")
+	}
+
+	_, err = adapter.GetByID(ctx, "", "wkld-1")
+	if err == nil {
+		t.Fatalf("expected validation error for empty tenantId")
+	}
+
+	_, err = adapter.GetByIdempotencyKey(ctx, "tenant-qa", "")
+	if err == nil {
+		t.Fatalf("expected validation error for empty idempotency key")
+	}
+
+	_, err = adapter.List(ctx, contracts.FilterCriteria{})
+	if err == nil {
+		t.Fatalf("expected validation error for empty tenant in list")
+	}
+
+	err = adapter.Update(ctx, contracts.WorkloadProvisionRecord{})
+	if err == nil {
+		t.Fatalf("expected validation error for empty record in update")
+	}
+}

@@ -19,6 +19,15 @@ func NewPostgresWorkloadRepositoryAdapter(db *sql.DB) *PostgresWorkloadRepositor
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record contracts.WorkloadProvisionRecord) error {
+	if record.TenantID == "" || record.ID == "" {
+		return errors.NewValidationError("tenantId and id are required")
+	}
+
+	strategy := string(record.Strategy)
+	if strategy == "" {
+		strategy = string(contracts.StrategyCanary)
+	}
+
 	_, err := a.db.ExecContext(
 		ctx,
 		queries.FLOW_INSERT_WORKLOAD_PROVISION,
@@ -32,6 +41,7 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 		record.MemoryRequest,
 		record.MemoryLimit,
 		record.Replicas,
+		strategy,
 		string(record.Status),
 		record.IdempotencyKey,
 		record.Version,
@@ -45,8 +55,13 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {
+	if tenantID == "" || id == "" {
+		return nil, errors.NewValidationError("tenantId and id are required")
+	}
+
 	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_WORKLOAD_BY_ID, tenantID, id)
 	var rec contracts.WorkloadProvisionRecord
+	var strategy string
 	var status string
 	err := row.Scan(
 		&rec.ID,
@@ -59,6 +74,7 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantI
 		&rec.MemoryRequest,
 		&rec.MemoryLimit,
 		&rec.Replicas,
+		&strategy,
 		&status,
 		&rec.IdempotencyKey,
 		&rec.Version,
@@ -71,13 +87,19 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantI
 		}
 		return nil, err
 	}
+	rec.Strategy = contracts.DeploymentStrategy(strategy)
 	rec.Status = contracts.WorkloadStatus(status)
 	return &rec, nil
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Context, tenantID string, key string) (*contracts.WorkloadProvisionRecord, error) {
+	if tenantID == "" || key == "" {
+		return nil, errors.NewValidationError("tenantId and key are required")
+	}
+
 	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_WORKLOAD_BY_IDEMPOTENCY, tenantID, key)
 	var rec contracts.WorkloadProvisionRecord
+	var strategy string
 	var status string
 	err := row.Scan(
 		&rec.ID,
@@ -90,6 +112,7 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Cont
 		&rec.MemoryRequest,
 		&rec.MemoryLimit,
 		&rec.Replicas,
+		&strategy,
 		&status,
 		&rec.IdempotencyKey,
 		&rec.Version,
@@ -102,16 +125,26 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Cont
 		}
 		return nil, err
 	}
+	rec.Strategy = contracts.DeploymentStrategy(strategy)
 	rec.Status = contracts.WorkloadStatus(status)
 	return &rec, nil
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.WorkloadProvisionRecord, error) {
+	if filter.TenantID == "" {
+		return nil, errors.NewValidationError("tenantId is required")
+	}
+
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := a.db.QueryContext(ctx, queries.FLOW_LIST_WORKLOAD_PROVISIONS, filter.TenantID, limit, filter.Offset)
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := a.db.QueryContext(ctx, queries.FLOW_LIST_WORKLOAD_PROVISIONS, filter.TenantID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +153,7 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 	records := make([]contracts.WorkloadProvisionRecord, 0)
 	for rows.Next() {
 		var rec contracts.WorkloadProvisionRecord
+		var strategy string
 		var status string
 		if err := rows.Scan(
 			&rec.ID,
@@ -132,6 +166,7 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 			&rec.MemoryRequest,
 			&rec.MemoryLimit,
 			&rec.Replicas,
+			&strategy,
 			&status,
 			&rec.IdempotencyKey,
 			&rec.Version,
@@ -140,6 +175,7 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 		); err != nil {
 			return nil, err
 		}
+		rec.Strategy = contracts.DeploymentStrategy(strategy)
 		rec.Status = contracts.WorkloadStatus(status)
 		records = append(records, rec)
 	}
@@ -147,6 +183,10 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) Update(ctx context.Context, record contracts.WorkloadProvisionRecord) error {
+	if record.TenantID == "" || record.ID == "" {
+		return errors.NewValidationError("tenantId and id are required")
+	}
+
 	res, err := a.db.ExecContext(
 		ctx,
 		queries.FLOW_UPDATE_WORKLOAD_PROVISION,
@@ -168,4 +208,3 @@ func (a *PostgresWorkloadRepositoryAdapter) Update(ctx context.Context, record c
 	}
 	return nil
 }
-
