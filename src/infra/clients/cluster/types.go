@@ -10,7 +10,7 @@ const (
 	ClusterStatusProvisioning ClusterStatus = "PROVISIONING"
 	ClusterStatusReady        ClusterStatus = "READY"
 	ClusterStatusDegraded     ClusterStatus = "DEGRADED"
-	ClusterStatusNonCompliant  ClusterStatus = "NON_COMPLIANT"
+	ClusterStatusNonCompliant ClusterStatus = "NON_COMPLIANT"
 	ClusterStatusFailed       ClusterStatus = "FAILED"
 )
 
@@ -20,6 +20,60 @@ const (
 	ReleaseChannelRapid   ReleaseChannel = "RAPID"
 	ReleaseChannelRegular ReleaseChannel = "REGULAR"
 	ReleaseChannelStable  ReleaseChannel = "STABLE"
+)
+
+const (
+	DatabaseEncryptionStateEncrypted = "ENCRYPTED"
+	DatabaseEncryptionStateDecrypted = "DECRYPTED"
+)
+
+const (
+	BinaryAuthModeEnforce  = "PROJECT_SINGLETON_POLICY_ENFORCE"
+	BinaryAuthModeDisabled = "DISABLED"
+)
+
+const (
+	MeshModeManaged = "MANAGED"
+)
+
+const (
+	WorkloadPoolSuffix = ".svc.id.goog"
+)
+
+const (
+	ControlIDPrivateCluster      = "GKE-SEC-01"
+	ControlIDShieldedNodes       = "GKE-SEC-02"
+	ControlIDWorkloadIdentity    = "GKE-SEC-03"
+	ControlIDDatabaseEncryption  = "GKE-SEC-04"
+	ControlIDBinaryAuthorization = "GKE-SEC-05"
+	ControlIDBackupAgent         = "GKE-SEC-06"
+	ControlIDReleaseChannel      = "GKE-SEC-07"
+	ControlIDServiceMesh         = "GKE-SEC-08"
+	ControlIDAuditLogging        = "GKE-SEC-09"
+)
+
+const (
+	DescPrivateCluster      = "Private Cluster Endpoint and Private Worker Nodes"
+	DescShieldedNodes       = "Shielded GKE Nodes with Secure Boot & Integrity Monitoring"
+	DescWorkloadIdentity    = "Workload Identity Federation without Exported Keys"
+	DescDatabaseEncryption  = "Application-Layer Secrets Encryption via Cloud KMS (CMEK)"
+	DescBinaryAuthorization = "Binary Authorization Image Attestation Enforcement"
+	DescBackupAgent         = "Backup for GKE Agent Provisioned"
+	DescReleaseChannel      = "GKE Release Channel Auto-Upgrade Enrollment"
+	DescServiceMesh         = "Managed Cloud Service Mesh Injection"
+	DescAuditLogging        = "Data Access and System Audit Logging Enabled"
+)
+
+const (
+	RemediationPrivateCluster      = "Enable private nodes, private endpoint, and configure master IPv4 CIDR block"
+	RemediationShieldedNodes       = "Enable Shielded GKE Nodes with Secure Boot and Integrity Monitoring"
+	RemediationWorkloadIdentity    = "Configure workloadPool to match project Workload Identity pool"
+	RemediationDatabaseEncryption  = "Configure database encryption state to ENCRYPTED with a valid KMS key URI"
+	RemediationBinaryAuthorization = "Set binary authorization evaluationMode to PROJECT_SINGLETON_POLICY_ENFORCE"
+	RemediationBackupAgent         = "Enable Backup for GKE agent on cluster creation"
+	RemediationReleaseChannel      = "Enroll cluster in a supported release channel (REGULAR, STABLE, RAPID)"
+	RemediationServiceMesh         = "Set cloudServiceMeshMode to MANAGED"
+	RemediationAuditLogging        = "Enable Data Access audit logging routed to locked retention storage"
 )
 
 type ShieldedNodesConfig struct {

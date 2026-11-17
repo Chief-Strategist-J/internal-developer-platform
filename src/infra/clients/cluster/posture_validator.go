@@ -43,12 +43,12 @@ func evaluatePrivateClusterControl(spec GKEClusterSpec) PostureCheckResult {
 
 	remediation := ""
 	if !passed {
-		remediation = "Enable private nodes, private endpoint, and configure master IPv4 CIDR block"
+		remediation = RemediationPrivateCluster
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-01",
-		Description: "Private Cluster Endpoint and Private Worker Nodes",
+		ControlID:   ControlIDPrivateCluster,
+		Description: DescPrivateCluster,
 		Passed:      passed,
 		Remediation: remediation,
 	}
@@ -61,61 +61,61 @@ func evaluateShieldedNodesControl(spec GKEClusterSpec) PostureCheckResult {
 
 	remediation := ""
 	if !passed {
-		remediation = "Enable Shielded GKE Nodes with Secure Boot and Integrity Monitoring"
+		remediation = RemediationShieldedNodes
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-02",
-		Description: "Shielded GKE Nodes with Secure Boot & Integrity Monitoring",
+		ControlID:   ControlIDShieldedNodes,
+		Description: DescShieldedNodes,
 		Passed:      passed,
 		Remediation: remediation,
 	}
 }
 
 func evaluateWorkloadIdentityControl(spec GKEClusterSpec) PostureCheckResult {
-	expectedPool := fmt.Sprintf("%s.svc.id.goog", spec.ProjectID)
+	expectedPool := fmt.Sprintf("%s%s", spec.ProjectID, WorkloadPoolSuffix)
 	passed := spec.WorkloadPool == expectedPool && spec.ProjectID != ""
 
 	remediation := ""
 	if !passed {
-		remediation = fmt.Sprintf("Configure workloadPool to match '%s.svc.id.goog'", spec.ProjectID)
+		remediation = RemediationWorkloadIdentity
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-03",
-		Description: "Workload Identity Federation without Exported Keys",
+		ControlID:   ControlIDWorkloadIdentity,
+		Description: DescWorkloadIdentity,
 		Passed:      passed,
 		Remediation: remediation,
 	}
 }
 
 func evaluateDatabaseEncryptionControl(spec GKEClusterSpec) PostureCheckResult {
-	passed := spec.DatabaseEncryption.State == "ENCRYPTED" && spec.DatabaseEncryption.KeyName != ""
+	passed := spec.DatabaseEncryption.State == DatabaseEncryptionStateEncrypted && spec.DatabaseEncryption.KeyName != ""
 
 	remediation := ""
 	if !passed {
-		remediation = "Configure database encryption state to ENCRYPTED with a valid KMS key URI"
+		remediation = RemediationDatabaseEncryption
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-04",
-		Description: "Application-Layer Secrets Encryption via Cloud KMS (CMEK)",
+		ControlID:   ControlIDDatabaseEncryption,
+		Description: DescDatabaseEncryption,
 		Passed:      passed,
 		Remediation: remediation,
 	}
 }
 
 func evaluateBinaryAuthorizationControl(spec GKEClusterSpec) PostureCheckResult {
-	passed := spec.BinaryAuthorization.EvaluationMode == "PROJECT_SINGLETON_POLICY_ENFORCE"
+	passed := spec.BinaryAuthorization.EvaluationMode == BinaryAuthModeEnforce
 
 	remediation := ""
 	if !passed {
-		remediation = "Set binary authorization evaluationMode to PROJECT_SINGLETON_POLICY_ENFORCE"
+		remediation = RemediationBinaryAuthorization
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-05",
-		Description: "Binary Authorization Image Attestation Enforcement",
+		ControlID:   ControlIDBinaryAuthorization,
+		Description: DescBinaryAuthorization,
 		Passed:      passed,
 		Remediation: remediation,
 	}
@@ -126,12 +126,12 @@ func evaluateBackupAgentControl(spec GKEClusterSpec) PostureCheckResult {
 
 	remediation := ""
 	if !passed {
-		remediation = "Enable Backup for GKE agent on cluster creation"
+		remediation = RemediationBackupAgent
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-06",
-		Description: "Backup for GKE Agent Provisioned",
+		ControlID:   ControlIDBackupAgent,
+		Description: DescBackupAgent,
 		Passed:      passed,
 		Remediation: remediation,
 	}
@@ -144,28 +144,28 @@ func evaluateReleaseChannelControl(spec GKEClusterSpec) PostureCheckResult {
 
 	remediation := ""
 	if !passed {
-		remediation = "Enroll cluster in a supported release channel (REGULAR, STABLE, RAPID)"
+		remediation = RemediationReleaseChannel
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-07",
-		Description: "GKE Release Channel Auto-Upgrade Enrollment",
+		ControlID:   ControlIDReleaseChannel,
+		Description: DescReleaseChannel,
 		Passed:      passed,
 		Remediation: remediation,
 	}
 }
 
 func evaluateServiceMeshControl(spec GKEClusterSpec) PostureCheckResult {
-	passed := spec.CloudServiceMeshMode == "MANAGED"
+	passed := spec.CloudServiceMeshMode == MeshModeManaged
 
 	remediation := ""
 	if !passed {
-		remediation = "Set cloudServiceMeshMode to MANAGED"
+		remediation = RemediationServiceMesh
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-08",
-		Description: "Managed Cloud Service Mesh Injection",
+		ControlID:   ControlIDServiceMesh,
+		Description: DescServiceMesh,
 		Passed:      passed,
 		Remediation: remediation,
 	}
@@ -176,12 +176,12 @@ func evaluateAuditLoggingControl(spec GKEClusterSpec) PostureCheckResult {
 
 	remediation := ""
 	if !passed {
-		remediation = "Enable Data Access audit logging routed to locked retention storage"
+		remediation = RemediationAuditLogging
 	}
 
 	return PostureCheckResult{
-		ControlID:   "GKE-SEC-09",
-		Description: "Data Access and System Audit Logging Enabled",
+		ControlID:   ControlIDAuditLogging,
+		Description: DescAuditLogging,
 		Passed:      passed,
 		Remediation: remediation,
 	}

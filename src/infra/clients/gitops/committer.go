@@ -18,7 +18,7 @@ type GitManifestCommitter struct {
 
 func NewGitManifestCommitter(signingSecret []byte) *GitManifestCommitter {
 	if len(signingSecret) == 0 {
-		signingSecret = []byte("idp-platform-default-gitops-signing-secret")
+		signingSecret = []byte(DefaultGitopsSigningSecret)
 	}
 	return &GitManifestCommitter{
 		signingSecret: signingSecret,
@@ -76,4 +76,3 @@ func (c *GitManifestCommitter) Commit(ctx context.Context, req CommitRequest) (*
 		CommittedAt: committedAt,
 	}, nil
 }
-

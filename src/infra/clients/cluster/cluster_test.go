@@ -14,7 +14,7 @@ func createHardenedClusterSpec(id string) GKEClusterSpec {
 		ProjectID:      "gov-cloud-prod",
 		Location:       "us-central1",
 		ReleaseChannel: ReleaseChannelRegular,
-		WorkloadPool:   "gov-cloud-prod.svc.id.goog",
+		WorkloadPool:   "gov-cloud-prod" + WorkloadPoolSuffix,
 		PrivateCluster: PrivateClusterConfig{
 			EnablePrivateNodes:    true,
 			EnablePrivateEndpoint: true,
@@ -26,14 +26,14 @@ func createHardenedClusterSpec(id string) GKEClusterSpec {
 			IntegrityMonitoring: true,
 		},
 		DatabaseEncryption: DatabaseEncryptionConfig{
-			State:   "ENCRYPTED",
+			State:   DatabaseEncryptionStateEncrypted,
 			KeyName: "projects/gov-cloud-prod/locations/us-central1/keyRings/ring/cryptoKeys/key",
 		},
 		BinaryAuthorization: BinaryAuthorizationConfig{
-			EvaluationMode: "PROJECT_SINGLETON_POLICY_ENFORCE",
+			EvaluationMode: BinaryAuthModeEnforce,
 		},
 		BackupAgentEnabled:   true,
-		CloudServiceMeshMode: "MANAGED",
+		CloudServiceMeshMode: MeshModeManaged,
 		DataAccessLogsActive: true,
 	}
 }
@@ -66,8 +66,8 @@ func TestNonCompliantClusterRejection(t *testing.T) {
 	spec := createHardenedClusterSpec("cluster-insecure-01")
 	spec.PrivateCluster.EnablePrivateEndpoint = false
 	spec.ShieldedNodes.SecureBoot = false
-	spec.DatabaseEncryption.State = "DECRYPTED"
-	spec.BinaryAuthorization.EvaluationMode = "DISABLED"
+	spec.DatabaseEncryption.State = DatabaseEncryptionStateDecrypted
+	spec.BinaryAuthorization.EvaluationMode = BinaryAuthModeDisabled
 
 	record, err := client.ProvisionCluster(ctx, spec)
 	if err != nil {

@@ -3,7 +3,6 @@ package certificates
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"internal-developer-platform/src/shared/errors"
 )
@@ -32,20 +31,20 @@ func GenerateCertificateYAML(spec CertificateSpec) (string, error) {
 	keySize := spec.KeySize
 	if keySize == 0 {
 		if keyAlgo == KeyAlgorithmECDSA {
-			keySize = 256
+			keySize = DefaultECDSASize
 		} else {
-			keySize = 4096
+			keySize = DefaultRSASize
 		}
 	}
 
 	duration := spec.Duration
 	if duration <= 0 {
-		duration = 2160 * time.Hour
+		duration = DefaultCertDuration
 	}
 
 	renewBefore := spec.RenewBefore
 	if renewBefore <= 0 {
-		renewBefore = 720 * time.Hour
+		renewBefore = DefaultRenewBefore
 	}
 
 	var dnsList strings.Builder
@@ -53,7 +52,7 @@ func GenerateCertificateYAML(spec CertificateSpec) (string, error) {
 		dnsList.WriteString(fmt.Sprintf("    - %s\n", dns))
 	}
 
-	manifest := fmt.Sprintf(`apiVersion: cert-manager.io/v1
+	manifest := fmt.Sprintf(`apiVersion: %s
 kind: Certificate
 metadata:
   name: %s
@@ -66,11 +65,12 @@ spec:
 %s  issuerRef:
     name: %s
     kind: %s
-    group: cert-manager.io
+    group: %s
   privateKey:
     algorithm: %s
     size: %d
 `,
+		CertManagerAPIVersion,
 		spec.Name,
 		spec.Namespace,
 		spec.SecretName,
@@ -79,6 +79,7 @@ spec:
 		dnsList.String(),
 		spec.IssuerName,
 		issuerKind,
+		CertManagerGroup,
 		keyAlgo,
 		keySize,
 	)
@@ -95,7 +96,7 @@ func GenerateIssuerYAML(spec IssuerSpec) (string, error) {
 		if spec.ServerURL == "" || spec.Email == "" {
 			return "", errors.NewValidationError("serverURL and email are required for ACME issuer")
 		}
-		manifest := fmt.Sprintf(`apiVersion: cert-manager.io/v1
+		manifest := fmt.Sprintf(`apiVersion: %s
 kind: Issuer
 metadata:
   name: %s
@@ -109,13 +110,15 @@ spec:
     solvers:
       - http01:
           ingress:
-            class: istio
+            class: %s
 `,
+			CertManagerAPIVersion,
 			spec.Name,
 			spec.Namespace,
 			spec.ServerURL,
 			spec.Email,
 			spec.Name,
+			DefaultIngressClass,
 		)
 		return manifest, nil
 	}
@@ -124,7 +127,7 @@ spec:
 		if spec.CAServerSecretName == "" {
 			return "", errors.NewValidationError("caServerSecretName is required for CA issuer")
 		}
-		manifest := fmt.Sprintf(`apiVersion: cert-manager.io/v1
+		manifest := fmt.Sprintf(`apiVersion: %s
 kind: Issuer
 metadata:
   name: %s
@@ -133,6 +136,7 @@ spec:
   ca:
     secretName: %s
 `,
+			CertManagerAPIVersion,
 			spec.Name,
 			spec.Namespace,
 			spec.CAServerSecretName,
@@ -142,4 +146,3 @@ spec:
 
 	return "", errors.NewValidationError("unsupported issuer type: " + string(spec.Type))
 }
-
