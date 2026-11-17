@@ -92,3 +92,4 @@ func (m *MockKMSClient) Decrypt(ctx context.Context, keyURI string, ciphertext [
 
 	return plaintext, nil
 }
+

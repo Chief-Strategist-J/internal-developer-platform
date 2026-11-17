@@ -24,3 +24,4 @@ type DecryptedPayload struct {
 	Plaintext []byte
 	KeyURI    string
 }
+
