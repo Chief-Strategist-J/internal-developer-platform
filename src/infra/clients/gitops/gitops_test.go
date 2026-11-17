@@ -71,3 +71,4 @@ func TestGitManifestCommitterValidation(t *testing.T) {
 		t.Fatalf("expected error for empty files list")
 	}
 }
+

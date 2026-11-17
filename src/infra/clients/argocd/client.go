@@ -188,3 +188,4 @@ func (c *ArgoCDClient) mapHTTPError(resp *http.Response) error {
 func (c *ArgoCDClient) Resilience() *resilience.ResilienceExecutor {
 	return c.executor
 }
+

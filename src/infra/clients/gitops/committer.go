@@ -76,3 +76,4 @@ func (c *GitManifestCommitter) Commit(ctx context.Context, req CommitRequest) (*
 		CommittedAt: committedAt,
 	}, nil
 }
+
