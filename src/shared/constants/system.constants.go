@@ -13,6 +13,13 @@ const (
 	HeaderIfMatch         = "if-match"
 	HeaderETag            = "etag"
 	HeaderRetryAfter      = "retry-after"
+	HeaderAuthorization   = "Authorization"
+	HeaderContentType     = "Content-Type"
+	HeaderAccept          = "Accept"
+)
+
+const (
+	ContentTypeJSON = "application/json"
 )
 
 const (

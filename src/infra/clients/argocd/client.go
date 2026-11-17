@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"internal-developer-platform/src/infra/clients/resilience"
+	"internal-developer-platform/src/shared/constants"
 	apperrors "internal-developer-platform/src/shared/errors"
 )
 
@@ -51,7 +52,7 @@ func (c *ArgoCDClient) TriggerSync(ctx context.Context, appName string, revision
 		return nil, apperrors.NewValidationError("appName is required")
 	}
 
-	url := fmt.Sprintf("%s/api/v1/applications/%s/sync", c.baseURL, appName)
+	url := fmt.Sprintf("%s"+EndpointApplicationSync, c.baseURL, appName)
 	payload := SyncRequestPayload{
 		Revision: revision,
 		Prune:    prune,
@@ -112,7 +113,7 @@ func (c *ArgoCDClient) GetApplication(ctx context.Context, appName string) (*App
 		return nil, apperrors.NewValidationError("appName is required")
 	}
 
-	url := fmt.Sprintf("%s/api/v1/applications/%s", c.baseURL, appName)
+	url := fmt.Sprintf("%s"+EndpointApplicationGet, c.baseURL, appName)
 	var statusResp ApplicationStatusResponse
 
 	execErr := c.executor.Execute(ctx, true, func(opCtx context.Context) error {
@@ -153,13 +154,13 @@ func (c *ArgoCDClient) GetApplication(ctx context.Context, appName string) (*App
 }
 
 func (c *ArgoCDClient) attachHeaders(req *http.Request, idempotencyKey string) {
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	req.Header.Set(constants.HeaderAccept, constants.ContentTypeJSON)
 	if c.authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.authToken)
+		req.Header.Set(constants.HeaderAuthorization, "Bearer "+c.authToken)
 	}
 	if idempotencyKey != "" {
-		req.Header.Set("x-idempotency-key", idempotencyKey)
+		req.Header.Set(constants.HeaderXIdempotencyKey, idempotencyKey)
 	}
 }
 
@@ -188,4 +189,3 @@ func (c *ArgoCDClient) mapHTTPError(resp *http.Response) error {
 func (c *ArgoCDClient) Resilience() *resilience.ResilienceExecutor {
 	return c.executor
 }
-

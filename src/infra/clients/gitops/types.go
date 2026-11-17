@@ -4,6 +4,10 @@ import (
 	"time"
 )
 
+const (
+	DefaultGitopsSigningSecret = "idp-platform-default-gitops-signing-secret"
+)
+
 type ManifestFile struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
@@ -25,4 +29,3 @@ type CommitResult struct {
 	Signature   string    `json:"signature"`
 	CommittedAt time.Time `json:"committedAt"`
 }
-

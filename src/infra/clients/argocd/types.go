@@ -7,9 +7,9 @@ import (
 type SyncPhase string
 
 const (
-	SyncPhaseSynced        SyncPhase = "Synced"
-	SyncPhaseOutOfSync     SyncPhase = "OutOfSync"
-	SyncPhaseUnknown       SyncPhase = "Unknown"
+	SyncPhaseSynced    SyncPhase = "Synced"
+	SyncPhaseOutOfSync SyncPhase = "OutOfSync"
+	SyncPhaseUnknown   SyncPhase = "Unknown"
 )
 
 type HealthStatusCode string
@@ -20,6 +20,11 @@ const (
 	HealthStatusDegraded    HealthStatusCode = "Degraded"
 	HealthStatusMissing     HealthStatusCode = "Missing"
 	HealthStatusUnknown     HealthStatusCode = "Unknown"
+)
+
+const (
+	EndpointApplicationSync = "/api/v1/applications/%s/sync"
+	EndpointApplicationGet  = "/api/v1/applications/%s"
 )
 
 type ApplicationStatusResponse struct {
@@ -37,8 +42,8 @@ type ApplicationStatusResponse struct {
 			Message string           `json:"message"`
 		} `json:"health"`
 		OperationState *struct {
-			Phase     string    `json:"phase"`
-			Message   string    `json:"message"`
+			Phase      string `json:"phase"`
+			Message    string `json:"message"`
 			SyncResult struct {
 				Resources []struct {
 					Group     string `json:"group"`
@@ -67,9 +72,8 @@ type SyncRequestPayload struct {
 }
 
 type ArgoCDClientConfig struct {
-	BaseURL     string
-	AuthToken   string
-	Timeout     time.Duration
+	BaseURL        string
+	AuthToken      string
+	Timeout        time.Duration
 	ConnectTimeout time.Duration
 }
-

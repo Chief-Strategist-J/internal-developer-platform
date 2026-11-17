@@ -25,6 +25,16 @@ const (
 	KeyAlgorithmRSA   KeyAlgorithm = "RSA"
 )
 
+const (
+	CertManagerAPIVersion = "cert-manager.io/v1"
+	CertManagerGroup      = "cert-manager.io"
+	DefaultIngressClass   = "istio"
+	DefaultCertDuration   = 2160 * time.Hour
+	DefaultRenewBefore    = 720 * time.Hour
+	DefaultECDSASize      = 256
+	DefaultRSASize        = 4096
+)
+
 type CertificateSpec struct {
 	Name         string
 	Namespace    string
@@ -46,4 +56,3 @@ type IssuerSpec struct {
 	Email              string
 	CAServerSecretName string
 }
-
