@@ -109,3 +109,4 @@ func TestArgoCDClientResilienceBudget(t *testing.T) {
 		t.Fatalf("expected deadline exceeded error")
 	}
 }
+

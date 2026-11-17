@@ -72,3 +72,4 @@ type ArgoCDClientConfig struct {
 	Timeout     time.Duration
 	ConnectTimeout time.Duration
 }
+

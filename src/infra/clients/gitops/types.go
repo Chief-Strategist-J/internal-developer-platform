@@ -25,3 +25,4 @@ type CommitResult struct {
 	Signature   string    `json:"signature"`
 	CommittedAt time.Time `json:"committedAt"`
 }
+
