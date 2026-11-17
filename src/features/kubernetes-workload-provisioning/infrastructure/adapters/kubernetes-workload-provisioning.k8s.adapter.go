@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"sync"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
 	"internal-developer-platform/src/infra/clients/kubernetes"
+	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
 
@@ -44,6 +47,13 @@ func NewLiveKubernetesClientAdapter(client *kubernetes.KubernetesClient) *Kubern
 }
 
 func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (*contracts.ManifestBundle, error) {
+	tracer := observability.GetTracer()
+	_, span := tracer.StartSpan(ctx, "k8s.manifest.generate_bundle",
+		attribute.String("workload.name", cmd.WorkloadName),
+		attribute.String("namespace", cmd.Namespace),
+	)
+	defer span.End()
+
 	nsYAML := fmt.Sprintf(`apiVersion: v1
 kind: Namespace
 metadata:

@@ -2,19 +2,159 @@ package tests
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
+	_ "github.com/lib/pq"
+
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	k8sclient "internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/resilience"
+	"internal-developer-platform/src/infra/observability"
 )
+
+func TestMain(m *testing.M) {
+	_, shutdown, _ := observability.InitTracer("kubernetes-workload-provisioning-test")
+	code := m.Run()
+	if shutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = shutdown(ctx)
+		cancel()
+	}
+	os.Exit(code)
+}
+
+func getTestDatabaseConnection(t *testing.T) *sql.DB {
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := os.Getenv("DB_PORT")
+	if port == "" {
+		port = "5432"
+	}
+	user := os.Getenv("DB_USER")
+	if user == "" {
+		user = "postgres"
+	}
+	pass := os.Getenv("DB_PASSWORD")
+	if pass == "" {
+		pass = "postgres_dev_password_123"
+	}
+	dbname := os.Getenv("DB_NAME")
+	if dbname == "" {
+		dbname = "postgres"
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable connect_timeout=3", host, port, user, pass, dbname)
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Skipf("skipping live postgres tests: %v", err)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Skipf("skipping live postgres tests: database not reachable: %v", err)
+		return nil
+	}
+	return db
+}
+
+func TestPostgresWorkloadRepositoryLive(t *testing.T) {
+	db := getTestDatabaseConnection(t)
+	if db == nil {
+		return
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	adapter := kubernetesworkloadprovisioning.NewPostgresStore(db)
+
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenantID := "tenant-live-pg-" + uniqueSuffix
+	recordID := "wkld-live-pg-" + uniqueSuffix
+	idempKey := "idemp-live-pg-" + uniqueSuffix
+
+	record := contracts.WorkloadProvisionRecord{
+		ID:             recordID,
+		TenantID:       tenantID,
+		ServiceID:      "order-service",
+		Namespace:      "orders-live",
+		WorkloadName:   "orders-backend",
+		CPURequest:     "250m",
+		CPULimit:       "500m",
+		MemoryRequest:  "256Mi",
+		MemoryLimit:    "512Mi",
+		Replicas:       2,
+		Strategy:       contracts.StrategyCanary,
+		Status:         contracts.StatusSubmitted,
+		IdempotencyKey: idempKey,
+		Version:        1,
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}
+
+	if err := adapter.Save(ctx, record); err != nil {
+		t.Fatalf("failed to insert record into live postgres: %v", err)
+	}
+
+	fetched, err := adapter.GetByID(ctx, tenantID, recordID)
+	if err != nil {
+		t.Fatalf("failed to fetch record by id: %v", err)
+	}
+	if fetched.WorkloadName != "orders-backend" {
+		t.Errorf("expected WorkloadName orders-backend, got %s", fetched.WorkloadName)
+	}
+	if fetched.Strategy != contracts.StrategyCanary {
+		t.Errorf("expected Strategy CANARY, got %s", fetched.Strategy)
+	}
+
+	byKey, err := adapter.GetByIdempotencyKey(ctx, tenantID, idempKey)
+	if err != nil {
+		t.Fatalf("failed to fetch record by idempotency key: %v", err)
+	}
+	if byKey == nil || byKey.ID != recordID {
+		t.Fatalf("expected record id %s by idempotency key, got %+v", recordID, byKey)
+	}
+
+	list, err := adapter.List(ctx, contracts.FilterCriteria{TenantID: tenantID, Limit: 10})
+	if err != nil {
+		t.Fatalf("failed to list records: %v", err)
+	}
+	if len(list) != 1 {
+		t.Errorf("expected 1 record in list for tenant, got %d", len(list))
+	}
+
+	record.Status = contracts.StatusActive
+	if err := adapter.Update(ctx, record); err != nil {
+		t.Fatalf("failed to update record: %v", err)
+	}
+
+	updated, err := adapter.GetByID(ctx, tenantID, recordID)
+	if err != nil {
+		t.Fatalf("failed to fetch updated record: %v", err)
+	}
+	if updated.Status != contracts.StatusActive {
+		t.Errorf("expected status ACTIVE after update, got %s", updated.Status)
+	}
+
+	staleRecord := record
+	staleRecord.Version = 1
+	if err := adapter.Update(ctx, staleRecord); err == nil {
+		t.Fatalf("expected optimistic locking conflict on stale update version")
+	}
+}
 
 func TestWorkloadProvisioningServiceExecution(t *testing.T) {
 	ctx := context.Background()

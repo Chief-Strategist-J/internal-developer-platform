@@ -3,12 +3,17 @@ package observability
 import (
 	"context"
 	"fmt"
+	"os"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -19,9 +24,40 @@ type Tracer struct {
 var defaultTracer *Tracer
 
 func InitTracer(serviceName string) (*sdktrace.TracerProvider, func(context.Context) error, error) {
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	ctx := context.Background()
+
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "127.0.0.1:4318"
+	}
+
+	opts := []otlptracehttp.Option{
+		otlptracehttp.WithEndpoint(endpoint),
+		otlptracehttp.WithInsecure(),
+		otlptracehttp.WithTimeout(2 * time.Second),
+	}
+
+	exporter, err := otlptracehttp.New(ctx, opts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create otlp trace exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceNameKey.String(serviceName),
+			semconv.DeploymentEnvironmentKey.String("dev"),
+		),
 	)
+	if err != nil {
+		res = resource.Default()
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(500*time.Millisecond)),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithResource(res),
+	)
+
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
@@ -32,8 +68,9 @@ func InitTracer(serviceName string) (*sdktrace.TracerProvider, func(context.Cont
 		tracer: tp.Tracer(serviceName),
 	}
 
-	shutdown := func(ctx context.Context) error {
-		return tp.Shutdown(ctx)
+	shutdown := func(shutdownCtx context.Context) error {
+		_ = tp.ForceFlush(shutdownCtx)
+		return tp.Shutdown(shutdownCtx)
 	}
 
 	return tp, shutdown, nil
