@@ -18,4 +18,6 @@ var NewService = service.NewWorkloadProvisioningService
 var NewMemoryStore = adapters.NewMemoryWorkloadRepositoryAdapter
 var NewPostgresStore = adapters.NewPostgresWorkloadRepositoryAdapter
 var NewK8sClient = adapters.NewKubernetesClientAdapter
+var NewLiveK8sClient = adapters.NewLiveKubernetesClientAdapter
+
 
