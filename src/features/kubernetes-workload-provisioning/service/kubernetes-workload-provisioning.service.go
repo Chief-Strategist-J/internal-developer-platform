@@ -4,11 +4,14 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/machines"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
+	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
 
@@ -25,12 +28,23 @@ func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient por
 }
 
 func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (*contracts.WorkloadProvisionResult, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.provision",
+		attribute.String("tenant.id", cmd.TenantID),
+		attribute.String("service.id", cmd.ServiceID),
+		attribute.String("workload.name", cmd.WorkloadName),
+		attribute.String("namespace", cmd.Namespace),
+	)
+	defer span.End()
+
 	if err := contracts.ValidateWorkloadCommand(cmd); err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 
 	existing, err := s.store.GetByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	if existing != nil {
@@ -38,6 +52,7 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		if applied, bErr := s.k8sClient.GetAppliedManifests(ctx, existing.Namespace, existing.WorkloadName); bErr == nil && applied != nil {
 			bundle = *applied
 		}
+		span.SetAttributes(attribute.Bool("idempotent.replay", true))
 		return &contracts.WorkloadProvisionResult{
 			Provision:               *existing,
 			InjectedSecurityContext: true,
@@ -58,12 +73,15 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	if qErr == nil && quota != nil {
 		headroom := rules.EvaluateResourceQuotaHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas)
 		if !headroom.SufficientHeadroom {
-			return nil, errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
+			quotaErr := errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
+			observability.RecordError(span, quotaErr)
+			return nil, quotaErr
 		}
 	}
 
 	admissionReport, err := rules.ValidateAdmission(cmd, mutations)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 
@@ -95,23 +113,27 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	}
 
 	if err := s.store.Save(ctx, record); err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 
 	validatedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventValidate)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	record.Status = validatedStatus
 
 	admittedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventAdmit)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	record.Status = admittedStatus
 
 	provisioningStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventApply)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	record.Status = provisioningStatus
@@ -121,7 +143,9 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		record.Status = rejectedStatus
 		record.Version = 2
 		_ = s.store.Update(ctx, record)
-		return nil, errors.NewConflictError("kubernetes deployment apply failed: " + err.Error())
+		k8sErr := errors.NewConflictError("kubernetes deployment apply failed: " + err.Error())
+		observability.RecordError(span, k8sErr)
+		return nil, k8sErr
 	}
 
 	if mutations.PDBRequired {
@@ -130,7 +154,9 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 			record.Status = rejectedStatus
 			record.Version = 2
 			_ = s.store.Update(ctx, record)
-			return nil, errors.NewConflictError("kubernetes pdb apply failed: " + err.Error())
+			pdbErr := errors.NewConflictError("kubernetes pdb apply failed: " + err.Error())
+			observability.RecordError(span, pdbErr)
+			return nil, pdbErr
 		}
 	}
 
@@ -149,13 +175,20 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	record.Version = 2
 
 	if err := s.store.Update(ctx, record); err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 
 	bundle, err := s.k8sClient.GenerateManifestBundle(ctx, cmd, mutations)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
+
+	span.SetAttributes(
+		attribute.String("provision.status", string(record.Status)),
+		attribute.Bool("pdb.created", mutations.PDBRequired),
+	)
 
 	return &contracts.WorkloadProvisionResult{
 		Provision:               record,
@@ -169,15 +202,42 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 }
 
 func (s *WorkloadProvisioningService) GetWorkload(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.get",
+		attribute.String("tenant.id", tenantID),
+		attribute.String("workload.id", id),
+	)
+	defer span.End()
+
 	if tenantID == "" || id == "" {
-		return nil, errors.NewValidationError("tenantId and id are required")
+		err := errors.NewValidationError("tenantId and id are required")
+		observability.RecordError(span, err)
+		return nil, err
 	}
-	return s.store.GetByID(ctx, tenantID, id)
+	rec, err := s.store.GetByID(ctx, tenantID, id)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	return rec, nil
 }
 
 func (s *WorkloadProvisioningService) ListWorkloads(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.WorkloadProvisionRecord, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.list",
+		attribute.String("tenant.id", filter.TenantID),
+	)
+	defer span.End()
+
 	if filter.TenantID == "" {
-		return nil, errors.NewValidationError("tenantId is required")
+		err := errors.NewValidationError("tenantId is required")
+		observability.RecordError(span, err)
+		return nil, err
 	}
-	return s.store.List(ctx, filter)
+	records, err := s.store.List(ctx, filter)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	return records, nil
 }

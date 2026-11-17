@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/queries"
+	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
 
@@ -19,8 +22,19 @@ func NewPostgresWorkloadRepositoryAdapter(db *sql.DB) *PostgresWorkloadRepositor
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record contracts.WorkloadProvisionRecord) error {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "postgres.workload.save",
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", "INSERT"),
+		attribute.String("tenant.id", record.TenantID),
+		attribute.String("workload.id", record.ID),
+	)
+	defer span.End()
+
 	if record.TenantID == "" || record.ID == "" {
-		return errors.NewValidationError("tenantId and id are required")
+		err := errors.NewValidationError("tenantId and id are required")
+		observability.RecordError(span, err)
+		return err
 	}
 
 	strategy := string(record.Strategy)
@@ -49,14 +63,27 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 		record.UpdatedAt,
 	)
 	if err != nil {
-		return errors.NewConflictError(err.Error())
+		conflictErr := errors.NewConflictError(err.Error())
+		observability.RecordError(span, conflictErr)
+		return conflictErr
 	}
 	return nil
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "postgres.workload.get_by_id",
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", "SELECT"),
+		attribute.String("tenant.id", tenantID),
+		attribute.String("workload.id", id),
+	)
+	defer span.End()
+
 	if tenantID == "" || id == "" {
-		return nil, errors.NewValidationError("tenantId and id are required")
+		err := errors.NewValidationError("tenantId and id are required")
+		observability.RecordError(span, err)
+		return nil, err
 	}
 
 	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_WORKLOAD_BY_ID, tenantID, id)
@@ -83,8 +110,11 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantI
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.NewNotFoundError("workload provision record not found")
+			notFoundErr := errors.NewNotFoundError("workload provision record not found")
+			observability.RecordError(span, notFoundErr)
+			return nil, notFoundErr
 		}
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	rec.Strategy = contracts.DeploymentStrategy(strategy)
@@ -93,8 +123,19 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantI
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Context, tenantID string, key string) (*contracts.WorkloadProvisionRecord, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "postgres.workload.get_by_idempotency",
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", "SELECT"),
+		attribute.String("tenant.id", tenantID),
+		attribute.String("idempotency.key", key),
+	)
+	defer span.End()
+
 	if tenantID == "" || key == "" {
-		return nil, errors.NewValidationError("tenantId and key are required")
+		err := errors.NewValidationError("tenantId and key are required")
+		observability.RecordError(span, err)
+		return nil, err
 	}
 
 	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_WORKLOAD_BY_IDEMPOTENCY, tenantID, key)
@@ -123,6 +164,7 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Cont
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	rec.Strategy = contracts.DeploymentStrategy(strategy)
@@ -131,8 +173,18 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Cont
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.WorkloadProvisionRecord, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "postgres.workload.list",
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", "SELECT"),
+		attribute.String("tenant.id", filter.TenantID),
+	)
+	defer span.End()
+
 	if filter.TenantID == "" {
-		return nil, errors.NewValidationError("tenantId is required")
+		err := errors.NewValidationError("tenantId is required")
+		observability.RecordError(span, err)
+		return nil, err
 	}
 
 	limit := filter.Limit
@@ -146,6 +198,7 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 
 	rows, err := a.db.QueryContext(ctx, queries.FLOW_LIST_WORKLOAD_PROVISIONS, filter.TenantID, limit, offset)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -173,18 +226,34 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 			&rec.CreatedAt,
 			&rec.UpdatedAt,
 		); err != nil {
+			observability.RecordError(span, err)
 			return nil, err
 		}
 		rec.Strategy = contracts.DeploymentStrategy(strategy)
 		rec.Status = contracts.WorkloadStatus(status)
 		records = append(records, rec)
 	}
-	return records, rows.Err()
+	if err := rows.Err(); err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	return records, nil
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) Update(ctx context.Context, record contracts.WorkloadProvisionRecord) error {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "postgres.workload.update",
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", "UPDATE"),
+		attribute.String("tenant.id", record.TenantID),
+		attribute.String("workload.id", record.ID),
+	)
+	defer span.End()
+
 	if record.TenantID == "" || record.ID == "" {
-		return errors.NewValidationError("tenantId and id are required")
+		err := errors.NewValidationError("tenantId and id are required")
+		observability.RecordError(span, err)
+		return err
 	}
 
 	res, err := a.db.ExecContext(
@@ -197,14 +266,18 @@ func (a *PostgresWorkloadRepositoryAdapter) Update(ctx context.Context, record c
 		record.Version,
 	)
 	if err != nil {
+		observability.RecordError(span, err)
 		return err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
+		observability.RecordError(span, err)
 		return err
 	}
 	if affected == 0 {
-		return errors.NewConflictError("optimistic concurrency conflict on update")
+		conflictErr := errors.NewConflictError("optimistic concurrency conflict on update")
+		observability.RecordError(span, conflictErr)
+		return conflictErr
 	}
 	return nil
 }

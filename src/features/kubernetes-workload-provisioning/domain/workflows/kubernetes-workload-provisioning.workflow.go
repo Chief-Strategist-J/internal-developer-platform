@@ -3,8 +3,11 @@ package workflows
 import (
 	"context"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/infra/observability"
 )
 
 type ProvisionStepName string
@@ -26,10 +29,23 @@ type ProvisionExecution struct {
 }
 
 func ExecuteProvisionDAG(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) ProvisionExecution {
+	tracer := observability.GetTracer()
+	_, span := tracer.StartSpan(ctx, "kubernetes.workload.dag.execute",
+		attribute.String("workload.id", cmd.ID),
+		attribute.String("dag.name", "workload_provision_dag"),
+	)
+	defer span.End()
+
 	steps := make([]ProvisionStep, 0, 4)
 	steps = append(steps, ProvisionStep{Name: StepValidateSpec, Passed: true})
 	steps = append(steps, ProvisionStep{Name: StepApplyMutations, Passed: true})
 	steps = append(steps, ProvisionStep{Name: StepVerifyQuota, Passed: true})
 	steps = append(steps, ProvisionStep{Name: StepGenerateK8sSpec, Passed: true})
+
+	span.SetAttributes(
+		attribute.Int("dag.steps.count", len(steps)),
+		attribute.Bool("dag.success", true),
+	)
+
 	return ProvisionExecution{Steps: steps}
 }
