@@ -55,3 +55,30 @@ func NewForbiddenError(message string) *ApplicationError {
 		Retryable:     false,
 	}
 }
+
+func NewDownstreamUnavailableError(message string) *ApplicationError {
+	return &ApplicationError{
+		StatusCode:    503,
+		CanonicalCode: "DOWNSTREAM_UNAVAILABLE",
+		Message:       message,
+		Retryable:     true,
+	}
+}
+
+func NewDownstreamRateLimitedError(message string) *ApplicationError {
+	return &ApplicationError{
+		StatusCode:    429,
+		CanonicalCode: "DOWNSTREAM_RATE_LIMITED",
+		Message:       message,
+		Retryable:     true,
+	}
+}
+
+func NewDeadlineExceededError(message string) *ApplicationError {
+	return &ApplicationError{
+		StatusCode:    504,
+		CanonicalCode: "DEADLINE_EXCEEDED",
+		Message:       message,
+		Retryable:     false,
+	}
+}
