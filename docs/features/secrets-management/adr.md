@@ -20,3 +20,4 @@
   2. Configure automated renewal at 66% of certificate validity lifetime (`renewBefore: 720h`).
   3. Enforce 4096-bit RSA or ECDSA P-256/P-384 key algorithms.
 - **Consequences**: Hand-rolled OpenSSL scripts are eliminated; certificates rotate automatically without pod downtime; Private CA root keys remain securely inside the dedicated PKI infrastructure.
+
