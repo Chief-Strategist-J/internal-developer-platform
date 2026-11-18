@@ -48,6 +48,49 @@ const (
 	DNSTypeTXT   = "TXT"
 
 	SQLUserTypeCloudIAM = "CLOUD_IAM_SERVICE_ACCOUNT"
+
+	KeyMember         = "member"
+	KeyRole           = "role"
+	KeyResourceRef    = "resourceRef"
+	KeyAPIVersion     = "apiVersion"
+	KeyKind           = "kind"
+	KeyExternal       = "external"
+	KeyName           = "name"
+	KeyType           = "type"
+	KeyTTL            = "ttl"
+	KeyRRDatas        = "rrdatas"
+	KeyManagedZoneRef = "managedZoneRef"
+	KeyInstanceRef    = "instanceRef"
+	YAMLDocSeparator  = "---\n"
+	DotSuffix         = "."
+	Hyphen            = "-"
+
+	PrefixWIBinding = "%s-wi-binding"
+	PrefixDNSName   = "dns-%s"
+	PrefixSQLDB     = "db-%s-%s"
+	PrefixSQLUser   = "user-%s-%s"
+	MemberGSAPrefix = "serviceAccount:%s"
+	GSAEmailSuffix  = ".gserviceaccount.com"
+
+	ErrMsgRequestIDMandatory        = "request_id is mandatory for cloud resource"
+	ErrMsgOwnerMandatory            = "owner is mandatory for cloud resource"
+	ErrMsgCostCenterMandatory       = "cost_center is mandatory for cloud resource"
+	ErrMsgWorkloadIDMandatory       = "workload_id is mandatory for cloud resource"
+	ErrMsgEnvironmentMandatory      = "environment is mandatory for cloud resource"
+	ErrMsgWorkloadIdentityRequired  = "gsa_email, ksa_name, namespace, and project_id are required"
+	ErrMsgDNSRequired               = "zone_name, record_name, and record_type are required"
+	ErrMsgDNSTTLInvalid             = "ttl must be greater than zero"
+	ErrMsgCNAMETargetRequired       = "target_host is required for CNAME records"
+	ErrMsgTargetIPsRequired         = "target_ips cannot be empty for record type %s"
+	ErrMsgSQLRequired               = "instance_id, database_name, and app_user are required"
+	ErrMsgDeletionProtectionBlocked = "cloud-side deletion protection blocks teardown for resource %s"
+	ErrMsgResourceNotFound          = "cloud resource not found in ledger: %s"
+	ErrMsgProhibitedRoleFmt         = "prohibited over-broad IAM role: %s"
+	ErrMsgUnauthorizedRoleFmt       = "unauthorized IAM role not in platform allowlist: %s"
+	ErrMsgMarshalKCCFmt             = "failed to marshal KCC manifest: %w"
+	ErrMsgMarshalDNSFmt             = "failed to marshal DNS manifest: %w"
+	ErrMsgMarshalSQLDBFmt           = "failed to marshal SQLDatabase manifest: %w"
+	ErrMsgMarshalSQLUserFmt         = "failed to marshal SQLUser manifest: %w"
 )
 
 var PermittedIAMRoles = map[string]bool{
@@ -63,8 +106,8 @@ var PermittedIAMRoles = map[string]bool{
 }
 
 var ProhibitedIAMRoles = map[string]bool{
-	"roles/owner":       true,
-	"roles/editor":      true,
+	"roles/owner":                             true,
+	"roles/editor":                            true,
 	"roles/resourcemanager.organizationAdmin": true,
 	"roles/resourcemanager.folderAdmin":       true,
 	"roles/iam.securityAdmin":                 true,

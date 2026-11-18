@@ -25,29 +25,29 @@ type KCCMetadata struct {
 
 func ValidateMetadata(meta ResourceMetadata) error {
 	if strings.TrimSpace(meta.RequestID) == "" {
-		return errors.NewValidationError("request_id is mandatory for cloud resource")
+		return errors.NewValidationError(ErrMsgRequestIDMandatory)
 	}
 	if strings.TrimSpace(meta.Owner) == "" {
-		return errors.NewValidationError("owner is mandatory for cloud resource")
+		return errors.NewValidationError(ErrMsgOwnerMandatory)
 	}
 	if strings.TrimSpace(meta.CostCenter) == "" {
-		return errors.NewValidationError("cost_center is mandatory for cloud resource")
+		return errors.NewValidationError(ErrMsgCostCenterMandatory)
 	}
 	if strings.TrimSpace(meta.WorkloadID) == "" {
-		return errors.NewValidationError("workload_id is mandatory for cloud resource")
+		return errors.NewValidationError(ErrMsgWorkloadIDMandatory)
 	}
 	if strings.TrimSpace(meta.Environment) == "" {
-		return errors.NewValidationError("environment is mandatory for cloud resource")
+		return errors.NewValidationError(ErrMsgEnvironmentMandatory)
 	}
 	return nil
 }
 
 func ValidateIAMRole(role string) error {
 	if ProhibitedIAMRoles[role] {
-		return errors.NewForbiddenError(fmt.Sprintf("prohibited over-broad IAM role: %s", role))
+		return errors.NewForbiddenError(fmt.Sprintf(ErrMsgProhibitedRoleFmt, role))
 	}
 	if !PermittedIAMRoles[role] {
-		return errors.NewForbiddenError(fmt.Sprintf("unauthorized IAM role not in platform allowlist: %s", role))
+		return errors.NewForbiddenError(fmt.Sprintf(ErrMsgUnauthorizedRoleFmt, role))
 	}
 	return nil
 }
@@ -68,7 +68,7 @@ func GenerateWorkloadIdentityManifest(spec WorkloadIdentityBindingSpec) (string,
 		return "", err
 	}
 	if spec.GSAEmail == "" || spec.KSAName == "" || spec.Namespace == "" || spec.ProjectID == "" {
-		return "", errors.NewValidationError("gsa_email, ksa_name, namespace, and project_id are required")
+		return "", errors.NewValidationError(ErrMsgWorkloadIdentityRequired)
 	}
 
 	for _, role := range spec.RoleBindings {
@@ -86,24 +86,24 @@ func GenerateWorkloadIdentityManifest(spec WorkloadIdentityBindingSpec) (string,
 		APIVersion: ConfigConnectorAPIVersionIAM,
 		Kind:       KindIAMPolicyMember,
 		Metadata: KCCMetadata{
-			Name:      fmt.Sprintf("%s-wi-binding", spec.KSAName),
+			Name:      fmt.Sprintf(PrefixWIBinding, spec.KSAName),
 			Namespace: spec.Namespace,
 			Labels:    labels,
 		},
 		Spec: map[string]any{
-			"member": memberStr,
-			"role":   WorkloadIdentityUserRole,
-			"resourceRef": map[string]string{
-				"apiVersion": ConfigConnectorAPIVersionIAM,
-				"kind":       KindIAMServiceAccount,
-				"external":   spec.GSAEmail,
+			KeyMember: memberStr,
+			KeyRole:   WorkloadIdentityUserRole,
+			KeyResourceRef: map[string]string{
+				KeyAPIVersion: ConfigConnectorAPIVersionIAM,
+				KeyKind:       KindIAMServiceAccount,
+				KeyExternal:   spec.GSAEmail,
 			},
 		},
 	}
 	manifests = append(manifests, wiBinding)
 
 	for _, role := range spec.RoleBindings {
-		roleSlug := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(role, "roles/", ""), ".", "-"))
+		roleSlug := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(role, "roles/", ""), ".", Hyphen))
 		roleManifest := GenericKCCManifest{
 			APIVersion: ConfigConnectorAPIVersionIAM,
 			Kind:       KindIAMPolicyMember,
@@ -113,8 +113,8 @@ func GenerateWorkloadIdentityManifest(spec WorkloadIdentityBindingSpec) (string,
 				Labels:    labels,
 			},
 			Spec: map[string]any{
-				"member": fmt.Sprintf("serviceAccount:%s", spec.GSAEmail),
-				"role":   role,
+				KeyMember: fmt.Sprintf(MemberGSAPrefix, spec.GSAEmail),
+				KeyRole:   role,
 			},
 		}
 		manifests = append(manifests, roleManifest)
@@ -124,10 +124,10 @@ func GenerateWorkloadIdentityManifest(spec WorkloadIdentityBindingSpec) (string,
 	for i, m := range manifests {
 		data, err := yaml.Marshal(m)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal KCC manifest: %w", err)
+			return "", fmt.Errorf(ErrMsgMarshalKCCFmt, err)
 		}
 		if i > 0 {
-			sb.WriteString("---\n")
+			sb.WriteString(YAMLDocSeparator)
 		}
 		sb.Write(data)
 	}
@@ -140,51 +140,51 @@ func GenerateDNSRecordManifest(spec DNSRecordSpec) (string, error) {
 		return "", err
 	}
 	if spec.ZoneName == "" || spec.RecordName == "" || spec.RecordType == "" {
-		return "", errors.NewValidationError("zone_name, record_name, and record_type are required")
+		return "", errors.NewValidationError(ErrMsgDNSRequired)
 	}
 	if spec.TTL <= 0 {
-		return "", errors.NewValidationError("ttl must be greater than zero")
+		return "", errors.NewValidationError(ErrMsgDNSTTLInvalid)
 	}
 
 	rrdatas := spec.TargetIPs
 	if spec.RecordType == DNSTypeCNAME {
 		if spec.TargetHost == "" {
-			return "", errors.NewValidationError("target_host is required for CNAME records")
+			return "", errors.NewValidationError(ErrMsgCNAMETargetRequired)
 		}
 		rrdatas = []string{spec.TargetHost}
 	} else if len(rrdatas) == 0 {
-		return "", errors.NewValidationError("target_ips cannot be empty for record type " + spec.RecordType)
+		return "", errors.NewValidationError(fmt.Sprintf(ErrMsgTargetIPsRequired, spec.RecordType))
 	}
 
 	dnsName := spec.RecordName
-	if !strings.HasSuffix(dnsName, ".") {
-		dnsName += "."
+	if !strings.HasSuffix(dnsName, DotSuffix) {
+		dnsName += DotSuffix
 	}
 
 	labels := buildLabels(spec.Metadata)
-	sanitizedName := strings.ReplaceAll(strings.TrimSuffix(spec.RecordName, "."), ".", "-")
+	sanitizedName := strings.ReplaceAll(strings.TrimSuffix(spec.RecordName, DotSuffix), DotSuffix, Hyphen)
 
 	manifest := GenericKCCManifest{
 		APIVersion: ConfigConnectorAPIVersionDNS,
 		Kind:       KindDNSRecordSet,
 		Metadata: KCCMetadata{
-			Name:   fmt.Sprintf("dns-%s", sanitizedName),
+			Name:   fmt.Sprintf(PrefixDNSName, sanitizedName),
 			Labels: labels,
 		},
 		Spec: map[string]any{
-			"name":    dnsName,
-			"type":    spec.RecordType,
-			"ttl":     spec.TTL,
-			"rrdatas": rrdatas,
-			"managedZoneRef": map[string]string{
-				"name": spec.ZoneName,
+			KeyName:    dnsName,
+			KeyType:    spec.RecordType,
+			KeyTTL:     spec.TTL,
+			KeyRRDatas: rrdatas,
+			KeyManagedZoneRef: map[string]string{
+				KeyName: spec.ZoneName,
 			},
 		},
 	}
 
 	data, err := yaml.Marshal(manifest)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal DNS manifest: %w", err)
+		return "", fmt.Errorf(ErrMsgMarshalDNSFmt, err)
 	}
 	return string(data), nil
 }
@@ -194,7 +194,7 @@ func GenerateCloudSQLBindingManifest(spec CloudSQLBindingSpec) (string, error) {
 		return "", err
 	}
 	if spec.InstanceID == "" || spec.DatabaseName == "" || spec.AppUser == "" {
-		return "", errors.NewValidationError("instance_id, database_name, and app_user are required")
+		return "", errors.NewValidationError(ErrMsgSQLRequired)
 	}
 
 	labels := buildLabels(spec.Metadata)
@@ -203,27 +203,27 @@ func GenerateCloudSQLBindingManifest(spec CloudSQLBindingSpec) (string, error) {
 		APIVersion: ConfigConnectorAPIVersionSQL,
 		Kind:       KindSQLDatabase,
 		Metadata: KCCMetadata{
-			Name:   fmt.Sprintf("db-%s-%s", spec.InstanceID, spec.DatabaseName),
+			Name:   fmt.Sprintf(PrefixSQLDB, spec.InstanceID, spec.DatabaseName),
 			Labels: labels,
 		},
 		Spec: map[string]any{
-			"name": spec.DatabaseName,
-			"instanceRef": map[string]string{
-				"name": spec.InstanceID,
+			KeyName: spec.DatabaseName,
+			KeyInstanceRef: map[string]string{
+				KeyName: spec.InstanceID,
 			},
 		},
 	}
 
 	userSpec := map[string]any{
-		"name": spec.AppUser,
-		"instanceRef": map[string]string{
-			"name": spec.InstanceID,
+		KeyName: spec.AppUser,
+		KeyInstanceRef: map[string]string{
+			KeyName: spec.InstanceID,
 		},
 	}
 	if spec.IAMAuthEnabled {
-		userSpec["type"] = SQLUserTypeCloudIAM
+		userSpec[KeyType] = SQLUserTypeCloudIAM
 		if spec.GSAEmail != "" {
-			userSpec["name"] = strings.TrimSuffix(spec.GSAEmail, ".gserviceaccount.com")
+			userSpec[KeyName] = strings.TrimSuffix(spec.GSAEmail, GSAEmailSuffix)
 		}
 	}
 
@@ -231,7 +231,7 @@ func GenerateCloudSQLBindingManifest(spec CloudSQLBindingSpec) (string, error) {
 		APIVersion: ConfigConnectorAPIVersionSQL,
 		Kind:       KindSQLUser,
 		Metadata: KCCMetadata{
-			Name:   fmt.Sprintf("user-%s-%s", spec.InstanceID, spec.AppUser),
+			Name:   fmt.Sprintf(PrefixSQLUser, spec.InstanceID, spec.AppUser),
 			Labels: labels,
 		},
 		Spec: userSpec,
@@ -240,14 +240,14 @@ func GenerateCloudSQLBindingManifest(spec CloudSQLBindingSpec) (string, error) {
 	var sb strings.Builder
 	dbData, err := yaml.Marshal(dbManifest)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal SQLDatabase manifest: %w", err)
+		return "", fmt.Errorf(ErrMsgMarshalSQLDBFmt, err)
 	}
 	sb.Write(dbData)
-	sb.WriteString("---\n")
+	sb.WriteString(YAMLDocSeparator)
 
 	userData, err := yaml.Marshal(userManifest)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal SQLUser manifest: %w", err)
+		return "", fmt.Errorf(ErrMsgMarshalSQLUserFmt, err)
 	}
 	sb.Write(userData)
 
