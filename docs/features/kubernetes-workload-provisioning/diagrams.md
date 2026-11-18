@@ -195,3 +195,72 @@ stateDiagram-v2
     REJECTED --> [*]
     DECOMMISSIONED --> [*]
 ```
+
+---
+
+## 5. Platform Cross-Feature Entity-Relationship (ER) Architecture
+
+The platform links tenant workloads, GitOps reconciliation audits, and security policies across a unified multi-tenant relational boundary:
+
+```mermaid
+erDiagram
+    TENANT ||--o{ WORKLOAD_PROVISIONS : provisions
+    TENANT ||--o{ GITOPS_RECONCILIATIONS : tracks
+    TENANT ||--o{ POLICIES : applies
+
+    WORKLOAD_PROVISIONS ||--o{ GITOPS_RECONCILIATIONS : "reconciles workload_id"
+    POLICIES ||--o{ WORKLOAD_PROVISIONS : "governs admission"
+
+    WORKLOAD_PROVISIONS {
+        uuid id PK "Workload Identity UUID"
+        uuid tenant_id "Tenant Boundary"
+        text idempotency_key "UK(tenant_id, idempotency_key)"
+        text workload_name "RFC-1123 DNS Subdomain"
+        text namespace "Target Namespace"
+        text image "Container Image with @sha256: Digest"
+        text cpu_request "Normalized Millicores"
+        text memory_request "Normalized Megabytes"
+        int replicas "Replicas Count >= 1"
+        text status "CHECK: SUBMITTED, VALIDATED, ADMITTED, PROVISIONING, ACTIVE, DEGRADED, REJECTED"
+        text strategy "CHECK: rolling, canary, blue_green"
+        bigint version "Optimistic Concurrency Counter"
+        timestamptz created_at "Creation Timestamp"
+        timestamptz updated_at "Update Timestamp"
+    }
+
+    GITOPS_RECONCILIATIONS {
+        uuid id PK "Reconciliation Record ID"
+        uuid tenant_id "Tenant Boundary"
+        text workload_id "Referenced Workload"
+        text commit_sha "SHA-256 Merkle Commit Hash"
+        text status "CHECK: SYNCING, HEALTHY, DEGRADED, UNKNOWN"
+        timestamptz reconciled_at "Reconciliation Timestamp"
+        text error_message "Failure Detail Envelope"
+        timestamptz created_at "Creation Timestamp"
+        timestamptz updated_at "Update Timestamp"
+    }
+
+    POLICIES {
+        uuid tenant_id PK,FK "Tenant Isolation Boundary"
+        uuid id PK "Internal UUIDv7"
+        text public_id UK "Prefixed: pol_01J..."
+        text name "Policy Name"
+        text enforcement_point "CEL, PSA, PC, BA, ORG, CI, ACD"
+        text severity "CRITICAL, HIGH, MEDIUM, ADVISORY"
+        text lifecycle_state "DRAFT, CI_ONLY, AUDIT, WARN, DENY"
+        text rule_expression "CEL Rule Definition"
+        boolean exceptable "Exemption Flag"
+        bigint version "Version Lock"
+        timestamptz created_at "Creation Timestamp"
+        timestamptz updated_at "Update Timestamp"
+    }
+```
+
+### Criticality Rationale: Why Cross-Feature Relational Integrity Is Essential
+
+1. **Root-Cause Idempotency & Race Condition Prevention**:
+   - The unique constraint `UNIQUE (tenant_id, idempotency_key)` on `workload_provisions` guarantees mutation safety at the database engine level. Duplicate HTTP POST requests from flaky networks are neutralized before any Kubernetes or GitOps write occurs.
+2. **Cryptographic Traceability from Spec to Cluster State**:
+   - Linking `workload_provisions` to `gitops_reconciliations` via `commit_sha` ensures that every running container in the GKE cluster can be traced back to its exact Git commit hash, its triggering API request ID, and the governing policy set.
+3. **Optimistic Locking Guardrails**:
+   - The `version BIGINT` column on all stateful tables prevents lost updates during concurrent scale or rollout commands (`WHERE id = :id AND version = :version`), strictly conforming to Guardrail 7 of `2-apis.writing.rule.md`.
