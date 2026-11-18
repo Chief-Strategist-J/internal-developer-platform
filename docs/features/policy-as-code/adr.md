@@ -30,3 +30,4 @@
   1. Admission evaluation runs under a dedicated child span: `kubernetes.workload.admission.cel_evaluate`.
   2. Whenever a policy evaluation generates an error or violation, the error is immediately stamped at the point of origin via `observability.RecordError(span, err)` before bubbling to the caller.
 - **Consequences**: Zero orphaned errors in distributed traces; SREs and platform auditors can isolate the exact failing constraint within 60 seconds.
+
