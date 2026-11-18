@@ -21,3 +21,4 @@
 - **Context**: Intermittent network latency or Argo CD server restarts during cluster maintenance can interrupt deployment status queries, resulting in false-positive deployment failures.
 - **Decision**: Wrap the Argo CD REST client (`src/infra/clients/argocd/`) in the downstream resilience executor with retry budgets, circuit breakers, and explicit application sync triggering. Transition internal reconciliation records through a formal state machine (`SYNCING`, `HEALTHY`, `DEGRADED`, `UNKNOWN`).
 - **Consequences**: Transient Argo CD restarts do not fail workload deployments; applications maintain clear observability into active synchronization phases.
+
