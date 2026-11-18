@@ -23,13 +23,13 @@ type CELEvaluator struct {
 
 func NewCELEvaluator(rules []CELPolicyRule) (*CELEvaluator, error) {
 	env, err := cel.NewEnv(
-		cel.Variable("pod_security_level", cel.StringType),
-		cel.Variable("mesh_injection", cel.BoolType),
-		cel.Variable("default_deny_netpol", cel.BoolType),
-		cel.Variable("image", cel.StringType),
-		cel.Variable("privileged", cel.BoolType),
-		cel.Variable("labels", cel.MapType(cel.StringType, cel.StringType)),
-		cel.Variable("annotations", cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable(VarPodSecurityLevel, cel.StringType),
+		cel.Variable(VarMeshInjection, cel.BoolType),
+		cel.Variable(VarDefaultDenyNetPol, cel.BoolType),
+		cel.Variable(VarImage, cel.StringType),
+		cel.Variable(VarPrivileged, cel.BoolType),
+		cel.Variable(VarLabels, cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable(VarAnnotations, cel.MapType(cel.StringType, cel.StringType)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL env: %w", err)
@@ -65,9 +65,9 @@ func NewDefaultGovernmentCELEvaluator() (*CELEvaluator, error) {
 
 func (e *CELEvaluator) Evaluate(ctx context.Context, input WorkloadAdmissionInput) (*AdmissionEvaluationResult, error) {
 	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.admission.cel_evaluate",
-		attribute.String("workload.name", input.WorkloadName),
-		attribute.String("namespace", input.Namespace),
+	ctx, span := tracer.StartSpan(ctx, SpanAdmissionEvaluate,
+		attribute.String(AttrWorkloadName, input.WorkloadName),
+		attribute.String(AttrNamespace, input.Namespace),
 	)
 	defer span.End()
 
@@ -79,26 +79,26 @@ func (e *CELEvaluator) Evaluate(ctx context.Context, input WorkloadAdmissionInpu
 	}
 
 	evalCtx := map[string]any{
-		"pod_security_level":  input.PodSecurityLevel,
-		"mesh_injection":      input.MeshInjection,
-		"default_deny_netpol": input.DefaultDenyNetPol,
-		"image":               input.Image,
-		"privileged":          input.Privileged,
-		"labels":              input.Labels,
-		"annotations":         input.Annotations,
+		VarPodSecurityLevel:  input.PodSecurityLevel,
+		VarMeshInjection:     input.MeshInjection,
+		VarDefaultDenyNetPol: input.DefaultDenyNetPol,
+		VarImage:             input.Image,
+		VarPrivileged:        input.Privileged,
+		VarLabels:            input.Labels,
+		VarAnnotations:       input.Annotations,
 	}
 
 	violations := make([]ViolationDetail, 0)
 	for _, cr := range e.rules {
 		val, _, err := cr.program.Eval(evalCtx)
 		if err != nil {
-			evalErr := errors.NewValidationError(fmt.Sprintf("evaluation error for rule %s: %v", cr.rule.ID, err))
+			evalErr := errors.NewValidationError(fmt.Sprintf(ErrMsgEvalPrefix, cr.rule.ID, err))
 			observability.RecordError(span, evalErr)
 			violations = append(violations, ViolationDetail{
 				PolicyID:       cr.rule.ID,
 				RuleName:       cr.rule.Name,
 				Severity:       cr.rule.Severity,
-				FailureMessage: fmt.Sprintf("evaluation error: %v", err),
+				FailureMessage: fmt.Sprintf(ErrMsgEvalFailure, err),
 			})
 			continue
 		}
@@ -116,9 +116,9 @@ func (e *CELEvaluator) Evaluate(ctx context.Context, input WorkloadAdmissionInpu
 
 	allowed := len(violations) == 0
 	span.SetAttributes(
-		attribute.Bool("admission.allowed", allowed),
-		attribute.Int("admission.violations.count", len(violations)),
-		attribute.Int("admission.evaluated.count", len(e.rules)),
+		attribute.Bool(AttrAdmissionAllowed, allowed),
+		attribute.Int(AttrAdmissionViolationsCount, len(violations)),
+		attribute.Int(AttrAdmissionEvaluatedCount, len(e.rules)),
 	)
 
 	return &AdmissionEvaluationResult{

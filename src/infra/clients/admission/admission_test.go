@@ -253,3 +253,4 @@ func TestInvalidRuleExpressionRejected(t *testing.T) {
 		t.Fatalf("expected error compiling invalid rule syntax, got nil")
 	}
 }
+
