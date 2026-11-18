@@ -164,3 +164,93 @@ flowchart TD
     V6 --> AGG
     AGG --> FAIL["Result: Allowed = false → Reject Admission (422)"]
 ```
+
+---
+
+## 4. Entity-Relationship (ER) Architecture: Policies & Exceptions
+
+The Policy as Code persistence layer implements the strict relational constraints defined in `context.yml` and Migration `0006_create_policies_tables.sql`:
+
+```mermaid
+erDiagram
+    TENANT ||--o{ POLICIES : owns
+    TENANT ||--o{ POLICY_EXCEPTIONS : owns
+
+    POLICY_LIFECYCLE_STATES ||--o{ POLICY_STATE_TRANSITIONS : from_status
+    POLICY_LIFECYCLE_STATES ||--o{ POLICY_STATE_TRANSITIONS : to_status
+    POLICY_LIFECYCLE_STATES ||--o{ POLICIES : lifecycle_state
+
+    POLICY_EXCEPTION_STATUS ||--o{ POLICY_EXCEPTIONS : status
+
+    POLICIES ||--o{ POLICY_EXCEPTIONS : "composite FK (tenant_id, policy_id)"
+
+    POLICIES {
+        uuid tenant_id PK,FK "Tenant Isolation Boundary"
+        uuid id PK "Internal UUIDv7"
+        text public_id UK "Prefixed: pol_01J..."
+        text source "CHECK: GIT, API, SYSTEM"
+        text external_id "UK(tenant_id, source, ext_id)"
+        uuid correlation_id "W3C Trace Parent Link"
+        text name "CHECK: Trimmed, <= 256 chars"
+        text description "Default: empty string"
+        text enforcement_point "CHECK: CEL, PSA, PC, BA, ORG, CI, ACD"
+        text severity "CHECK: CRITICAL, HIGH, MEDIUM, ADVISORY"
+        text lifecycle_state FK "REFERENCES policy_lifecycle_states(code)"
+        text rule_expression "Trimmed CEL Expression"
+        boolean exceptable "Enforces Exemption Eligibility"
+        text detection_pair "Associated Prometheus / Audit Rule"
+        bigint version "Optimistic Locking Counter"
+        timestamptz created_at "Audit Creation Timestamp"
+        timestamptz updated_at "Maintained by Storage Engine"
+        timestamptz deleted_at "Soft Delete Window"
+    }
+
+    POLICY_EXCEPTIONS {
+        uuid tenant_id PK,FK "Tenant Isolation Boundary"
+        uuid id PK "Internal UUIDv7"
+        text public_id UK "Prefixed: pex_01J..."
+        uuid policy_id FK "Composite FK to POLICIES"
+        text workload_id "Workload Identifier"
+        text namespace "RFC-1123 Target Namespace"
+        text approver_id "Audit Trail Approver Principal"
+        text justification "CHECK: length >= 10 chars"
+        text status FK "REFERENCES policy_exception_status(code)"
+        timestamptz expires_at "CHECK: expires_at > created_at"
+        uuid correlation_id "Audit Trace Link"
+        bigint version "Optimistic Locking Counter"
+        timestamptz created_at "Creation Timestamp"
+        timestamptz updated_at "Update Timestamp"
+        timestamptz deleted_at "Soft Delete Window"
+    }
+
+    POLICY_LIFECYCLE_STATES {
+        text code PK "DRAFT, CI_ONLY, AUDIT, WARN, DENY, ROLLED_BACK, RETIRED"
+        text description "Human-readable lifecycle description"
+    }
+
+    POLICY_STATE_TRANSITIONS {
+        text from_status PK,FK "Source State"
+        text to_status PK,FK "Permitted Destination State"
+    }
+
+    POLICY_EXCEPTION_STATUS {
+        text code PK "PENDING, ACTIVE, REVOKED, EXPIRED"
+        text description "Exception lifecycle state description"
+    }
+```
+
+### Criticality Rationale: Why These Relational Constraints Are Essential
+
+1. **Non-Bypassable Multi-Tenant Isolation via Composite Keys**:
+   - Rather than relying on simple single-column primary keys, both `policies` and `policy_exceptions` enforce `PRIMARY KEY (tenant_id, id)`.
+   - The foreign key relationship from `policy_exceptions` back to `policies` is strictly composite: `FOREIGN KEY (tenant_id, policy_id) REFERENCES policies(tenant_id, id)`.
+   - **Why Critical**: This ensures that even if an application bug attempts to link an exception in Tenant A to a policy in Tenant B, the PostgreSQL engine immediately aborts with a foreign key constraint violation. Cross-tenant leakage is mathematically impossible at the persistence boundary.
+
+2. **Storage-Enforced Finite State Machine**:
+   - The lookup tables `policy_lifecycle_states` and `policy_state_transitions` codify permitted state paths (`DRAFT` → `CI_ONLY` → `AUDIT` → `WARN` → `DENY`).
+   - **Why Critical**: State transitions cannot be corrupted by out-of-band database operations, unhandled panics, or application code regressions. The database engine actively rejects unauthorized jumps (e.g. promoting directly from `DRAFT` to `DENY`).
+
+3. **Check Constraint Invariants & Zero Data Corruption**:
+   - Mandatory field trimming: `CHECK (name = btrim(name) AND name <> '')` prevents whitespace pollution.
+   - Closed domain sets: `CHECK (enforcement_point IN ('CEL', 'PSA', 'PC', 'BA', 'ORG', 'CI', 'ACD'))` ensures no untyped or invalid enforcement targets enter the platform.
+   - Future expiration invariant: `CHECK (expires_at > created_at)` eliminates zero-day or retroactive exception bugs.
