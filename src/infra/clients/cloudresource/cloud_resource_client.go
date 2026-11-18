@@ -151,11 +151,11 @@ func (c *CloudResourceClient) TeardownResource(ctx context.Context, resourceID s
 
 		record, exists := c.ledger[resourceID]
 		if !exists {
-			return errors.NewNotFoundError(fmt.Sprintf("cloud resource not found in ledger: %s", resourceID))
+			return errors.NewNotFoundError(fmt.Sprintf(ErrMsgResourceNotFound, resourceID))
 		}
 
 		if record.DeletionProtection && !force {
-			return errors.NewConflictError(fmt.Sprintf("cloud-side deletion protection blocks teardown for resource %s", resourceID))
+			return errors.NewConflictError(fmt.Sprintf(ErrMsgDeletionProtectionBlocked, resourceID))
 		}
 
 		record.Status = ResourceStatusTornDown
@@ -208,7 +208,7 @@ func (c *CloudResourceClient) GetResource(ctx context.Context, resourceID string
 
 	record, exists := c.ledger[resourceID]
 	if !exists {
-		return nil, errors.NewNotFoundError(fmt.Sprintf("cloud resource %s not found in ledger", resourceID))
+		return nil, errors.NewNotFoundError(fmt.Sprintf(ErrMsgResourceNotFound, resourceID))
 	}
 	return &record, nil
 }
