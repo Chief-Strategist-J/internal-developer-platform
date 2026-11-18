@@ -58,3 +58,35 @@
   1. Mark external clients (`kubernetes-api`, `argocd-server`) as soft startup dependencies (`CriticalitySoft`). Services must boot and serve health checks even if downstream peers are initializing.
   2. Database connection pools must be explicitly budgeted via declarative configuration (`max_open_conns: 25`, `max_idle_conns: 10`, `conn_max_lifetime_minutes: 5`) with non-blocking ping fallbacks.
 - **Consequences**: Prevents fleet-wide restart deadlocks; shields database servers from connection exhaustion during horizontal autoscaling.
+
+---
+
+## ADR-007: Three-API Platform Topology and Canonical Infrastructure Layout
+- **Status**: Accepted
+- **Context**: Government platform standards mandate strict isolation of duties. Merging cluster lifecycles, cloud resource bindings, and container deployments creates massive blast radiuses and violates principle of least privilege.
+- **Decision**: Segregate the platform into three strictly ordered, decoupled APIs:
+  1. `Cluster API (§4.1)`: Lifecycles hardened GKE clusters enforcing CIS benchmarks, private endpoints, shielded nodes, and 9-point posture validation.
+  2. `Cloud Resource API (§4.2)`: Declaratively provisions Workload Identity IAM bindings, private DNS records, and Cloud SQL databases via Kubernetes Config Connector (KCC).
+  3. `Workload API (§4.3)`: Orchestrates application namespaces, quotas, in-process CEL admission, and rollouts.
+  All technical outbound adapters are consolidated strictly under `src/infra/clients/` behind typed Result envelopes and zero-comment contracts per `0-package-folder-writing-rule.md`.
+- **Consequences**: Workloads cannot mutate clusters; cloud resource dependencies are strictly validated before workload deployment; code layout remains 100% compliant with canonical package rules.
+
+---
+
+## ADR-008: Declarative Google Config Connector (KCC) Manifest Generation & Resilient Ledger
+- **Status**: Accepted
+- **Context**: Imperative cloud provider SDK calls bypass version control, create unmanaged state drift, and leave partial failures unrecorded during cloud outages.
+- **Decision**: The Cloud Resource client compiles typed provisioning specs into declarative Google Config Connector (KCC) manifests (`IAMPolicyMember`, `DNSRecordSet`, `SQLDatabase`, `SQLUser`), tracks lifecycle states in a resilient in-memory ledger, enforces cloud-side deletion protection checks, and exposes automated sweep reconciliation to detect orphaned resources.
+- **Consequences**: Cloud infrastructure is versioned in Git and reconciled by Argo CD; orphaned resources are deterministically identified and torn down; accidental deletion of protected databases is blocked.
+
+---
+
+## ADR-009: Downstream Resilient Client Architecture & Integer Milli-Token Rate Limiter
+- **Status**: Accepted
+- **Context**: Transient network partitions, rate limits, and slow upstream dependencies can cause cascading thread exhaustion. Additionally, standard floating-point rate-limiting algorithms suffer from IEEE 754 precision drift over long runtimes.
+- **Decision**: Implement a unified resilience executor (`src/infra/clients/resilience/`) combining:
+  1. Concurrency Bulkhead with channel-based slot acquisition.
+  2. Circuit Breaker with Consecutive Failure Threshold and half-open probes.
+  3. Exponential backoff retry budget with full jitter.
+  4. Token bucket rate limiter calculating capacity exclusively in integer milli-tokens.
+- **Consequences**: Downstream calls fail fast without cascading thread pool exhaustion; token bucket arithmetic remains mathematically exact over millions of operations without float rounding anomalies.
