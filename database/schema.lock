@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "last_migration": "0005",
+  "last_migration": "0006",
   "checksums": {
     "0001_create_service_catalog.sql": "90498574bc124ca2b46467815d6bfbfbf5a1ca10e0b220a4532b8ac15da4f0c1",
     "0001_create_service_catalog.rollback.sql": "dfb372b8303a9668395abcd85df232464eda253b4a7d6ef61cafbc9064f668fe",
@@ -11,6 +11,8 @@
     "0004_create_workload_provisions.sql": "053f226bad4103db9baa2da183fddee666d3f369ec3c088b13726bbd23ac5978",
     "0004_create_workload_provisions.rollback.sql": "88f316887d0737f6afa90ade289ab7df6761b0a6f20624ee33d0d532eb45e055",
     "0005_add_strategy_and_status_constraints.sql": "a3993bccd99047cef4cd08da659b7134b5cc27a2e653f5d2a6b3c69e4440e8f1",
-    "0005_add_strategy_and_status_constraints.rollback.sql": "c1affedb6570f2a960044b94c4762508d7954a6c2ad6bda0678d5b2e318f3f59"
+    "0005_add_strategy_and_status_constraints.rollback.sql": "c1affedb6570f2a960044b94c4762508d7954a6c2ad6bda0678d5b2e318f3f59",
+    "0006_create_policies_tables.sql": "d02697ed38b82e72de14445532670c5166c466542c3449d1f591b8f3cc9c153b",
+    "0006_create_policies_tables.rollback.sql": "bb93dd5d02cb691c8611fc4e9f2a04dbf9c737bf8996b2225bcdfcc07db9683c"
   }
 }
