@@ -9,7 +9,9 @@ import (
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/kubernetes"
+	"internal-developer-platform/src/infra/clients/rollouts"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -253,6 +255,48 @@ spec:
 	analysisYAML := rules.GenerateAnalysisTemplateYAML(cmd, rolloutCfg.AnalysisMetrics)
 	authzYAML := rules.GenerateMeshAuthorizationPolicyYAML(cmd, contracts.MeshSecurityConfig{MtlsMode: "STRICT"})
 
+	meshGen := rollouts.NewMeshRouterGenerator()
+	rolloutManifestCfg := rollouts.RolloutManifestConfig{
+		Name:               cmd.WorkloadName,
+		Namespace:          cmd.Namespace,
+		Replicas:           int32(cmd.Replicas),
+		WorkloadDigest:     cmd.Image,
+		StableServiceName:  fmt.Sprintf("%s-stable", cmd.WorkloadName),
+		CanaryServiceName:  fmt.Sprintf("%s-canary", cmd.WorkloadName),
+		VirtualServiceName: cmd.WorkloadName,
+	}
+	vsYAML, _ := meshGen.GenerateVirtualServiceYAML(rolloutManifestCfg)
+	drYAML, _ := meshGen.GenerateDestinationRuleYAML(rolloutManifestCfg)
+
+	gsaEmail := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", cmd.WorkloadName, cmd.TenantID)
+	meta := cloudresource.ResourceMetadata{
+		RequestID:   cmd.ID,
+		Owner:       cmd.TenantID,
+		CostCenter:  cmd.TenantID,
+		WorkloadID:  cmd.WorkloadName,
+		Environment: "production",
+	}
+	wiSpec := cloudresource.WorkloadIdentityBindingSpec{
+		GSAEmail:     gsaEmail,
+		KSAName:      cmd.WorkloadName,
+		Namespace:    cmd.Namespace,
+		ProjectID:    cmd.TenantID,
+		RoleBindings: []string{"roles/cloudsql.client"},
+		Metadata:     meta,
+	}
+	wiYAML, _ := cloudresource.GenerateWorkloadIdentityManifest(wiSpec)
+
+	sqlSpec := cloudresource.CloudSQLBindingSpec{
+		InstanceID:         fmt.Sprintf("%s-db", cmd.WorkloadName),
+		DatabaseName:       cmd.WorkloadName,
+		AppUser:            cmd.WorkloadName,
+		GSAEmail:           gsaEmail,
+		IAMAuthEnabled:     true,
+		DeletionProtection: true,
+		Metadata:           meta,
+	}
+	sqlYAML, _ := cloudresource.GenerateCloudSQLBindingManifest(sqlSpec)
+
 	return &contracts.ManifestBundle{
 		NamespaceYAML:           nsYAML,
 		ResourceQuotaYAML:       quotaYAML,
@@ -264,6 +308,10 @@ spec:
 		RolloutYAML:             rolloutYAML,
 		AnalysisTemplateYAML:    analysisYAML,
 		AuthorizationPolicyYAML: authzYAML,
+		VirtualServiceYAML:      vsYAML,
+		DestinationRuleYAML:     drYAML,
+		WorkloadIdentityYAML:    wiYAML,
+		DatabaseYAML:            sqlYAML,
 	}, nil
 }
 

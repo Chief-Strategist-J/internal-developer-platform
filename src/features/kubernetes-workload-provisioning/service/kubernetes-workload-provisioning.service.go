@@ -112,7 +112,11 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	}
 	admSpan.End()
 
-	_ = workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
+	_, canaryBundle, err := workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
 
 	strategy := cmd.Strategy
 	if strategy == "" {
@@ -237,6 +241,15 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	if err != nil {
 		observability.RecordError(span, err)
 		return nil, err
+	}
+
+	if canaryBundle != nil {
+		bundle.RolloutYAML = canaryBundle.RolloutYAML
+		bundle.AnalysisTemplateYAML = canaryBundle.AnalysisTemplateYAML
+		bundle.VirtualServiceYAML = canaryBundle.VirtualServiceYAML
+		bundle.DestinationRuleYAML = canaryBundle.DestinationRuleYAML
+		bundle.WorkloadIdentityYAML = canaryBundle.WorkloadIdentityYAML
+		bundle.DatabaseYAML = canaryBundle.DatabaseYAML
 	}
 
 	span.SetAttributes(

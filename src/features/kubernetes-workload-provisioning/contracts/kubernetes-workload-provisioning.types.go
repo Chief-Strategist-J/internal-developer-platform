@@ -116,6 +116,10 @@ type ManifestBundle struct {
 	RolloutYAML             string `json:"rolloutYaml,omitempty"`
 	AnalysisTemplateYAML    string `json:"analysisTemplateYaml,omitempty"`
 	AuthorizationPolicyYAML string `json:"authorizationPolicyYaml,omitempty"`
+	VirtualServiceYAML      string `json:"virtualServiceYaml,omitempty"`
+	DestinationRuleYAML     string `json:"destinationRuleYaml,omitempty"`
+	WorkloadIdentityYAML    string `json:"workloadIdentityYaml,omitempty"`
+	DatabaseYAML            string `json:"databaseYaml,omitempty"`
 }
 
 type AdmissionViolation struct {
