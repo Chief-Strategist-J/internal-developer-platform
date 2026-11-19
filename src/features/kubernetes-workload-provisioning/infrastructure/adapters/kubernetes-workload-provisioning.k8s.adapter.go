@@ -10,53 +10,15 @@ import (
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
 	"internal-developer-platform/src/infra/clients/cloudresource"
+	"internal-developer-platform/src/infra/clients/gateway"
 	"internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/rollouts"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
 
-type KubernetesClientAdapter struct {
-	clusterEndpoint  string
-	client           *kubernetes.KubernetesClient
-	mu               sync.RWMutex
-	appliedBundles   map[string]contracts.ManifestBundle
-	observedReplicas map[string]int
-	quotas           map[string]contracts.ResourceQuotaSpec
-}
-
-func NewKubernetesClientAdapter(endpoint string) *KubernetesClientAdapter {
-	return &KubernetesClientAdapter{
-		clusterEndpoint:  endpoint,
-		client:           nil,
-		appliedBundles:   make(map[string]contracts.ManifestBundle),
-		observedReplicas: make(map[string]int),
-		quotas: map[string]contracts.ResourceQuotaSpec{
-			"default": {
-				HardCPU:    "10",
-				HardMemory: "20Gi",
-				UsedCPU:    "2",
-				UsedMemory: "4Gi",
-			},
-		},
-	}
-}
-
-func NewLiveKubernetesClientAdapter(client *kubernetes.KubernetesClient) *KubernetesClientAdapter {
-	adapter := NewKubernetesClientAdapter("in-cluster")
-	adapter.client = client
-	return adapter
-}
-
-func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (*contracts.ManifestBundle, error) {
-	tracer := observability.GetTracer()
-	_, span := tracer.StartSpan(ctx, "k8s.manifest.generate_bundle",
-		attribute.String("workload.name", cmd.WorkloadName),
-		attribute.String("namespace", cmd.Namespace),
-	)
-	defer span.End()
-
-	nsYAML := fmt.Sprintf(`apiVersion: v1
+const (
+	NamespaceTemplate = `apiVersion: v1
 kind: Namespace
 metadata:
   name: %s
@@ -68,18 +30,8 @@ metadata:
     app.kubernetes.io/managed-by: %s
     app.kubernetes.io/part-of: %s
     app.kubernetes.io/name: %s
-`,
-		cmd.Namespace,
-		mutations.NamespaceLabels["pod-security.kubernetes.io/enforce"],
-		mutations.NamespaceLabels["pod-security.kubernetes.io/audit"],
-		mutations.NamespaceLabels["pod-security.kubernetes.io/warn"],
-		mutations.NamespaceLabels["istio.io/rev"],
-		mutations.NamespaceLabels["app.kubernetes.io/managed-by"],
-		mutations.NamespaceLabels["app.kubernetes.io/part-of"],
-		mutations.NamespaceLabels["app.kubernetes.io/name"],
-	)
-
-	quotaYAML := fmt.Sprintf(`apiVersion: v1
+`
+	ResourceQuotaTemplate = `apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: %s-quota
@@ -91,17 +43,8 @@ spec:
     limits.cpu: "%s"
     limits.memory: "%s"
     pods: "%s"
-`,
-		cmd.Namespace,
-		cmd.Namespace,
-		mutations.ResourceQuota.RequestsCPU,
-		mutations.ResourceQuota.RequestsMemory,
-		mutations.ResourceQuota.LimitsCPU,
-		mutations.ResourceQuota.LimitsMemory,
-		mutations.ResourceQuota.MaxPods,
-	)
-
-	limitRangeYAML := fmt.Sprintf(`apiVersion: v1
+`
+	LimitRangeTemplate = `apiVersion: v1
 kind: LimitRange
 metadata:
   name: %s-limits
@@ -115,16 +58,8 @@ spec:
       cpu: "%s"
       memory: "%s"
     type: Container
-`,
-		cmd.Namespace,
-		cmd.Namespace,
-		mutations.LimitRange.DefaultLimitCPU,
-		mutations.LimitRange.DefaultLimitMemory,
-		mutations.LimitRange.DefaultRequestCPU,
-		mutations.LimitRange.DefaultRequestMemory,
-	)
-
-	netpolYAML := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
+`
+	NetworkPolicyTemplate = `apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: %s-default-deny
@@ -142,12 +77,8 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
-`,
-		cmd.WorkloadName,
-		cmd.Namespace,
-	)
-
-	deployYAML := fmt.Sprintf(`apiVersion: apps/v1
+`
+	DeploymentTemplate = `apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: %s
@@ -200,38 +131,8 @@ spec:
           httpGet:
             path: %s
             port: %d
-`,
-		cmd.WorkloadName,
-		cmd.Namespace,
-		cmd.WorkloadName,
-		cmd.TenantID,
-		cmd.Replicas,
-		cmd.WorkloadName,
-		cmd.WorkloadName,
-		cmd.TenantID,
-		mutations.SecurityContext.RunAsNonRoot,
-		mutations.SecurityContext.RunAsUser,
-		mutations.SecurityContext.RunAsGroup,
-		mutations.SecurityContext.SeccompProfileType,
-		cmd.WorkloadName,
-		cmd.Image,
-		mutations.SecurityContext.AllowPrivilegeEscalation,
-		mutations.SecurityContext.ReadOnlyRootFilesystem,
-		mutations.CPURequest,
-		mutations.MemoryRequest,
-		mutations.CPULimit,
-		mutations.MemoryLimit,
-		mutations.Probes.StartupPath,
-		mutations.Probes.Port,
-		mutations.Probes.LivenessPath,
-		mutations.Probes.Port,
-		mutations.Probes.ReadinessPath,
-		mutations.Probes.Port,
-	)
-
-	var pdbYAML string
-	if mutations.PDBRequired {
-		pdbYAML = fmt.Sprintf(`apiVersion: policy/v1
+`
+	PDBTemplate = `apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: %s-pdb
@@ -241,22 +142,90 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: %s
-`,
-			cmd.WorkloadName,
-			cmd.Namespace,
-			mutations.MinAvailable,
-			cmd.WorkloadName,
-		)
+`
+)
+
+type KubernetesClientAdapter struct {
+	clusterEndpoint  string
+	client           *kubernetes.KubernetesClient
+	mu               sync.RWMutex
+	appliedBundles   map[string]contracts.ManifestBundle
+	observedReplicas map[string]int
+	quotas           map[string]contracts.ResourceQuotaSpec
+}
+
+func NewKubernetesClientAdapter(endpoint string) *KubernetesClientAdapter {
+	return &KubernetesClientAdapter{
+		clusterEndpoint:  endpoint,
+		client:           nil,
+		appliedBundles:   make(map[string]contracts.ManifestBundle),
+		observedReplicas: make(map[string]int),
+		quotas: map[string]contracts.ResourceQuotaSpec{
+			"default": {
+				HardCPU:    "10",
+				HardMemory: "20Gi",
+				UsedCPU:    "2",
+				UsedMemory: "4Gi",
+			},
+		},
 	}
+}
 
-	argoYAML := rules.GenerateArgoCDApplicationYAML(cmd, contracts.GitOpsAppConfig{})
-	rolloutCfg := rules.EvaluateDefaultRolloutConfig(cmd)
-	rolloutYAML := rules.GenerateArgoRolloutYAML(cmd, mutations, rolloutCfg)
-	analysisYAML := rules.GenerateAnalysisTemplateYAML(cmd, rolloutCfg.AnalysisMetrics)
-	authzYAML := rules.GenerateMeshAuthorizationPolicyYAML(cmd, contracts.MeshSecurityConfig{MtlsMode: "STRICT"})
+func NewLiveKubernetesClientAdapter(client *kubernetes.KubernetesClient) *KubernetesClientAdapter {
+	adapter := NewKubernetesClientAdapter("in-cluster")
+	adapter.client = client
+	return adapter
+}
 
+func buildNamespaceYAML(namespace string, labels map[string]string) string {
+	return fmt.Sprintf(NamespaceTemplate,
+		namespace,
+		labels["pod-security.kubernetes.io/enforce"],
+		labels["pod-security.kubernetes.io/audit"],
+		labels["pod-security.kubernetes.io/warn"],
+		labels["istio.io/rev"],
+		labels["app.kubernetes.io/managed-by"],
+		labels["app.kubernetes.io/part-of"],
+		labels["app.kubernetes.io/name"],
+	)
+}
+
+func buildResourceQuotaYAML(namespace string, q rules.ResourceQuotaDefaults) string {
+	return fmt.Sprintf(ResourceQuotaTemplate,
+		namespace, namespace, q.RequestsCPU, q.RequestsMemory, q.LimitsCPU, q.LimitsMemory, q.MaxPods,
+	)
+}
+
+func buildLimitRangeYAML(namespace string, lr rules.LimitRangeDefaults) string {
+	return fmt.Sprintf(LimitRangeTemplate,
+		namespace, namespace, lr.DefaultLimitCPU, lr.DefaultLimitMemory, lr.DefaultRequestCPU, lr.DefaultRequestMemory,
+	)
+}
+
+func buildNetworkPolicyYAML(workloadName, namespace string) string {
+	return fmt.Sprintf(NetworkPolicyTemplate, workloadName, namespace)
+}
+
+func buildDeploymentYAML(cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) string {
+	sc := mutations.SecurityContext
+	pb := mutations.Probes
+	return fmt.Sprintf(DeploymentTemplate,
+		cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID,
+		cmd.Replicas, cmd.WorkloadName, cmd.WorkloadName, cmd.TenantID,
+		sc.RunAsNonRoot, sc.RunAsUser, sc.RunAsGroup, sc.SeccompProfileType,
+		cmd.WorkloadName, cmd.Image, sc.AllowPrivilegeEscalation, sc.ReadOnlyRootFilesystem,
+		mutations.CPURequest, mutations.MemoryRequest, mutations.CPULimit, mutations.MemoryLimit,
+		pb.StartupPath, pb.Port, pb.LivenessPath, pb.Port, pb.ReadinessPath, pb.Port,
+	)
+}
+
+func buildPDBYAML(workloadName, namespace string, minAvailable int) string {
+	return fmt.Sprintf(PDBTemplate, workloadName, namespace, minAvailable, workloadName)
+}
+
+func buildMeshManifests(cmd contracts.WorkloadProvisionCommand) (string, string) {
 	meshGen := rollouts.NewMeshRouterGenerator()
-	rolloutManifestCfg := rollouts.RolloutManifestConfig{
+	cfg := rollouts.RolloutManifestConfig{
 		Name:               cmd.WorkloadName,
 		Namespace:          cmd.Namespace,
 		Replicas:           int32(cmd.Replicas),
@@ -265,54 +234,66 @@ spec:
 		CanaryServiceName:  fmt.Sprintf("%s-canary", cmd.WorkloadName),
 		VirtualServiceName: cmd.WorkloadName,
 	}
-	vsYAML, _ := meshGen.GenerateVirtualServiceYAML(rolloutManifestCfg)
-	drYAML, _ := meshGen.GenerateDestinationRuleYAML(rolloutManifestCfg)
+	vs, _ := meshGen.GenerateVirtualServiceYAML(cfg)
+	dr, _ := meshGen.GenerateDestinationRuleYAML(cfg)
+	return vs, dr
+}
 
-	gsaEmail := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", cmd.WorkloadName, cmd.TenantID)
+func buildCloudManifests(cmd contracts.WorkloadProvisionCommand) (string, string) {
 	meta := cloudresource.ResourceMetadata{
-		RequestID:   cmd.ID,
-		Owner:       cmd.TenantID,
-		CostCenter:  cmd.TenantID,
-		WorkloadID:  cmd.WorkloadName,
-		Environment: "production",
+		RequestID: cmd.ID, Owner: cmd.TenantID, CostCenter: cmd.TenantID, WorkloadID: cmd.WorkloadName, Environment: "production",
 	}
-	wiSpec := cloudresource.WorkloadIdentityBindingSpec{
-		GSAEmail:     gsaEmail,
-		KSAName:      cmd.WorkloadName,
-		Namespace:    cmd.Namespace,
-		ProjectID:    cmd.TenantID,
-		RoleBindings: []string{"roles/cloudsql.client"},
-		Metadata:     meta,
-	}
-	wiYAML, _ := cloudresource.GenerateWorkloadIdentityManifest(wiSpec)
+	gsa := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", cmd.WorkloadName, cmd.TenantID)
+	wi, _ := cloudresource.GenerateWorkloadIdentityManifest(cloudresource.WorkloadIdentityBindingSpec{
+		GSAEmail: gsa, KSAName: cmd.WorkloadName, Namespace: cmd.Namespace, ProjectID: cmd.TenantID, RoleBindings: []string{"roles/cloudsql.client"}, Metadata: meta,
+	})
+	sql, _ := cloudresource.GenerateCloudSQLBindingManifest(cloudresource.CloudSQLBindingSpec{
+		InstanceID: fmt.Sprintf("%s-db", cmd.WorkloadName), DatabaseName: cmd.WorkloadName, AppUser: cmd.WorkloadName, GSAEmail: gsa, IAMAuthEnabled: true, DeletionProtection: true, Metadata: meta,
+	})
+	return wi, sql
+}
 
-	sqlSpec := cloudresource.CloudSQLBindingSpec{
-		InstanceID:         fmt.Sprintf("%s-db", cmd.WorkloadName),
-		DatabaseName:       cmd.WorkloadName,
-		AppUser:            cmd.WorkloadName,
-		GSAEmail:           gsaEmail,
-		IAMAuthEnabled:     true,
-		DeletionProtection: true,
-		Metadata:           meta,
-	}
-	sqlYAML, _ := cloudresource.GenerateCloudSQLBindingManifest(sqlSpec)
+func buildGatewayManifests(cmd contracts.WorkloadProvisionCommand) (string, string) {
+	rg := gateway.NewHTTPRouteGenerator()
+	rt, _ := rg.GenerateHTTPRouteYAML(gateway.HTTPRouteConfig{
+		Name: cmd.WorkloadName, Namespace: cmd.Namespace, Hostnames: []string{fmt.Sprintf("%s.%s.example.com", cmd.WorkloadName, cmd.TenantID)}, ServiceName: cmd.WorkloadName, ServicePort: 8080,
+	})
+	ag := gateway.NewCloudArmorGenerator()
+	bp, _ := ag.GenerateGCPBackendPolicyYAML(gateway.GCPBackendPolicyConfig{
+		Name: fmt.Sprintf("%s-backend-policy", cmd.WorkloadName), Namespace: cmd.Namespace, TargetServiceName: cmd.WorkloadName, SecurityPolicyName: "platform-edge-security-policy", TimeoutSec: 30, LoggingEnabled: true,
+	})
+	return rt, bp
+}
 
-	return &contracts.ManifestBundle{
-		NamespaceYAML:           nsYAML,
-		ResourceQuotaYAML:       quotaYAML,
-		LimitRangeYAML:          limitRangeYAML,
-		NetworkPolicyYAML:       netpolYAML,
-		DeploymentYAML:          deployYAML,
-		PDBYAML:                 pdbYAML,
-		ArgoCDApplicationYAML:   argoYAML,
-		RolloutYAML:             rolloutYAML,
-		AnalysisTemplateYAML:    analysisYAML,
-		AuthorizationPolicyYAML: authzYAML,
-		VirtualServiceYAML:      vsYAML,
-		DestinationRuleYAML:     drYAML,
-		WorkloadIdentityYAML:    wiYAML,
-		DatabaseYAML:            sqlYAML,
-	}, nil
+func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (*contracts.ManifestBundle, error) {
+	return observability.RunTraced(ctx, "k8s.manifest.generate_bundle", func(ctx context.Context) (*contracts.ManifestBundle, error) {
+		vsYAML, drYAML := buildMeshManifests(cmd)
+		wiYAML, sqlYAML := buildCloudManifests(cmd)
+		rtYAML, bpYAML := buildGatewayManifests(cmd)
+		rolloutCfg := rules.EvaluateDefaultRolloutConfig(cmd)
+		var pdbYAML string
+		if mutations.PDBRequired {
+			pdbYAML = buildPDBYAML(cmd.WorkloadName, cmd.Namespace, mutations.MinAvailable)
+		}
+		return &contracts.ManifestBundle{
+			NamespaceYAML:           buildNamespaceYAML(cmd.Namespace, mutations.NamespaceLabels),
+			ResourceQuotaYAML:       buildResourceQuotaYAML(cmd.Namespace, mutations.ResourceQuota),
+			LimitRangeYAML:          buildLimitRangeYAML(cmd.Namespace, mutations.LimitRange),
+			NetworkPolicyYAML:       buildNetworkPolicyYAML(cmd.WorkloadName, cmd.Namespace),
+			DeploymentYAML:          buildDeploymentYAML(cmd, mutations),
+			PDBYAML:                 pdbYAML,
+			ArgoCDApplicationYAML:   rules.GenerateArgoCDApplicationYAML(cmd, contracts.GitOpsAppConfig{}),
+			RolloutYAML:             rules.GenerateArgoRolloutYAML(cmd, mutations, rolloutCfg),
+			AnalysisTemplateYAML:    rules.GenerateAnalysisTemplateYAML(cmd, rolloutCfg.AnalysisMetrics),
+			AuthorizationPolicyYAML: rules.GenerateMeshAuthorizationPolicyYAML(cmd, contracts.MeshSecurityConfig{MtlsMode: "STRICT"}),
+			VirtualServiceYAML:      vsYAML,
+			DestinationRuleYAML:     drYAML,
+			WorkloadIdentityYAML:    wiYAML,
+			DatabaseYAML:            sqlYAML,
+			HTTPRouteYAML:           rtYAML,
+			BackendPolicyYAML:       bpYAML,
+		}, nil
+	}, attribute.String("workload.name", cmd.WorkloadName), attribute.String("namespace", cmd.Namespace))
 }
 
 func (k *KubernetesClientAdapter) ApplyDeployment(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) error {
@@ -320,11 +301,9 @@ func (k *KubernetesClientAdapter) ApplyDeployment(ctx context.Context, cmd contr
 	if err != nil {
 		return err
 	}
-
 	key := fmt.Sprintf("%s/%s", cmd.Namespace, cmd.WorkloadName)
 	k.mu.Lock()
 	defer k.mu.Unlock()
-
 	k.appliedBundles[key] = *bundle
 	k.observedReplicas[key] = cmd.Replicas
 	return nil
@@ -334,30 +313,11 @@ func (k *KubernetesClientAdapter) ApplyPDB(ctx context.Context, namespace string
 	key := fmt.Sprintf("%s/%s", namespace, workloadName)
 	k.mu.Lock()
 	defer k.mu.Unlock()
-
 	bundle, exists := k.appliedBundles[key]
 	if !exists {
 		return errors.NewNotFoundError("target deployment for pdb does not exist")
 	}
-
-	pdbYAML := fmt.Sprintf(`apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: %s-pdb
-  namespace: %s
-spec:
-  minAvailable: %d
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: %s
-`,
-		workloadName,
-		namespace,
-		minAvailable,
-		workloadName,
-	)
-
-	bundle.PDBYAML = pdbYAML
+	bundle.PDBYAML = buildPDBYAML(workloadName, namespace, minAvailable)
 	k.appliedBundles[key] = bundle
 	return nil
 }
@@ -366,12 +326,10 @@ func (k *KubernetesClientAdapter) GetWorkloadHealth(ctx context.Context, namespa
 	key := fmt.Sprintf("%s/%s", namespace, workloadName)
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-
 	replicas, exists := k.observedReplicas[key]
 	if !exists || replicas == 0 {
 		return contracts.StatusRejected, errors.NewNotFoundError("workload not found or zero replicas observed")
 	}
-
 	return contracts.StatusObservedReady, nil
 }
 
@@ -379,7 +337,6 @@ func (k *KubernetesClientAdapter) GetAppliedManifests(ctx context.Context, names
 	key := fmt.Sprintf("%s/%s", namespace, workloadName)
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-
 	bundle, exists := k.appliedBundles[key]
 	if !exists {
 		return nil, errors.NewNotFoundError("manifest bundle not found for workload")
@@ -391,19 +348,16 @@ func (k *KubernetesClientAdapter) GetNamespaceQuota(ctx context.Context, namespa
 	if k.client != nil {
 		quota, err := k.client.GetResourceQuota(ctx, namespace, "compute-quota")
 		if err == nil && quota != nil {
-			spec := contracts.ResourceQuotaSpec{
+			return &contracts.ResourceQuotaSpec{
 				HardCPU:    quota.Status.Hard.Cpu().String(),
 				HardMemory: quota.Status.Hard.Memory().String(),
 				UsedCPU:    quota.Status.Used.Cpu().String(),
 				UsedMemory: quota.Status.Used.Memory().String(),
-			}
-			return &spec, nil
+			}, nil
 		}
 	}
-
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-
 	if q, exists := k.quotas[namespace]; exists {
 		return &q, nil
 	}
@@ -424,11 +378,9 @@ func (k *KubernetesClientAdapter) ObserveWorkloadReadiness(ctx context.Context, 
 			return int(ready) >= desiredReplicas, nil
 		}
 	}
-
 	key := fmt.Sprintf("%s/%s", namespace, workloadName)
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-
 	observed, exists := k.observedReplicas[key]
 	if !exists {
 		return false, nil

@@ -121,7 +121,17 @@ When you provision a workload, the engine synthesizes a self-contained multi-tie
 - **Workload Identity**: Generates declarative `IAMPolicyMember` binding the Kubernetes Service Account (`KSA`) to a dedicated Google Service Account (`GSA`) under the project, granting least-privilege cloud roles (e.g. `roles/cloudsql.client`).
 - **Cloud SQL**: Generates `SQLDatabase` with `deletionProtection: true` and IAM database authentication enabled (`CLOUD_IAM_SERVICE_ACCOUNT`).
 
-### 3.4 Argo CD GitOps Ignore Rules
+### 3.4 GKE Gateway API & Ingress Routing (`HTTPRouteYAML`)
+- **Multi-Tenant Edge Attachment**: Workload routes attach to the central platform gateway (`gateway-system/gke-external-gateway`) using `parentRefs`.
+- **Path Routing & Matchers**: Routes default to `PathPrefix: /` forwarding traffic to the application `Service` on port `8080` with 100% initial weight.
+- **Dedicated Hostnames**: Generates tenant-isolated hostnames formatted as `<workload>.<tenant>.example.com`.
+
+### 3.5 Cloud Armor WAF & Rate Limiting (`BackendPolicyYAML`)
+- **GCPBackendPolicy Attachment**: Binds the workload backend `Service` directly to the enterprise Cloud Armor security policy (`platform-edge-security-policy`).
+- **Resilience Controls**: Enforces backend timeouts (`30s`), graceful connection draining (`60s`), and full telemetry access logging.
+- **Layer-7 Filtering**: Workloads inherit DDoS mitigation, client IP rate limiting (1000 req/min threshold), and OWASP Core Rule Set evaluations at the edge.
+
+### 3.6 Argo CD GitOps Ignore Rules
 To prevent Argo CD from detecting canary traffic weight changes as out-of-band Git drift and force-reverting them back to 0% [V-12], the following ignore rules are automatically generated:
 ```json
 [

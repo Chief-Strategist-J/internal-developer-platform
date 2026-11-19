@@ -69,6 +69,22 @@ func (a *MemoryGitOpsRepositoryAdapter) GetByIdempotencyKey(ctx context.Context,
 	return &record, nil
 }
 
+func (a *MemoryGitOpsRepositoryAdapter) GetLatestSyncedRecord(ctx context.Context, tenantID string, serviceID string) (*contracts.ReconciliationRecord, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var latest *contracts.ReconciliationRecord
+	for _, rec := range a.records {
+		if rec.TenantID == tenantID && rec.ServiceID == serviceID && rec.SyncPhase == contracts.SyncPhaseSynced {
+			if latest == nil || rec.UpdatedAt.After(latest.UpdatedAt) {
+				copyRec := rec
+				latest = &copyRec
+			}
+		}
+	}
+	return latest, nil
+}
+
 func (a *MemoryGitOpsRepositoryAdapter) List(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.ReconciliationRecord, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -105,4 +121,3 @@ func (a *MemoryGitOpsRepositoryAdapter) Update(ctx context.Context, record contr
 	a.records[key] = record
 	return nil
 }
-

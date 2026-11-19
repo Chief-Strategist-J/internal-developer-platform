@@ -14,6 +14,7 @@ const (
 	StepEvaluateDrift   StepName = "EVALUATE_DRIFT"
 	StepApplySyncWaves  StepName = "APPLY_SYNC_WAVES"
 	StepVerifyHealth    StepName = "VERIFY_HEALTH"
+	StepExecuteRollback StepName = "EXECUTE_ROLLBACK"
 )
 
 type ReconciliationStep struct {
@@ -30,9 +31,13 @@ func PlanReconciliationDAG(manifests []rules.ResourceManifest) []rules.ResourceM
 	return rules.SortBySyncWave(manifests)
 }
 
+func PlanWaveBatches(manifests []rules.ResourceManifest) []rules.SyncWaveBatch {
+	return rules.GroupManifestsBySyncWave(manifests)
+}
+
 func ExecuteReconciliationPlan(ctx context.Context, manifests []rules.ResourceManifest) WorkflowExecution {
-	ordered := PlanReconciliationDAG(manifests)
-	steps := make([]ReconciliationStep, 0, len(ordered)+2)
+	_ = PlanReconciliationDAG(manifests)
+	steps := make([]ReconciliationStep, 0, 4)
 	steps = append(steps, ReconciliationStep{
 		Name:   StepFetchManifests,
 		Passed: true,
@@ -57,4 +62,3 @@ func DetermineFinalHealth(hasFailures bool) contracts.HealthStatus {
 	}
 	return contracts.HealthStatusHealthy
 }
-

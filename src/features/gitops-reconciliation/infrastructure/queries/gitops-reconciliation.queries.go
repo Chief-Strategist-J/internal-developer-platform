@@ -22,6 +22,15 @@ FROM gitops_reconciliations
 WHERE tenant_id = $1 AND idempotency_key = $2
 `
 
+	FLOW_SELECT_LATEST_SYNCED = `
+SELECT id, tenant_id, service_id, app_name, target_revision, current_revision,
+       sync_phase, health_status, idempotency_key, version, created_at, updated_at
+FROM gitops_reconciliations
+WHERE tenant_id = $1 AND service_id = $2 AND sync_phase = 'SYNCED'
+ORDER BY updated_at DESC
+LIMIT 1
+`
+
 	FLOW_UPDATE_RECONCILIATION = `
 UPDATE gitops_reconciliations
 SET current_revision = $1, sync_phase = $2, health_status = $3,
@@ -38,4 +47,3 @@ ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
 )
-

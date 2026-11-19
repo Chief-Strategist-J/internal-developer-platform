@@ -3,14 +3,17 @@ package workflows
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
 	"internal-developer-platform/src/infra/clients/cloudresource"
+	"internal-developer-platform/src/infra/clients/gateway"
 	"internal-developer-platform/src/infra/clients/rollouts"
 	"internal-developer-platform/src/infra/observability"
+	"internal-developer-platform/src/shared/errors"
 )
 
 type ProvisionStepName string
@@ -23,6 +26,7 @@ const (
 	StepSynthesizeCanaryRollout  ProvisionStepName = "SYNTHESIZE_CANARY_ROLLOUT"
 	StepSynthesizeMeshRouting    ProvisionStepName = "SYNTHESIZE_MESH_ROUTING"
 	StepSynthesizeCloudResources ProvisionStepName = "SYNTHESIZE_CLOUD_RESOURCES"
+	StepSynthesizeGatewayRouting ProvisionStepName = "SYNTHESIZE_GATEWAY_ROUTING"
 
 	SpanWorkloadDAGExecute    = "kubernetes.workload.dag.execute"
 	SpanStepValidateSpec     = "kubernetes.workload.dag.step.validate_spec"
@@ -32,21 +36,31 @@ const (
 	SpanStepSynthesizeRollout = "kubernetes.workload.dag.step.synthesize_rollout"
 	SpanStepSynthesizeMesh    = "kubernetes.workload.dag.step.synthesize_mesh"
 	SpanStepSynthesizeCloud   = "kubernetes.workload.dag.step.synthesize_cloud"
+	SpanStepSynthesizeGateway = "kubernetes.workload.dag.step.synthesize_gateway"
 
-	AttrWorkloadID          = "workload.id"
-	AttrDAGName             = "dag.name"
-	AttrStepName            = "step.name"
-	AttrCPURequest          = "cpu.request"
-	AttrMemoryRequest       = "memory.request"
-	AttrDAGStepsCount       = "dag.steps.count"
-	AttrDAGSuccess          = "dag.success"
-	DAGNameProvision        = "workload_provision_dag"
-	DefaultEnvironment      = "production"
-	DefaultDBInstanceSuffix = "-db"
-	GSADomainFormat         = "%s@%s.iam.gserviceaccount.com"
-	StableServiceSuffix     = "-stable"
-	CanaryServiceSuffix     = "-canary"
-	RoleCloudSQLClient      = "roles/cloudsql.client"
+	AttrWorkloadID           = "workload.id"
+	AttrDAGName              = "dag.name"
+	AttrStepName             = "step.name"
+	AttrCPURequest           = "cpu.request"
+	AttrMemoryRequest        = "memory.request"
+	AttrDAGStepsCount        = "dag.steps.count"
+	AttrDAGSuccess           = "dag.success"
+	DAGNameProvision         = "workload_provision_dag"
+	DefaultEnvironment       = "production"
+	DefaultDBInstanceSuffix  = "-db"
+	GSADomainFormat          = "%s@%s.iam.gserviceaccount.com"
+	StableServiceSuffix      = "-stable"
+	CanaryServiceSuffix      = "-canary"
+	RoleCloudSQLClient       = "roles/cloudsql.client"
+	DefaultHostnameFormat    = "%s.%s.example.com"
+	DefaultBackendPort       = 8080
+	DefaultBackendTimeoutSec = 30
+	DefaultArmorPolicyName   = "platform-edge-security-policy"
+
+	ErrInvalidCommandSpec = "workload name and namespace must not be empty"
+	ErrInvalidMutations   = "cpu and memory mutations must not be empty"
+	ErrInvalidReplicas    = "replicas must be greater than zero"
+	ErrEmptyImageSpec     = "container image digest must not be empty"
 )
 
 type ProvisionStep struct {
@@ -66,47 +80,13 @@ type SynthesizedCanaryBundle struct {
 	ArgoCDIgnoreDifferencesJSON string
 	WorkloadIdentityYAML        string
 	DatabaseYAML                string
+	HTTPRouteYAML               string
+	BackendPolicyYAML           string
+	SecurityPolicyYAML          string
 }
 
-func ExecuteProvisionDAG(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (ProvisionExecution, *SynthesizedCanaryBundle, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, SpanWorkloadDAGExecute,
-		attribute.String(AttrWorkloadID, cmd.ID),
-		attribute.String(AttrDAGName, DAGNameProvision),
-	)
-	defer span.End()
-
-	steps := make([]ProvisionStep, 0, 7)
-
-	_, spanVal := tracer.StartSpan(ctx, SpanStepValidateSpec,
-		attribute.String(AttrStepName, string(StepValidateSpec)),
-	)
-	steps = append(steps, ProvisionStep{Name: StepValidateSpec, Passed: true})
-	spanVal.End()
-
-	_, spanMut := tracer.StartSpan(ctx, SpanStepApplyMutations,
-		attribute.String(AttrStepName, string(StepApplyMutations)),
-		attribute.String(AttrCPURequest, mutations.CPURequest),
-		attribute.String(AttrMemoryRequest, mutations.MemoryRequest),
-	)
-	steps = append(steps, ProvisionStep{Name: StepApplyMutations, Passed: true})
-	spanMut.End()
-
-	_, spanQuota := tracer.StartSpan(ctx, SpanStepVerifyQuota,
-		attribute.String(AttrStepName, string(StepVerifyQuota)),
-	)
-	steps = append(steps, ProvisionStep{Name: StepVerifyQuota, Passed: true})
-	spanQuota.End()
-
-	_, spanGen := tracer.StartSpan(ctx, SpanStepGenerateK8sSpec,
-		attribute.String(AttrStepName, string(StepGenerateK8sSpec)),
-	)
-	steps = append(steps, ProvisionStep{Name: StepGenerateK8sSpec, Passed: true})
-	spanGen.End()
-
-	bundle := &SynthesizedCanaryBundle{}
-
-	rolloutCfg := rollouts.RolloutManifestConfig{
+func buildRolloutConfig(cmd contracts.WorkloadProvisionCommand) rollouts.RolloutManifestConfig {
+	return rollouts.RolloutManifestConfig{
 		Name:               cmd.WorkloadName,
 		Namespace:          cmd.Namespace,
 		Replicas:           int32(cmd.Replicas),
@@ -116,121 +96,198 @@ func ExecuteProvisionDAG(ctx context.Context, cmd contracts.WorkloadProvisionCom
 		VirtualServiceName: cmd.WorkloadName,
 		PrometheusAddress:  rollouts.DefaultPrometheusAddress,
 	}
+}
 
-	_, spanRollout := tracer.StartSpan(ctx, SpanStepSynthesizeRollout,
-		attribute.String(AttrStepName, string(StepSynthesizeCanaryRollout)),
-	)
-	rolloutGen := rollouts.NewRolloutManifestGenerator()
-	rolloutYAML, err := rolloutGen.GenerateRolloutYAML(rolloutCfg)
-	if err != nil {
-		observability.RecordError(spanRollout, err)
-		spanRollout.End()
-		observability.RecordError(span, err)
-		return ProvisionExecution{Steps: steps}, nil, err
-	}
-	bundle.RolloutYAML = rolloutYAML
-
-	analysisGen := rollouts.NewAnalysisTemplateGenerator()
-	analysisYAML, err := analysisGen.GenerateAnalysisTemplateYAML(rolloutCfg)
-	if err != nil {
-		observability.RecordError(spanRollout, err)
-		spanRollout.End()
-		observability.RecordError(span, err)
-		return ProvisionExecution{Steps: steps}, nil, err
-	}
-	bundle.AnalysisTemplateYAML = analysisYAML
-
-	ignoreDiffJSON, err := rolloutGen.GenerateArgoCDIgnoreDifferencesJSON()
-	if err != nil {
-		observability.RecordError(spanRollout, err)
-		spanRollout.End()
-		observability.RecordError(span, err)
-		return ProvisionExecution{Steps: steps}, nil, err
-	}
-	bundle.ArgoCDIgnoreDifferencesJSON = ignoreDiffJSON
-
-	steps = append(steps, ProvisionStep{Name: StepSynthesizeCanaryRollout, Passed: true})
-	spanRollout.End()
-
-	_, spanMesh := tracer.StartSpan(ctx, SpanStepSynthesizeMesh,
-		attribute.String(AttrStepName, string(StepSynthesizeMeshRouting)),
-	)
-	meshGen := rollouts.NewMeshRouterGenerator()
-	vsYAML, err := meshGen.GenerateVirtualServiceYAML(rolloutCfg)
-	if err != nil {
-		observability.RecordError(spanMesh, err)
-		spanMesh.End()
-		observability.RecordError(span, err)
-		return ProvisionExecution{Steps: steps}, nil, err
-	}
-	bundle.VirtualServiceYAML = vsYAML
-
-	drYAML, err := meshGen.GenerateDestinationRuleYAML(rolloutCfg)
-	if err != nil {
-		observability.RecordError(spanMesh, err)
-		spanMesh.End()
-		observability.RecordError(span, err)
-		return ProvisionExecution{Steps: steps}, nil, err
-	}
-	bundle.DestinationRuleYAML = drYAML
-
-	steps = append(steps, ProvisionStep{Name: StepSynthesizeMeshRouting, Passed: true})
-	spanMesh.End()
-
-	_, spanCloud := tracer.StartSpan(ctx, SpanStepSynthesizeCloud,
-		attribute.String(AttrStepName, string(StepSynthesizeCloudResources)),
-	)
-	gsaEmail := fmt.Sprintf(GSADomainFormat, cmd.WorkloadName, cmd.TenantID)
-	meta := cloudresource.ResourceMetadata{
+func buildResourceMetadata(cmd contracts.WorkloadProvisionCommand) cloudresource.ResourceMetadata {
+	return cloudresource.ResourceMetadata{
 		RequestID:   cmd.ID,
 		Owner:       cmd.TenantID,
 		CostCenter:  cmd.TenantID,
 		WorkloadID:  cmd.WorkloadName,
 		Environment: DefaultEnvironment,
 	}
+}
 
-	wiSpec := cloudresource.WorkloadIdentityBindingSpec{
-		GSAEmail:     gsaEmail,
+func buildRouteConfig(cmd contracts.WorkloadProvisionCommand) gateway.HTTPRouteConfig {
+	return gateway.HTTPRouteConfig{
+		Name:        cmd.WorkloadName,
+		Namespace:   cmd.Namespace,
+		Hostnames:   []string{fmt.Sprintf(DefaultHostnameFormat, cmd.WorkloadName, cmd.TenantID)},
+		ServiceName: cmd.WorkloadName,
+		ServicePort: DefaultBackendPort,
+	}
+}
+
+func buildBackendPolicyConfig(cmd contracts.WorkloadProvisionCommand) gateway.GCPBackendPolicyConfig {
+	return gateway.GCPBackendPolicyConfig{
+		Name:               fmt.Sprintf("%s-backend-policy", cmd.WorkloadName),
+		Namespace:          cmd.Namespace,
+		TargetServiceName:  cmd.WorkloadName,
+		SecurityPolicyName: DefaultArmorPolicyName,
+		TimeoutSec:         DefaultBackendTimeoutSec,
+		LoggingEnabled:     true,
+	}
+}
+
+func stepValidateSpec(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepValidateSpec, func(ctx context.Context) (ProvisionStep, error) {
+		if strings.TrimSpace(cmd.WorkloadName) == "" || strings.TrimSpace(cmd.Namespace) == "" {
+			return ProvisionStep{}, errors.NewValidationError(ErrInvalidCommandSpec)
+		}
+		return ProvisionStep{Name: StepValidateSpec, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepValidateSpec)))
+}
+
+func stepApplyMutations(ctx context.Context, mutations rules.WorkloadMutations) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepApplyMutations, func(ctx context.Context) (ProvisionStep, error) {
+		if strings.TrimSpace(mutations.CPURequest) == "" || strings.TrimSpace(mutations.MemoryRequest) == "" {
+			return ProvisionStep{}, errors.NewValidationError(ErrInvalidMutations)
+		}
+		return ProvisionStep{Name: StepApplyMutations, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepApplyMutations)), attribute.String(AttrCPURequest, mutations.CPURequest))
+}
+
+func stepVerifyQuota(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepVerifyQuota, func(ctx context.Context) (ProvisionStep, error) {
+		if cmd.Replicas <= 0 {
+			return ProvisionStep{}, errors.NewValidationError(ErrInvalidReplicas)
+		}
+		return ProvisionStep{Name: StepVerifyQuota, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepVerifyQuota)))
+}
+
+func stepGenerateK8sSpec(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepGenerateK8sSpec, func(ctx context.Context) (ProvisionStep, error) {
+		if strings.TrimSpace(cmd.Image) == "" {
+			return ProvisionStep{}, errors.NewValidationError(ErrEmptyImageSpec)
+		}
+		return ProvisionStep{Name: StepGenerateK8sSpec, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepGenerateK8sSpec)))
+}
+
+func stepSynthesizeRollout(ctx context.Context, cfg rollouts.RolloutManifestConfig, bundle *SynthesizedCanaryBundle) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepSynthesizeRollout, func(ctx context.Context) (ProvisionStep, error) {
+		gen := rollouts.NewRolloutManifestGenerator()
+		rolloutYAML, err := gen.GenerateRolloutYAML(cfg)
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		analysisGen := rollouts.NewAnalysisTemplateGenerator()
+		analysisYAML, err := analysisGen.GenerateAnalysisTemplateYAML(cfg)
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		bundle.RolloutYAML = rolloutYAML
+		bundle.AnalysisTemplateYAML = analysisYAML
+		bundle.ArgoCDIgnoreDifferencesJSON, _ = gen.GenerateArgoCDIgnoreDifferencesJSON()
+		return ProvisionStep{Name: StepSynthesizeCanaryRollout, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepSynthesizeCanaryRollout)))
+}
+
+func stepSynthesizeMesh(ctx context.Context, cfg rollouts.RolloutManifestConfig, bundle *SynthesizedCanaryBundle) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepSynthesizeMesh, func(ctx context.Context) (ProvisionStep, error) {
+		meshGen := rollouts.NewMeshRouterGenerator()
+		vsYAML, err := meshGen.GenerateVirtualServiceYAML(cfg)
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		drYAML, err := meshGen.GenerateDestinationRuleYAML(cfg)
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		bundle.VirtualServiceYAML = vsYAML
+		bundle.DestinationRuleYAML = drYAML
+		return ProvisionStep{Name: StepSynthesizeMeshRouting, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepSynthesizeMeshRouting)))
+}
+
+func synthesizeWorkloadIdentity(cmd contracts.WorkloadProvisionCommand, meta cloudresource.ResourceMetadata) (string, error) {
+	return cloudresource.GenerateWorkloadIdentityManifest(cloudresource.WorkloadIdentityBindingSpec{
+		GSAEmail:     fmt.Sprintf(GSADomainFormat, cmd.WorkloadName, cmd.TenantID),
 		KSAName:      cmd.WorkloadName,
 		Namespace:    cmd.Namespace,
 		ProjectID:    cmd.TenantID,
 		RoleBindings: []string{RoleCloudSQLClient},
 		Metadata:     meta,
-	}
-	wiYAML, err := cloudresource.GenerateWorkloadIdentityManifest(wiSpec)
-	if err != nil {
-		observability.RecordError(spanCloud, err)
-		spanCloud.End()
-		observability.RecordError(span, err)
-		return ProvisionExecution{Steps: steps}, nil, err
-	}
-	bundle.WorkloadIdentityYAML = wiYAML
+	})
+}
 
-	sqlSpec := cloudresource.CloudSQLBindingSpec{
+func synthesizeCloudSQL(cmd contracts.WorkloadProvisionCommand, meta cloudresource.ResourceMetadata) (string, error) {
+	return cloudresource.GenerateCloudSQLBindingManifest(cloudresource.CloudSQLBindingSpec{
 		InstanceID:         fmt.Sprintf("%s%s", cmd.WorkloadName, DefaultDBInstanceSuffix),
 		DatabaseName:       cmd.WorkloadName,
 		AppUser:            cmd.WorkloadName,
-		GSAEmail:           gsaEmail,
+		GSAEmail:           fmt.Sprintf(GSADomainFormat, cmd.WorkloadName, cmd.TenantID),
 		IAMAuthEnabled:     true,
 		DeletionProtection: true,
 		Metadata:           meta,
+	})
+}
+
+func stepSynthesizeCloud(ctx context.Context, cmd contracts.WorkloadProvisionCommand, bundle *SynthesizedCanaryBundle) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepSynthesizeCloud, func(ctx context.Context) (ProvisionStep, error) {
+		meta := buildResourceMetadata(cmd)
+		wiYAML, err := synthesizeWorkloadIdentity(cmd, meta)
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		sqlYAML, err := synthesizeCloudSQL(cmd, meta)
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		bundle.WorkloadIdentityYAML = wiYAML
+		bundle.DatabaseYAML = sqlYAML
+		return ProvisionStep{Name: StepSynthesizeCloudResources, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepSynthesizeCloudResources)))
+}
+
+func stepSynthesizeGateway(ctx context.Context, cmd contracts.WorkloadProvisionCommand, bundle *SynthesizedCanaryBundle) (ProvisionStep, error) {
+	return observability.RunTraced(ctx, SpanStepSynthesizeGateway, func(ctx context.Context) (ProvisionStep, error) {
+		routeGen := gateway.NewHTTPRouteGenerator()
+		routeYAML, err := routeGen.GenerateHTTPRouteYAML(buildRouteConfig(cmd))
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		armorGen := gateway.NewCloudArmorGenerator()
+		backendYAML, err := armorGen.GenerateGCPBackendPolicyYAML(buildBackendPolicyConfig(cmd))
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+		bundle.HTTPRouteYAML = routeYAML
+		bundle.BackendPolicyYAML = backendYAML
+		return ProvisionStep{Name: StepSynthesizeGatewayRouting, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepSynthesizeGatewayRouting)))
+}
+
+func buildDAGSteps(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, bundle *SynthesizedCanaryBundle) []func() (ProvisionStep, error) {
+	rolloutCfg := buildRolloutConfig(cmd)
+	return []func() (ProvisionStep, error){
+		func() (ProvisionStep, error) { return stepValidateSpec(ctx, cmd) },
+		func() (ProvisionStep, error) { return stepApplyMutations(ctx, mutations) },
+		func() (ProvisionStep, error) { return stepVerifyQuota(ctx, cmd) },
+		func() (ProvisionStep, error) { return stepGenerateK8sSpec(ctx, cmd) },
+		func() (ProvisionStep, error) { return stepSynthesizeRollout(ctx, rolloutCfg, bundle) },
+		func() (ProvisionStep, error) { return stepSynthesizeMesh(ctx, rolloutCfg, bundle) },
+		func() (ProvisionStep, error) { return stepSynthesizeCloud(ctx, cmd, bundle) },
+		func() (ProvisionStep, error) { return stepSynthesizeGateway(ctx, cmd, bundle) },
 	}
-	sqlYAML, err := cloudresource.GenerateCloudSQLBindingManifest(sqlSpec)
+}
+
+func ExecuteProvisionDAG(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (ProvisionExecution, *SynthesizedCanaryBundle, error) {
+	bundle := &SynthesizedCanaryBundle{}
+	steps := make([]ProvisionStep, 0, 8)
+	err := observability.WithSpan(ctx, SpanWorkloadDAGExecute, func(ctx context.Context) error {
+		for _, stepFunc := range buildDAGSteps(ctx, cmd, mutations, bundle) {
+			st, stepErr := stepFunc()
+			if stepErr != nil {
+				return stepErr
+			}
+			steps = append(steps, st)
+		}
+		return nil
+	}, attribute.String(AttrWorkloadID, cmd.ID), attribute.String(AttrDAGName, DAGNameProvision))
 	if err != nil {
-		observability.RecordError(spanCloud, err)
-		spanCloud.End()
-		observability.RecordError(span, err)
 		return ProvisionExecution{Steps: steps}, nil, err
 	}
-	bundle.DatabaseYAML = sqlYAML
-
-	steps = append(steps, ProvisionStep{Name: StepSynthesizeCloudResources, Passed: true})
-	spanCloud.End()
-
-	span.SetAttributes(
-		attribute.Int(AttrDAGStepsCount, len(steps)),
-		attribute.Bool(AttrDAGSuccess, true),
-	)
-
 	return ProvisionExecution{Steps: steps}, bundle, nil
 }
