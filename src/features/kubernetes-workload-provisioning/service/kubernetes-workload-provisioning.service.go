@@ -11,19 +11,31 @@ import (
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
+	pacports "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
 
+const (
+	AttrAdmissionExceptionApplied = "admission.exception_applied"
+	AttrAdmissionExceptionID      = "admission.exception_id"
+)
+
 type WorkloadProvisioningService struct {
-	store     ports.WorkloadStorePort
-	k8sClient ports.K8sClientPort
+	store      ports.WorkloadStorePort
+	k8sClient  ports.K8sClientPort
+	policyRepo pacports.PolicyRepositoryPort
 }
 
-func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort) *WorkloadProvisioningService {
+func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
+	var pRepo pacports.PolicyRepositoryPort
+	if len(policyRepo) > 0 {
+		pRepo = policyRepo[0]
+	}
 	return &WorkloadProvisioningService{
-		store:     store,
-		k8sClient: k8sClient,
+		store:      store,
+		k8sClient:  k8sClient,
+		policyRepo: pRepo,
 	}
 }
 
@@ -105,10 +117,30 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 	_, admSpan := tracer.StartSpan(ctx, "kubernetes.workload.validate_admission")
 	admissionReport, err := rules.ValidateAdmission(cmd, mutations)
 	if err != nil {
-		observability.RecordError(admSpan, err)
-		admSpan.End()
-		observability.RecordError(span, err)
-		return nil, err
+		if s.policyRepo != nil {
+			activeExceptions, excErr := s.policyRepo.GetActiveExceptionsForWorkload(ctx, cmd.TenantID, cmd.Namespace, cmd.WorkloadName)
+			if excErr == nil && len(activeExceptions) > 0 {
+				matchingExc := activeExceptions[0]
+				admissionReport = contracts.AdmissionReport{
+					Admitted:         true,
+					Violations:       admissionReport.Violations,
+					ExceptionApplied: true,
+					ExceptionID:      matchingExc.PublicID,
+					ApproverID:       matchingExc.ApproverID,
+				}
+				admSpan.SetAttributes(
+					attribute.Bool(AttrAdmissionExceptionApplied, true),
+					attribute.String(AttrAdmissionExceptionID, matchingExc.PublicID),
+				)
+				err = nil
+			}
+		}
+		if err != nil {
+			observability.RecordError(admSpan, err)
+			admSpan.End()
+			observability.RecordError(span, err)
+			return nil, err
+		}
 	}
 	admSpan.End()
 

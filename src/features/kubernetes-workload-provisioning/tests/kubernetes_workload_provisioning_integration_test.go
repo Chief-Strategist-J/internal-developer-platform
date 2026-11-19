@@ -18,6 +18,8 @@ import (
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	paccontracts "internal-developer-platform/src/features/policy-as-code/contracts"
+	pacadapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
 	k8sclient "internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/resilience"
 	"internal-developer-platform/src/infra/observability"
@@ -335,5 +337,80 @@ func TestWorkloadProvisioningServiceWithLiveK8sClient(t *testing.T) {
 	}
 	if result.Provision.Strategy != contracts.StrategyCanary {
 		t.Fatalf("expected strategy Canary, got %s", result.Provision.Strategy)
+	}
+}
+
+func TestWorkloadProvisioningWithActivePolicyException(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sAdapter := kubernetesworkloadprovisioning.NewK8sClient("https://10.0.0.1:6443")
+	policyRepo := pacadapters.NewMemoryPolicyRepositoryAdapter()
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sAdapter, policyRepo)
+
+	now := time.Now().UTC()
+	policy := paccontracts.PolicyRecord{
+		ID:               "11111111-2222-3333-4444-555555555555",
+		PublicID:         "POL-ROOT-BANNED",
+		TenantID:         "tenant-exc-test",
+		Source:           paccontracts.PolicySourceSystem,
+		ExternalID:       "EXT-ROOT-001",
+		CorrelationID:    "66666666-7777-8888-9999-000000000000",
+		Name:             "Restricted Pod Security Root Ban",
+		EnforcementPoint: paccontracts.EnforcementPointCEL,
+		Severity:         paccontracts.SeverityCritical,
+		LifecycleState:   paccontracts.LifecycleDeny,
+		RuleExpression:   "!c.securityContext.privileged",
+		Exceptable:       true,
+		DetectionPair:    "DET-01",
+		Version:          1,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := policyRepo.SavePolicy(ctx, policy); err != nil {
+		t.Fatalf("failed to save policy: %v", err)
+	}
+
+	exc := paccontracts.PolicyExceptionRecord{
+		ID:            "99999999-8888-7777-6666-555555555555",
+		PublicID:      "EXC-LEGACY-ROOT-001",
+		TenantID:      "tenant-exc-test",
+		PolicyID:      policy.ID,
+		WorkloadID:    "legacy-daemon",
+		Namespace:     "tenant-exc-test",
+		ApproverID:    "secops-lead@internal",
+		Justification: "Migration waiver granted until Q3 for legacy daemon",
+		Status:        paccontracts.ExceptionStatusActive,
+		ExpiresAt:     now.Add(48 * time.Hour),
+		CorrelationID: "66666666-7777-8888-9999-000000000000",
+		Version:       1,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := policyRepo.SaveException(ctx, exc); err != nil {
+		t.Fatalf("failed to save policy exception: %v", err)
+	}
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-exc-001",
+		TenantID:       "tenant-exc-test",
+		ServiceID:      "legacy-service",
+		Namespace:      "tenant-exc-test",
+		WorkloadName:   "legacy-daemon",
+		Image:          "gcr.io/corp/legacy:v1.0.0",
+		CPURequest:     "500m",
+		CPULimit:       "1000m",
+		MemoryRequest:  "512Mi",
+		MemoryLimit:    "1024Mi",
+		Replicas:       2,
+		Strategy:       contracts.StrategyCanary,
+		IdempotencyKey: "idemp-exc-001",
+	}
+
+	res, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error provisioning workload: %v", err)
+	}
+	if !res.Admission.Admitted {
+		t.Fatalf("expected workload to be admitted via exception, got admitted=false")
 	}
 }
