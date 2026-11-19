@@ -91,3 +91,4 @@ type ArgoCDIgnoreDifference struct {
 	Kind         string   `json:"kind" yaml:"kind"`
 	JSONPointers []string `json:"jsonPointers" yaml:"jsonPointers"`
 }
+

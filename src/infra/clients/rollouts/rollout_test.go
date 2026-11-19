@@ -179,3 +179,4 @@ func TestMeshRouterGenerator(t *testing.T) {
 	assert.Contains(t, drYaml, "kind: DestinationRule")
 	assert.Contains(t, drYaml, "mode: ISTIO_MUTUAL")
 }
+

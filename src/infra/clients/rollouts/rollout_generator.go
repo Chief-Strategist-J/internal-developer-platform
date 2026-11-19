@@ -162,3 +162,4 @@ func (g *RolloutManifestGenerator) defaultCanarySteps() []CanaryStep {
 		{SetWeight: &w4},
 	}
 }
+
