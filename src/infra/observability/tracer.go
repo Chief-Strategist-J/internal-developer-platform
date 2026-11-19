@@ -106,3 +106,27 @@ func RecordError(span trace.Span, err error) {
 func CurrentSpan(ctx context.Context) trace.Span {
 	return trace.SpanFromContext(ctx)
 }
+
+func WithSpan(ctx context.Context, spanName string, fn func(ctx context.Context) error, attrs ...attribute.KeyValue) error {
+	ctx, span := GetTracer().StartSpan(ctx, spanName, attrs...)
+	defer span.End()
+	if err := fn(ctx); err != nil {
+		RecordError(span, err)
+		return err
+	}
+	span.SetStatus(codes.Ok, "")
+	return nil
+}
+
+func RunTraced[T any](ctx context.Context, spanName string, fn func(ctx context.Context) (T, error), attrs ...attribute.KeyValue) (T, error) {
+	ctx, span := GetTracer().StartSpan(ctx, spanName, attrs...)
+	defer span.End()
+	val, err := fn(ctx)
+	if err != nil {
+		RecordError(span, err)
+		return val, err
+	}
+	span.SetStatus(codes.Ok, "")
+	return val, nil
+}
+

@@ -101,6 +101,36 @@ func (a *PostgresGitOpsRepositoryAdapter) GetByIdempotencyKey(ctx context.Contex
 	return &rec, nil
 }
 
+func (a *PostgresGitOpsRepositoryAdapter) GetLatestSyncedRecord(ctx context.Context, tenantID string, serviceID string) (*contracts.ReconciliationRecord, error) {
+	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_LATEST_SYNCED, tenantID, serviceID)
+	var rec contracts.ReconciliationRecord
+	var phase string
+	var health string
+	err := row.Scan(
+		&rec.ID,
+		&rec.TenantID,
+		&rec.ServiceID,
+		&rec.AppName,
+		&rec.TargetRevision,
+		&rec.CurrentRevision,
+		&phase,
+		&health,
+		&rec.IdempotencyKey,
+		&rec.Version,
+		&rec.CreatedAt,
+		&rec.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	rec.SyncPhase = contracts.SyncPhase(phase)
+	rec.HealthStatus = contracts.HealthStatus(health)
+	return &rec, nil
+}
+
 func (a *PostgresGitOpsRepositoryAdapter) List(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.ReconciliationRecord, error) {
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
@@ -164,4 +194,3 @@ func (a *PostgresGitOpsRepositoryAdapter) Update(ctx context.Context, record con
 	}
 	return nil
 }
-

@@ -72,8 +72,9 @@ type SyncRequestPayload struct {
 }
 
 type ArgoCDClientConfig struct {
-	BaseURL        string
-	AuthToken      string
-	Timeout        time.Duration
-	ConnectTimeout time.Duration
+	BaseURL            string
+	AuthToken          string
+	InsecureSkipVerify bool
+	Timeout            time.Duration
+	ConnectTimeout     time.Duration
 }
