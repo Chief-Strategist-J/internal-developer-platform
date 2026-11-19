@@ -20,6 +20,11 @@ type DriftReport struct {
 	Critical          bool
 }
 
+type SyncWaveBatch struct {
+	Wave      int
+	Resources []ResourceManifest
+}
+
 func SortBySyncWave(manifests []ResourceManifest) []ResourceManifest {
 	sorted := make([]ResourceManifest, len(manifests))
 	copy(sorted, manifests)
@@ -27,6 +32,39 @@ func SortBySyncWave(manifests []ResourceManifest) []ResourceManifest {
 		return sorted[i].SyncWave < sorted[j].SyncWave
 	})
 	return sorted
+}
+
+func GroupManifestsBySyncWave(manifests []ResourceManifest) []SyncWaveBatch {
+	if len(manifests) == 0 {
+		return make([]SyncWaveBatch, 0)
+	}
+
+	ordered := SortBySyncWave(manifests)
+	batches := make([]SyncWaveBatch, 0)
+
+	currentWave := ordered[0].SyncWave
+	currentBatch := []ResourceManifest{ordered[0]}
+
+	for idx := 1; idx < len(ordered); idx++ {
+		item := ordered[idx]
+		if item.SyncWave == currentWave {
+			currentBatch = append(currentBatch, item)
+		} else {
+			batches = append(batches, SyncWaveBatch{
+				Wave:      currentWave,
+				Resources: currentBatch,
+			})
+			currentWave = item.SyncWave
+			currentBatch = []ResourceManifest{item}
+		}
+	}
+
+	batches = append(batches, SyncWaveBatch{
+		Wave:      currentWave,
+		Resources: currentBatch,
+	})
+
+	return batches
 }
 
 func EvaluateDriftSeverity(modifiedCount int, deletedCount int) DriftReport {
@@ -40,12 +78,24 @@ func EvaluateDriftSeverity(modifiedCount int, deletedCount int) DriftReport {
 	}
 }
 
+func ShouldTriggerRollback(syncErr error, health contracts.HealthStatus, lastGoodRevision string) bool {
+	if lastGoodRevision == "" {
+		return false
+	}
+	if syncErr != nil {
+		return true
+	}
+	if health == contracts.HealthStatusDegraded || health == contracts.HealthStatusMissing {
+		return true
+	}
+	return false
+}
+
 func CanInitiateSync(current contracts.SyncPhase) bool {
 	switch current {
-	case contracts.SyncPhaseSyncing:
+	case contracts.SyncPhaseSyncing, contracts.SyncPhaseRollingBack:
 		return false
 	default:
 		return true
 	}
 }
-
