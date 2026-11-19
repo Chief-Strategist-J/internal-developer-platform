@@ -127,3 +127,36 @@
      - `canary-error-rate-delta`: `result[0] <= 0.001` (canary 5xx error rate cannot exceed stable baseline by > 0.1%).
      - `canary-p99-latency`: `result[0] <= 200` (canary p99 latency must not exceed 200ms).
 - **Consequences**: Zero defective releases can pass silently during observability outages; canary promotions require positive, unbroken telemetry signals to proceed.
+
+---
+
+## ADR-013: Multi-Tenant Ingress Boundary Partitioning via GKE Gateway API
+- **Status**: Accepted
+- **Context**: In multi-tenant Kubernetes clusters, allowing tenant workload repositories to synthesize root `Gateway` resources risks route collisions, unauthorized listener modifications, and cluster-wide edge downtime.
+- **Decision**: Partition ingress ownership between platform infrastructure and tenant workloads:
+  1. Platform operators own root `Gateway` resources (`gateway.networking.k8s.io/v1`) in the `gateway-system` namespace.
+  2. The workload provisioning engine synthesizes strictly scoped `HTTPRoute` resources in the tenant namespace, anchoring to the shared gateway via cross-namespace `parentRefs` (`group: gateway.networking.k8s.io`, `kind: Gateway`, `namespace: gateway-system`, `name: gke-external-gateway`).
+  3. Route matches default to `PathPrefix: /` targeting the workload service with weight 100 and port 8080.
+- **Consequences**: Multi-tenant route isolation is enforced at the admission and GitOps boundary. Tenants can configure custom hostnames and path routing without access to cluster-wide edge ingress listeners.
+
+---
+
+## ADR-014: Decoupled Cloud Armor WAF and DDoS Protection via GCPBackendPolicy
+- **Status**: Accepted
+- **Context**: Directly embedding Cloud Armor security policies inside tenant workload manifests risks exposing or allowing tenants to modify platform-wide DDoS protection rules, rate limits, and OWASP filter profiles.
+- **Decision**: Decouple edge WAF policy definitions from tenant application definitions:
+  1. Platform security policies (`ComputeSecurityPolicy` under `compute.cnrm.cloud.google.com/v1beta1`) are defined with standard pre-configured OWASP ModSecurity rules and client IP rate limiting.
+  2. Tenant workloads attach to the platform security policy via declarative `networking.gke.io/v1` `GCPBackendPolicy` CRDs referencing the tenant's backend `Service` via `targetRef`.
+  3. Workload generator configures default backend timeouts (`30s`), connection draining (`60s`), and full telemetry access logging (`sampleRate: 1.0`).
+- **Consequences**: Platform security controls remain centralized and immutable, while tenant workloads automatically inherit enterprise-grade Layer-7 WAF and DDoS protection upon provisioning.
+
+---
+
+## ADR-015: Higher-Order Tracing Primitives and Uniform Function Decomposition
+- **Status**: Accepted
+- **Context**: Repeating manual OpenTelemetry span creation (`tracer.StartSpan`), error recording (`RecordError`), status setting (`codes.Error`/`codes.Ok`), and `span.End()` across dozens of methods created duplicate ceremony, leading to functions ballooning over the 30-line limit mandated by institutional rules.
+- **Decision**: Standardize all tracing across the platform on reusable higher-order primitives in `src/infra/observability/tracer.go`:
+  1. `observability.WithSpan(ctx, spanName, fn, attrs...) error`
+  2. `observability.RunTraced[T](ctx, spanName, fn, attrs...) (T, error)`
+  3. Decompose all domain workflows, adapters, and services into single-responsibility functions strictly $\le 30$ lines, moving multiline manifest templates to package constants.
+- **Consequences**: Tracing lifecycle management is centralized in one place. Monolithic functions across domain workflows, adapters, and services are reduced from 280+ lines to under 30 lines each with zero mid-function comments.

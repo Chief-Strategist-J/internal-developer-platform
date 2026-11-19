@@ -193,6 +193,12 @@ func TestWorkloadProvisioningServiceExecution(t *testing.T) {
 	if !result.PDBCreated {
 		t.Errorf("expected PDB created for replicas=3")
 	}
+	if result.Manifests.HTTPRouteYAML == "" {
+		t.Errorf("expected HTTPRouteYAML in synthesized manifests")
+	}
+	if result.Manifests.BackendPolicyYAML == "" {
+		t.Errorf("expected BackendPolicyYAML in synthesized manifests")
+	}
 
 	replay, err := svc.ProvisionWorkload(ctx, cmd)
 	if err != nil {
