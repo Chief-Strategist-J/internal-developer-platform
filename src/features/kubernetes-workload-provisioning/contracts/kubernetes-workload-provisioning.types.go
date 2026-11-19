@@ -128,8 +128,11 @@ type AdmissionViolation struct {
 }
 
 type AdmissionReport struct {
-	Admitted   bool                 `json:"admitted"`
-	Violations []AdmissionViolation `json:"violations,omitempty"`
+	Admitted         bool                 `json:"admitted"`
+	Violations       []AdmissionViolation `json:"violations,omitempty"`
+	ExceptionApplied bool                 `json:"exceptionApplied,omitempty"`
+	ExceptionID      string               `json:"exceptionId,omitempty"`
+	ApproverID       string               `json:"approverId,omitempty"`
 }
 
 type WorkloadProvisionResult struct {
