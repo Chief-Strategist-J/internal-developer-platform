@@ -1,4 +1,84 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: idp
 resources:
   - ../../base
+  - namespace.yaml
+  - db.yaml
+  - cache.yaml
+  - tempo.yaml
+  - loki.yaml
+  - prometheus.yaml
+  - grafana.yaml
+  - proxy.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: developer-platform
+configMapGenerator:
+  - name: tempo-config
+    files:
+      - tempo.yaml=config/tempo.yaml
+  - name: loki-config
+    files:
+      - loki.yaml=config/loki.yaml
+  - name: prometheus-config
+    files:
+      - prometheus.yaml=config/prometheus.yaml
+  - name: grafana-config
+    files:
+      - grafana-datasources.yaml=config/grafana-datasources.yaml
+  - name: proxy-config
+    files:
+      - Caddyfile=config/Caddyfile
+secretGenerator:
+  - name: platform-credentials
+    literals:
+      - db_password=idp_local_dev_password
+patches:
+  - path: otel-collector-config.patch.yaml
+  - path: otel-collector-env.patch.yaml
+  - target:
+      kind: Deployment
+      name: developer-portal
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: ConfigMap
+      name: internal-developer-platform-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: local
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: platform-api-hpa
+  - patch: |-
+      $patch: delete
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: platform-api-pdb
+  - patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: platform-api-ingress
+  - patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: platform-credentials
+  - patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1beta1
+      kind: ClusterSecretStore
+      metadata:
+        name: gcp-secret-manager
