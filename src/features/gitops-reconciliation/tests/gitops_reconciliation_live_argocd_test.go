@@ -15,9 +15,10 @@ import (
 func TestLiveArgoCDClusterReconciliation(t *testing.T) {
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhcmdvY2QiLCJzdWIiOiJhZG1pbjpsb2dpbiIsImV4cCI6MTc5NTE4MDU3MywibmJmIjoxNzk1MDk0MTczLCJpYXQiOjE3OTUwOTQxNzMsImp0aSI6IjZkOGEwYmQ5LTA1ZDktNGQ0OC04NTg2LTI2OThhYWEyZTMwNSJ9.G39CIjlBsoi_IpRJw9XhjfdsxDOp9l23rDMiNlklqxI"
 	argoCfg := argocd.ArgoCDClientConfig{
-		BaseURL:   "https://127.0.0.1:8085",
-		AuthToken: token,
-		Timeout:   10 * time.Second,
+		BaseURL:            "https://127.0.0.1:8085",
+		AuthToken:          token,
+		InsecureSkipVerify: true,
+		Timeout:            10 * time.Second,
 	}
 
 	resCfg := resilience.DefaultResilienceConfig()

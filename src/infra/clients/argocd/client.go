@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,7 @@ func NewArgoCDClient(config ArgoCDClientConfig, resConfig resilience.ResilienceC
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: config.InsecureSkipVerify},
 	}
 
 	return &ArgoCDClient{
