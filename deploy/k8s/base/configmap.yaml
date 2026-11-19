@@ -10,3 +10,4 @@ data:
   PORT: "8080"
   METRICS_PORT: "9090"
   LOG_LEVEL: "info"
+  REDIS_ADDR: "cache:6379"

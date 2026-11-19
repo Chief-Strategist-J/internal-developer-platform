@@ -44,6 +44,14 @@ spec:
           envFrom:
             - configMapRef:
                 name: internal-developer-platform-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-credentials
+                  key: db_password
+            - name: DATABASE_URL
+              value: postgres://postgres:$(DB_PASSWORD)@db:5432/idp_db?sslmode=disable
           resources:
             limits:
               cpu: "1000m"

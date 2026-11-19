@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  labels:
+    app.kubernetes.io/name: proxy
+    app.kubernetes.io/part-of: developer-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: proxy
+        app.kubernetes.io/part-of: developer-platform
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy
+          image: caddy:2.8-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: XDG_CONFIG_HOME
+              value: /config
+            - name: XDG_DATA_HOME
+              value: /data
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 128Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 2
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: caddy-config
+              mountPath: /config
+            - name: caddy-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: proxy-config
+        - name: caddy-config
+          emptyDir: {}
+        - name: caddy-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+  labels:
+    app.kubernetes.io/name: proxy
+    app.kubernetes.io/part-of: developer-platform
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30080
+      protocol: TCP

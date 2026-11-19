@@ -24,7 +24,7 @@ spec:
       containers:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.108.0
-          command: ["--config=/etc/otelcol-contrib/config.yaml"]
+          args: ["--config=/etc/otelcol-contrib/config.yaml"]
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
@@ -36,6 +36,26 @@ spec:
               containerPort: 4317
             - name: otlp-http
               containerPort: 4318
+            - name: health
+              containerPort: 13133
+            - name: prom-export
+              containerPort: 8889
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 2
           volumeMounts:
             - name: config
               mountPath: /etc/otelcol-contrib
@@ -46,6 +66,9 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
       volumes:
         - name: config
           configMap:
@@ -69,5 +92,8 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: otlp-http
+    - name: prom-export
+      port: 8889
+      targetPort: prom-export
   selector:
     app.kubernetes.io/name: otel-collector

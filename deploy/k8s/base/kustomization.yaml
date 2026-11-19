@@ -8,4 +8,9 @@ resources:
   - ingress.yaml
   - configmap.yaml
   - otel-collector.yaml
+  - otel-collector-config.yaml
   - external-secrets.yaml
+  - migrate-job.yaml
+  - rust-worker.yaml
+  - cpp-engine.yaml
+  - developer-portal.yaml
