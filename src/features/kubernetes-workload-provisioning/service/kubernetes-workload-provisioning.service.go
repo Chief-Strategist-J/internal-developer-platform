@@ -28,135 +28,148 @@ type WorkloadProvisioningService struct {
 }
 
 func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
-	var pRepo pacports.PolicyRepositoryPort
+	var pr pacports.PolicyRepositoryPort
 	if len(policyRepo) > 0 {
-		pRepo = policyRepo[0]
+		pr = policyRepo[0]
 	}
 	return &WorkloadProvisioningService{
 		store:      store,
 		k8sClient:  k8sClient,
-		policyRepo: pRepo,
+		policyRepo: pr,
 	}
 }
 
-func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (*contracts.WorkloadProvisionResult, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.provision",
-		attribute.String("tenant.id", cmd.TenantID),
-		attribute.String("service.id", cmd.ServiceID),
-		attribute.String("workload.name", cmd.WorkloadName),
-		attribute.String("namespace", cmd.Namespace),
-	)
-	defer span.End()
+func NewService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
+	return NewWorkloadProvisioningService(store, k8sClient, policyRepo...)
+}
 
-	_, valSpan := tracer.StartSpan(ctx, "kubernetes.workload.validate_command")
-	if err := contracts.ValidateWorkloadCommand(cmd); err != nil {
-		observability.RecordError(valSpan, err)
-		valSpan.End()
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	valSpan.End()
-
+func (s *WorkloadProvisioningService) checkIdempotencyReplay(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (*contracts.WorkloadProvisionResult, error) {
 	existing, err := s.store.GetByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey)
-	if err != nil {
-		observability.RecordError(span, err)
+	if err != nil || existing == nil {
 		return nil, err
 	}
-	if existing != nil {
-		var bundle contracts.ManifestBundle
-		if applied, bErr := s.k8sClient.GetAppliedManifests(ctx, existing.Namespace, existing.WorkloadName); bErr == nil && applied != nil {
-			bundle = *applied
+	var bundle contracts.ManifestBundle
+	if applied, bErr := s.k8sClient.GetAppliedManifests(ctx, existing.Namespace, existing.WorkloadName); bErr == nil && applied != nil {
+		bundle = *applied
+	}
+	return &contracts.WorkloadProvisionResult{
+		Provision:               *existing,
+		InjectedSecurityContext: true,
+		InjectedProbes:          true,
+		PDBCreated:              existing.Replicas >= 2,
+		Manifests:               bundle,
+		Admission: contracts.AdmissionReport{
+			Admitted:   true,
+			Violations: nil,
+		},
+		Message: "idempotent replay",
+	}, nil
+}
+
+func (s *WorkloadProvisioningService) verifyQuotaHeadroom(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) error {
+	return observability.WithSpan(ctx, "kubernetes.workload.verify_quota_headroom", func(ctx context.Context) error {
+		quota, err := s.k8sClient.GetNamespaceQuota(ctx, cmd.Namespace)
+		if err != nil {
+			return err
 		}
-		span.SetAttributes(attribute.Bool("idempotent.replay", true))
-		return &contracts.WorkloadProvisionResult{
-			Provision:               *existing,
-			InjectedSecurityContext: true,
-			InjectedProbes:          true,
-			PDBCreated:              existing.Replicas >= 2,
-			Manifests:               bundle,
-			Admission: contracts.AdmissionReport{
-				Admitted:   true,
-				Violations: nil,
-			},
-			Message: "idempotent replay",
-		}, nil
-	}
-
-	_, mutSpan := tracer.StartSpan(ctx, "kubernetes.workload.evaluate_mutations")
-	mutations := rules.EvaluateWorkloadMutations(cmd)
-	mutSpan.SetAttributes(
-		attribute.String("mutated.cpu_request", mutations.CPURequest),
-		attribute.String("mutated.memory_request", mutations.MemoryRequest),
-		attribute.Bool("mutated.pdb_required", mutations.PDBRequired),
-	)
-	mutSpan.End()
-
-	_, quotaSpan := tracer.StartSpan(ctx, "kubernetes.workload.verify_quota_headroom",
-		attribute.String("namespace", cmd.Namespace),
-	)
-	quota, qErr := s.k8sClient.GetNamespaceQuota(ctx, cmd.Namespace)
-	if qErr != nil {
-		observability.RecordError(quotaSpan, qErr)
-		quotaSpan.End()
-		observability.RecordError(span, qErr)
-		return nil, qErr
-	}
-	if quota != nil {
-		headroom := rules.EvaluateResourceQuotaHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas)
-		if !headroom.SufficientHeadroom {
-			quotaErr := errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
-			observability.RecordError(quotaSpan, quotaErr)
-			quotaSpan.End()
-			observability.RecordError(span, quotaErr)
-			return nil, quotaErr
+		if quota != nil {
+			headroom := rules.EvaluateResourceQuotaHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas)
+			if !headroom.SufficientHeadroom {
+				return errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
+			}
 		}
-	}
-	quotaSpan.End()
+		return nil
+	}, attribute.String("namespace", cmd.Namespace))
+}
 
-	_, admSpan := tracer.StartSpan(ctx, "kubernetes.workload.validate_admission")
-	admissionReport, err := rules.ValidateAdmission(cmd, mutations)
-	if err != nil {
+func (s *WorkloadProvisioningService) evaluateAdmission(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (contracts.AdmissionReport, error) {
+	return observability.RunTraced(ctx, "kubernetes.workload.validate_admission", func(ctx context.Context) (contracts.AdmissionReport, error) {
+		report, err := rules.ValidateAdmission(cmd, mutations)
+		if err == nil {
+			return report, nil
+		}
 		if s.policyRepo != nil {
 			activeExceptions, excErr := s.policyRepo.GetActiveExceptionsForWorkload(ctx, cmd.TenantID, cmd.Namespace, cmd.WorkloadName)
 			if excErr == nil && len(activeExceptions) > 0 {
-				matchingExc := activeExceptions[0]
-				admissionReport = contracts.AdmissionReport{
+				matching := activeExceptions[0]
+				return contracts.AdmissionReport{
 					Admitted:         true,
-					Violations:       admissionReport.Violations,
+					Violations:       report.Violations,
 					ExceptionApplied: true,
-					ExceptionID:      matchingExc.PublicID,
-					ApproverID:       matchingExc.ApproverID,
-				}
-				admSpan.SetAttributes(
-					attribute.Bool(AttrAdmissionExceptionApplied, true),
-					attribute.String(AttrAdmissionExceptionID, matchingExc.PublicID),
-				)
-				err = nil
+					ExceptionID:      matching.PublicID,
+					ApproverID:       matching.ApproverID,
+				}, nil
 			}
 		}
+		return report, err
+	})
+}
+
+func (s *WorkloadProvisioningService) advanceStateMachine(ctx context.Context, record *contracts.WorkloadProvisionRecord) error {
+	return observability.WithSpan(ctx, "kubernetes.workload.state_machine_transition", func(ctx context.Context) error {
+		vStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventValidate)
 		if err != nil {
-			observability.RecordError(admSpan, err)
-			admSpan.End()
-			observability.RecordError(span, err)
-			return nil, err
+			return err
 		}
-	}
-	admSpan.End()
+		aStatus, err := machines.TransitionWorkloadState(vStatus, machines.EventAdmit)
+		if err != nil {
+			return err
+		}
+		pStatus, err := machines.TransitionWorkloadState(aStatus, machines.EventApply)
+		if err != nil {
+			return err
+		}
+		record.Status = pStatus
+		return nil
+	})
+}
 
-	_, canaryBundle, err := workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
-	if err != nil {
-		observability.RecordError(span, err)
-		return nil, err
-	}
+func (s *WorkloadProvisioningService) applyWorkloadResources(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, record *contracts.WorkloadProvisionRecord) error {
+	return observability.WithSpan(ctx, "kubernetes.workload.apply_resources", func(ctx context.Context) error {
+		if err := s.k8sClient.ApplyDeployment(ctx, cmd, mutations); err != nil {
+			rej, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
+			record.Status = rej
+			record.Version = 2
+			_ = s.store.Update(ctx, *record)
+			return errors.NewConflictError("kubernetes deployment apply failed: " + err.Error())
+		}
+		if mutations.PDBRequired {
+			if err := s.k8sClient.ApplyPDB(ctx, cmd.Namespace, cmd.WorkloadName, mutations.MinAvailable); err != nil {
+				rej, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
+				record.Status = rej
+				record.Version = 2
+				_ = s.store.Update(ctx, *record)
+				return errors.NewConflictError("kubernetes pdb apply failed: " + err.Error())
+			}
+		}
+		return nil
+	})
+}
 
+func (s *WorkloadProvisioningService) observeWorkloadStatus(ctx context.Context, cmd contracts.WorkloadProvisionCommand, record *contracts.WorkloadProvisionRecord) error {
+	return observability.WithSpan(ctx, "kubernetes.workload.observe_readiness", func(ctx context.Context) error {
+		ready, _ := s.k8sClient.ObserveWorkloadReadiness(ctx, cmd.Namespace, cmd.WorkloadName, cmd.Replicas)
+		if ready {
+			if obs, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady); err == nil {
+				record.Status = obs
+			}
+		} else {
+			if deg, err := machines.TransitionWorkloadState(record.Status, machines.EventDegrade); err == nil {
+				record.Status = deg
+			}
+		}
+		record.Version = 2
+		return s.store.Update(ctx, *record)
+	})
+}
+
+func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) contracts.WorkloadProvisionRecord {
 	strategy := cmd.Strategy
 	if strategy == "" {
 		strategy = contracts.StrategyCanary
 	}
-
 	now := time.Now().UTC()
-	record := contracts.WorkloadProvisionRecord{
+	return contracts.WorkloadProvisionRecord{
 		ID:             cmd.ID,
 		TenantID:       cmd.TenantID,
 		ServiceID:      cmd.ServiceID,
@@ -174,169 +187,88 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
+}
 
+func mergeCanaryBundle(bundle *contracts.ManifestBundle, canaryBundle *workflows.SynthesizedCanaryBundle) contracts.ManifestBundle {
+	if canaryBundle == nil {
+		return *bundle
+	}
+	bundle.RolloutYAML = canaryBundle.RolloutYAML
+	bundle.AnalysisTemplateYAML = canaryBundle.AnalysisTemplateYAML
+	bundle.VirtualServiceYAML = canaryBundle.VirtualServiceYAML
+	bundle.DestinationRuleYAML = canaryBundle.DestinationRuleYAML
+	bundle.WorkloadIdentityYAML = canaryBundle.WorkloadIdentityYAML
+	bundle.DatabaseYAML = canaryBundle.DatabaseYAML
+	bundle.HTTPRouteYAML = canaryBundle.HTTPRouteYAML
+	bundle.BackendPolicyYAML = canaryBundle.BackendPolicyYAML
+	return *bundle
+}
+
+func (s *WorkloadProvisioningService) executePipeline(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, admissionReport contracts.AdmissionReport) (*contracts.WorkloadProvisionResult, error) {
+	_, canaryBundle, err := workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
+	if err != nil {
+		return nil, err
+	}
+	record := buildInitialRecord(cmd, mutations)
 	if err := s.store.Save(ctx, record); err != nil {
-		observability.RecordError(span, err)
 		return nil, err
 	}
-
-	_, smSpan := tracer.StartSpan(ctx, "kubernetes.workload.state_machine_transition")
-	validatedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventValidate)
-	if err != nil {
-		observability.RecordError(smSpan, err)
-		smSpan.End()
-		observability.RecordError(span, err)
+	if err := s.advanceStateMachine(ctx, &record); err != nil {
 		return nil, err
 	}
-	record.Status = validatedStatus
-
-	admittedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventAdmit)
-	if err != nil {
-		observability.RecordError(smSpan, err)
-		smSpan.End()
-		observability.RecordError(span, err)
+	if err := s.applyWorkloadResources(ctx, cmd, mutations, &record); err != nil {
 		return nil, err
 	}
-	record.Status = admittedStatus
-
-	provisioningStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventApply)
-	if err != nil {
-		observability.RecordError(smSpan, err)
-		smSpan.End()
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	record.Status = provisioningStatus
-	smSpan.End()
-
-	_, applySpan := tracer.StartSpan(ctx, "kubernetes.workload.apply_deployment",
-		attribute.String("workload.name", cmd.WorkloadName),
-		attribute.String("namespace", cmd.Namespace),
-	)
-	if err := s.k8sClient.ApplyDeployment(ctx, cmd, mutations); err != nil {
-		observability.RecordError(applySpan, err)
-		applySpan.End()
-
-		rejectedStatus, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
-		record.Status = rejectedStatus
-		record.Version = 2
-		_ = s.store.Update(ctx, record)
-		k8sErr := errors.NewConflictError("kubernetes deployment apply failed: " + err.Error())
-		observability.RecordError(span, k8sErr)
-		return nil, k8sErr
-	}
-	applySpan.End()
-
-	if mutations.PDBRequired {
-		_, pdbSpan := tracer.StartSpan(ctx, "kubernetes.workload.apply_pdb",
-			attribute.String("workload.name", cmd.WorkloadName),
-			attribute.Int("min.available", mutations.MinAvailable),
-		)
-		if err := s.k8sClient.ApplyPDB(ctx, cmd.Namespace, cmd.WorkloadName, mutations.MinAvailable); err != nil {
-			observability.RecordError(pdbSpan, err)
-			pdbSpan.End()
-
-			rejectedStatus, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
-			record.Status = rejectedStatus
-			record.Version = 2
-			_ = s.store.Update(ctx, record)
-			pdbErr := errors.NewConflictError("kubernetes pdb apply failed: " + err.Error())
-			observability.RecordError(span, pdbErr)
-			return nil, pdbErr
-		}
-		pdbSpan.End()
-	}
-
-	_, observeSpan := tracer.StartSpan(ctx, "kubernetes.workload.observe_readiness")
-	ready, _ := s.k8sClient.ObserveWorkloadReadiness(ctx, cmd.Namespace, cmd.WorkloadName, cmd.Replicas)
-	if ready {
-		observedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady)
-		if err == nil {
-			record.Status = observedStatus
-		}
-	} else {
-		degradedStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventDegrade)
-		if err == nil {
-			record.Status = degradedStatus
-		}
-	}
-	observeSpan.SetAttributes(attribute.Bool("workload.ready", ready))
-	observeSpan.End()
-	record.Version = 2
-
-	if err := s.store.Update(ctx, record); err != nil {
-		observability.RecordError(span, err)
-		return nil, err
-	}
-
+	_ = s.observeWorkloadStatus(ctx, cmd, &record)
 	bundle, err := s.k8sClient.GenerateManifestBundle(ctx, cmd, mutations)
 	if err != nil {
-		observability.RecordError(span, err)
 		return nil, err
 	}
-
-	if canaryBundle != nil {
-		bundle.RolloutYAML = canaryBundle.RolloutYAML
-		bundle.AnalysisTemplateYAML = canaryBundle.AnalysisTemplateYAML
-		bundle.VirtualServiceYAML = canaryBundle.VirtualServiceYAML
-		bundle.DestinationRuleYAML = canaryBundle.DestinationRuleYAML
-		bundle.WorkloadIdentityYAML = canaryBundle.WorkloadIdentityYAML
-		bundle.DatabaseYAML = canaryBundle.DatabaseYAML
-	}
-
-	span.SetAttributes(
-		attribute.String("provision.status", string(record.Status)),
-		attribute.Bool("pdb.created", mutations.PDBRequired),
-	)
-
 	return &contracts.WorkloadProvisionResult{
 		Provision:               record,
 		InjectedSecurityContext: true,
 		InjectedProbes:          true,
 		PDBCreated:              mutations.PDBRequired,
-		Manifests:               *bundle,
+		Manifests:               mergeCanaryBundle(bundle, canaryBundle),
 		Admission:               admissionReport,
 		Message:                 "workload provisioned and admitted successfully",
 	}, nil
 }
 
-func (s *WorkloadProvisioningService) GetWorkload(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.get",
-		attribute.String("tenant.id", tenantID),
-		attribute.String("workload.id", id),
-	)
-	defer span.End()
+func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (*contracts.WorkloadProvisionResult, error) {
+	return observability.RunTraced(ctx, "kubernetes.workload.provision", func(ctx context.Context) (*contracts.WorkloadProvisionResult, error) {
+		if err := contracts.ValidateWorkloadCommand(cmd); err != nil {
+			return nil, err
+		}
+		if replay, err := s.checkIdempotencyReplay(ctx, cmd); replay != nil || err != nil {
+			return replay, err
+		}
+		mutations := rules.EvaluateWorkloadMutations(cmd)
+		if err := s.verifyQuotaHeadroom(ctx, cmd, mutations); err != nil {
+			return nil, err
+		}
+		report, err := s.evaluateAdmission(ctx, cmd, mutations)
+		if err != nil {
+			return nil, err
+		}
+		return s.executePipeline(ctx, cmd, mutations, report)
+	}, attribute.String("tenant.id", cmd.TenantID), attribute.String("workload.name", cmd.WorkloadName))
+}
 
-	if tenantID == "" || id == "" {
-		err := errors.NewValidationError("tenantId and id are required")
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	rec, err := s.store.GetByID(ctx, tenantID, id)
-	if err != nil {
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	return rec, nil
+func (s *WorkloadProvisioningService) GetWorkload(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {
+	return observability.RunTraced(ctx, "kubernetes.workload.get", func(ctx context.Context) (*contracts.WorkloadProvisionRecord, error) {
+		if tenantID == "" || id == "" {
+			return nil, errors.NewValidationError("tenantId and id are required")
+		}
+		return s.store.GetByID(ctx, tenantID, id)
+	}, attribute.String("tenant.id", tenantID), attribute.String("workload.id", id))
 }
 
 func (s *WorkloadProvisioningService) ListWorkloads(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.WorkloadProvisionRecord, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "kubernetes.workload.list",
-		attribute.String("tenant.id", filter.TenantID),
-	)
-	defer span.End()
-
-	if filter.TenantID == "" {
-		err := errors.NewValidationError("tenantId is required")
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	records, err := s.store.List(ctx, filter)
-	if err != nil {
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	return records, nil
+	return observability.RunTraced(ctx, "kubernetes.workload.list", func(ctx context.Context) ([]contracts.WorkloadProvisionRecord, error) {
+		if filter.TenantID == "" {
+			return nil, errors.NewValidationError("tenantId is required")
+		}
+		return s.store.List(ctx, filter)
+	}, attribute.String("tenant.id", filter.TenantID))
 }

@@ -120,6 +120,9 @@ type ManifestBundle struct {
 	DestinationRuleYAML     string `json:"destinationRuleYaml,omitempty"`
 	WorkloadIdentityYAML    string `json:"workloadIdentityYaml,omitempty"`
 	DatabaseYAML            string `json:"databaseYaml,omitempty"`
+	HTTPRouteYAML           string `json:"httpRouteYaml,omitempty"`
+	BackendPolicyYAML       string `json:"backendPolicyYaml,omitempty"`
+	SecurityPolicyYAML      string `json:"securityPolicyYaml,omitempty"`
 }
 
 type AdmissionViolation struct {

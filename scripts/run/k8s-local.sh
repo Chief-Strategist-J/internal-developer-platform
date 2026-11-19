@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLUSTER_NAME="idp-cluster"
+ARGOCD_NAMESPACE="argocd"
+ARGOCD_PORT=8085
+
+log_info() {
+    echo -e "\033[1;34m[INFO]\033[0m $1"
+}
+
+log_success() {
+    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
+}
+
+log_error() {
+    echo -e "\033[1;31m[ERROR]\033[0m $1" >&2
+}
+
+check_prerequisites() {
+    log_info "Verifying CLI dependencies..."
+    command -v kind >/dev/null 2>&1 || { log_error "kind CLI not found in PATH"; exit 1; }
+    command -v kubectl >/dev/null 2>&1 || { log_error "kubectl CLI not found in PATH"; exit 1; }
+    command -v docker >/dev/null 2>&1 || { log_error "docker CLI not found in PATH"; exit 1; }
+}
+
+create_cluster() {
+    if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
+        log_info "kind cluster '${CLUSTER_NAME}' already exists."
+    else
+        log_info "Creating kind cluster '${CLUSTER_NAME}'..."
+        cat <<EOF | kind create cluster --name "${CLUSTER_NAME}" --config=-
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 30080
+    hostPort: 30080
+    protocol: TCP
+  - containerPort: 30443
+    hostPort: 30443
+    protocol: TCP
+EOF
+        log_success "kind cluster '${CLUSTER_NAME}' created."
+    fi
+
+    kubectl cluster-info --context "kind-${CLUSTER_NAME}"
+}
+
+install_argocd() {
+    log_info "Creating namespace '${ARGOCD_NAMESPACE}'..."
+    kubectl get ns "${ARGOCD_NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${ARGOCD_NAMESPACE}"
+
+    log_info "Applying official ArgoCD manifests..."
+    kubectl apply -n "${ARGOCD_NAMESPACE}" -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+    log_info "Waiting for ArgoCD server deployment to become available (timeout: 300s)..."
+    kubectl wait --for=condition=available deployment/argocd-server -n "${ARGOCD_NAMESPACE}" --timeout=300s
+
+    log_success "ArgoCD server is healthy and running."
+}
+
+apply_idp_project() {
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local root_dir="${script_dir}/../.."
+
+    log_info "Applying IDP AppProject and Dev Application..."
+    kubectl apply -f "${root_dir}/deploy/argocd/project.yaml"
+    kubectl apply -f "${root_dir}/deploy/argocd/applications/app.dev.yaml"
+    log_success "ArgoCD project and application registered."
+}
+
+get_credentials() {
+    log_info "Extracting initial admin credentials..."
+    local password
+    password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
+    
+    echo ""
+    log_success "=========================================================="
+    log_success "Local Kubernetes & ArgoCD Environment Ready!"
+    log_success "Cluster:   ${CLUSTER_NAME}"
+    log_success "Server:    http://127.0.0.1:${ARGOCD_PORT}"
+    log_success "Username:  admin"
+    log_success "Password:  ${password}"
+    log_success "=========================================================="
+    echo ""
+    echo "To port-forward ArgoCD API to localhost:${ARGOCD_PORT}:"
+    echo "  kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE} ${ARGOCD_PORT}:80"
+}
+
+down_cluster() {
+    log_info "Deleting kind cluster '${CLUSTER_NAME}'..."
+    kind delete cluster --name "${CLUSTER_NAME}"
+    log_success "kind cluster deleted."
+}
+
+main() {
+    local action="${1:-up}"
+    check_prerequisites
+
+    case "${action}" in
+        up)
+            create_cluster
+            install_argocd
+            apply_idp_project
+            get_credentials
+            ;;
+        down)
+            down_cluster
+            ;;
+        status)
+            kubectl get pods -n "${ARGOCD_NAMESPACE}"
+            ;;
+        *)
+            echo "Usage: $0 [up|down|status]"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
