@@ -7,6 +7,7 @@ import (
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
 )
 
@@ -102,6 +103,67 @@ func TestGenerateManifestBundleCompliant(t *testing.T) {
 	}
 	if !strings.Contains(bundle.AuthorizationPolicyYAML, `security.istio.io/mtls: "STRICT"`) {
 		t.Errorf("expected mTLS STRICT in authorization policy")
+	}
+
+	if !strings.Contains(bundle.VirtualServiceYAML, "kind: VirtualService") {
+		t.Errorf("expected kind: VirtualService in bundle")
+	}
+	if !strings.Contains(bundle.DestinationRuleYAML, "kind: DestinationRule") {
+		t.Errorf("expected kind: DestinationRule in bundle")
+	}
+	if !strings.Contains(bundle.WorkloadIdentityYAML, "kind: IAMPolicyMember") {
+		t.Errorf("expected kind: IAMPolicyMember in bundle")
+	}
+	if !strings.Contains(bundle.DatabaseYAML, "kind: SQLDatabase") {
+		t.Errorf("expected kind: SQLDatabase in bundle")
+	}
+}
+
+func TestExecuteProvisionDAG_SynthesizesCanaryAndCloudBundle(t *testing.T) {
+	ctx := context.Background()
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-canary-dag-01",
+		TenantID:       "tenant-dag",
+		ServiceID:      "dag-api",
+		Namespace:      "dag-prod",
+		WorkloadName:   "dag-worker",
+		Image:          "gcr.io/bank/dag:v1.0.0",
+		CPURequest:     "500m",
+		CPULimit:       "1000m",
+		MemoryRequest:  "1Gi",
+		MemoryLimit:    "2Gi",
+		Replicas:       3,
+		IdempotencyKey: "idemp-dag-01",
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	exec, bundle, err := workflows.ExecuteProvisionDAG(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error executing DAG: %v", err)
+	}
+
+	if len(exec.Steps) != 7 {
+		t.Errorf("expected 7 DAG steps, got %d", len(exec.Steps))
+	}
+
+	if bundle == nil {
+		t.Fatalf("expected non-nil synthesized canary bundle")
+	}
+
+	if !strings.Contains(bundle.RolloutYAML, "kind: Rollout") {
+		t.Errorf("expected kind: Rollout in synthesized bundle")
+	}
+	if !strings.Contains(bundle.VirtualServiceYAML, "kind: VirtualService") {
+		t.Errorf("expected kind: VirtualService in synthesized bundle")
+	}
+	if !strings.Contains(bundle.DestinationRuleYAML, "kind: DestinationRule") {
+		t.Errorf("expected kind: DestinationRule in synthesized bundle")
+	}
+	if !strings.Contains(bundle.WorkloadIdentityYAML, "kind: IAMPolicyMember") {
+		t.Errorf("expected kind: IAMPolicyMember in synthesized bundle")
+	}
+	if !strings.Contains(bundle.DatabaseYAML, "kind: SQLDatabase") {
+		t.Errorf("expected kind: SQLDatabase in synthesized bundle")
 	}
 }
 

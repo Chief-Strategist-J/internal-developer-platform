@@ -90,3 +90,40 @@
   3. Exponential backoff retry budget with full jitter.
   4. Token bucket rate limiter calculating capacity exclusively in integer milli-tokens.
 - **Consequences**: Downstream calls fail fast without cascading thread pool exhaustion; token bucket arithmetic remains mathematically exact over millions of operations without float rounding anomalies.
+
+---
+
+## ADR-010: Synthesis of Argo Rollouts, Mesh Routing, and Cloud Resources in the Provisioning DAG
+- **Status**: Accepted
+- **Context**: Disjoint synthesis of application containers, canary traffic shifting, and cloud infrastructure (Workload Identity, managed databases) leads to partial deployments and out-of-order reconciliation where workloads start before IAM bindings or routing mesh definitions exist.
+- **Decision**: Orchestrate manifest synthesis as a unified directed acyclic graph (DAG) within `ExecuteProvisionDAG` under `domain/workflows/`. The DAG coordinates:
+  1. `StepValidateSpec` & `StepApplyMutations`: Hardware limits, security context, and probe injection.
+  2. `StepVerifyQuota`: Headroom evaluation.
+  3. `StepGenerateK8sSpec`: Core Kubernetes manifests (Namespace, Quota, LimitRange, NetworkPolicy, Deployment, PDB).
+  4. `StepSynthesizeCanaryRollout`: Declarative `argoproj.io/v1alpha1` `Rollout` manifests with 4-step progressive canary progression (`10% -> 25% -> 50% -> 100%`) and companion `AnalysisTemplate` metric gates.
+  5. `StepSynthesizeMeshRouting`: Cloud Service Mesh `VirtualService` single-field traffic weight shifting and `DestinationRule` enforcing mTLS `STRICT` mode.
+  6. `StepSynthesizeCloudResources`: Google Config Connector (KCC) manifests for Workload Identity (`IAMPolicyMember`) and Cloud SQL (`SQLDatabase`).
+- **Consequences**: Every admitted workload is guaranteed a complete, self-contained multi-tier manifest bundle committed atomically to GitOps. Partial infrastructure states are structurally prevented.
+
+---
+
+## ADR-011: Automated Argo CD ignoreDifferences Generation to Prevent Traffic Routing Sync Fights [V-12]
+- **Status**: Accepted
+- **Context**: When Argo Rollouts shifts live traffic weights in an Istio `VirtualService`, Argo CD detects the modified `weight` fields as out-of-band Git drift and immediately force-reverts the route back to 0% canary, causing violent traffic fluttering, deployment stalling, and false rollback alarms.
+- **Decision**: The Rollout generator automatically emits companion Argo CD `ignoreDifferences` rules:
+  1. Target `networking.istio.io/v1alpha3` `VirtualService` with JSON pointer `/spec/http/0/route`.
+  2. Target `argoproj.io/v1alpha1` `Rollout` with JSON pointer `/status`.
+- **Consequences**: Argo CD yields field ownership over traffic route weights to Argo Rollouts while maintaining ownership over all other spec attributes (hosts, gateways, timeouts). Traffic shifting proceeds without GitOps reconciliation conflicts.
+
+---
+
+## ADR-012: Fail-Closed Metric Analysis Gates in Canary Rollouts
+- **Status**: Accepted
+- **Context**: If a telemetry pipeline or Prometheus instance drops connection or if a service produces zero metrics due to a configuration bug, optimistic analysis engines treat absent metrics as a passing signal, silently promoting defective code to 100% production traffic.
+- **Decision**: The `AnalysisTemplate` generator configures strict fail-closed thresholds:
+  1. `failureLimit: 1`: Any single metric threshold violation immediately aborts the canary rollout.
+  2. `consecutiveErrorLimit: 1`: Any transport error, timeout, or missing metric stream from Prometheus is classified as an instant failure.
+  3. Strict evaluation gates:
+     - `canary-error-rate-delta`: `result[0] <= 0.001` (canary 5xx error rate cannot exceed stable baseline by > 0.1%).
+     - `canary-p99-latency`: `result[0] <= 200` (canary p99 latency must not exceed 200ms).
+- **Consequences**: Zero defective releases can pass silently during observability outages; canary promotions require positive, unbroken telemetry signals to proceed.
