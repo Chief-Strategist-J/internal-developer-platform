@@ -33,6 +33,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: internal-developer-platform-config
+          env:
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
           volumeMounts:
             - name: config-volume
               mountPath: /app/config

@@ -79,6 +79,12 @@ type GitOpsAppConfig struct {
 	ServerURL      string `json:"serverUrl"`
 }
 
+type EgressRule struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+}
+
 type SecretVolumeMount struct {
 	VolumeName string `json:"volumeName"`
 	SecretName string `json:"secretName"`
@@ -120,6 +126,9 @@ type WorkloadProvisionCommand struct {
 	KMSKeyURI        string              `json:"kmsKeyUri,omitempty"`
 	EncryptedSecrets map[string]string   `json:"encryptedSecrets,omitempty"`
 	TLSHosts         []string            `json:"tlsHosts,omitempty"`
+	MeshSecurity     MeshSecurityConfig  `json:"meshSecurity,omitempty"`
+	UnsupportedMeshResources []string    `json:"unsupportedMeshResources,omitempty"`
+	EgressRules      []EgressRule        `json:"egressRules,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
@@ -193,6 +202,8 @@ type ManifestBundle struct {
 	SecurityPolicyYAML      string `json:"securityPolicyYaml,omitempty"`
 	CertificateYAML         string `json:"certificateYaml,omitempty"`
 	SecretYAML              string `json:"secretYaml,omitempty"`
+	PeerAuthenticationYAML  string `json:"peerAuthenticationYaml,omitempty"`
+	ServiceEntryYAML        string `json:"serviceEntryYaml,omitempty"`
 }
 
 type AdmissionViolation struct {

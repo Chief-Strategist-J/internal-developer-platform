@@ -750,5 +750,36 @@ func TestWorkloadProvisioningWithKMSEnvelopeEncryption(t *testing.T) {
 	}
 }
 
+func TestWorkloadProvisioning_RejectsPermissiveMtlsInProduction(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-mesh-01",
+		TenantID:       "tenant-mesh",
+		ServiceID:      "mesh-service",
+		Namespace:      "mesh-prod",
+		WorkloadName:   "mesh-workload",
+		Image:          "gcr.io/bank/mesh@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:       2,
+		IdempotencyKey: "idemp-mesh-01",
+		MeshSecurity:   contracts.MeshSecurityConfig{MtlsMode: "PERMISSIVE"},
+	}
+	hash := contracts.ComputeWorkloadSpecHash(cmd)
+	cmd.ApprovedSpecHash = hash
+	cmd.ApproverRole = "platform-admin"
+
+	_, err := svc.ProvisionWorkload(ctx, cmd)
+	if err == nil {
+		t.Fatalf("expected error when provisioning prod workload with PERMISSIVE mtls")
+	}
+	if !strings.Contains(err.Error(), "critical security violations") {
+		t.Errorf("expected critical security violation, got: %v", err)
+	}
+}
+
+
 
 
