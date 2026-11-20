@@ -276,3 +276,60 @@ func TestValidateSpecApprovalProductionAndTamper(t *testing.T) {
 	}
 }
 
+func TestValidateImageSupplyChain_ApprovedRegistries(t *testing.T) {
+	if !rules.IsApprovedRegistry("gcr.io/apps/pay:v1") {
+		t.Errorf("expected gcr.io to be approved")
+	}
+	if !rules.IsApprovedRegistry("us-docker.pkg.dev/gov-prod/apps/pay:v1") {
+		t.Errorf("expected pkg.dev to be approved")
+	}
+	if !rules.IsApprovedRegistry("ghcr.io/org/repo:v1") {
+		t.Errorf("expected ghcr.io to be approved")
+	}
+	if !rules.IsApprovedRegistry("quay.io/org/repo:v1") {
+		t.Errorf("expected quay.io to be approved")
+	}
+	if rules.IsApprovedRegistry("docker.io/untrusted/app:v1") {
+		t.Errorf("expected docker.io to be rejected")
+	}
+	if rules.IsApprovedRegistry("evil.com/app:v1") {
+		t.Errorf("expected evil.com to be rejected")
+	}
+}
+
+func TestValidateImageSupplyChain_ProductionDigestMandate(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		Namespace: "orders-prod",
+		Image:     "repo/orders:v1",
+	}
+	ok, violations := rules.ValidateImageSupplyChain(cmd)
+	if ok || len(violations) == 0 {
+		t.Fatalf("expected production image without digest to fail")
+	}
+	if violations[0].Rule != "IMG-DIGEST-001" {
+		t.Errorf("expected IMG-DIGEST-001 violation, got %s", violations[0].Rule)
+	}
+
+	cmd.Image = "repo/orders:v1@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	ok, violations = rules.ValidateImageSupplyChain(cmd)
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected digest-pinned image to pass in production")
+	}
+}
+
+func TestValidateImageSupplyChain_BreakglassBypass(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		Namespace:               "orders-prod",
+		Image:                   "repo/orders:v1",
+		BreakglassJustification: "SEV-1 payment gateway incident waiver",
+	}
+	ok, violations := rules.ValidateImageSupplyChain(cmd)
+	if !ok {
+		t.Fatalf("expected breakglass to allow deployment")
+	}
+	if len(violations) != 1 || violations[0].Rule != "IMG-BRK-001" {
+		t.Errorf("expected IMG-BRK-001 breakglass warning, got %+v", violations)
+	}
+}
+
+

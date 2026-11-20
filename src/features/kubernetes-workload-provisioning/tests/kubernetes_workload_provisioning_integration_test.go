@@ -110,6 +110,8 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 		SpecHash:         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		ApprovedSpecHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		ApproverRole:     "platform-admin",
+		ImagePullPolicy:  "IfNotPresent",
+		BreakglassJustification: "SEV-1-hotfix",
 		IdempotencyKey:   idempKey,
 		Version:          1,
 		CreatedAt:        time.Now().UTC(),
@@ -135,6 +137,12 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 	}
 	if fetched.ApproverRole != record.ApproverRole {
 		t.Errorf("expected ApproverRole %s, got %s", record.ApproverRole, fetched.ApproverRole)
+	}
+	if fetched.ImagePullPolicy != record.ImagePullPolicy {
+		t.Errorf("expected ImagePullPolicy %s, got %s", record.ImagePullPolicy, fetched.ImagePullPolicy)
+	}
+	if fetched.BreakglassJustification != record.BreakglassJustification {
+		t.Errorf("expected BreakglassJustification %s, got %s", record.BreakglassJustification, fetched.BreakglassJustification)
 	}
 	if fetched.PublicID != "wld_"+uniqueSuffix {
 		t.Errorf("expected PublicID wld_%s, got %s", uniqueSuffix, fetched.PublicID)
@@ -611,7 +619,7 @@ func TestWorkloadProvisioningProductionNamespaceApprovalGate(t *testing.T) {
 		ServiceID:      "payment-service",
 		Namespace:      "payments-prod",
 		WorkloadName:   "payment-api",
-		Image:          "repo/pay:v1.0.0",
+		Image:          "repo/pay:v1.0.0@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		Replicas:       2,
 		IdempotencyKey: "idemp-prod-gate-01",
 	}
@@ -629,6 +637,41 @@ func TestWorkloadProvisioningProductionNamespaceApprovalGate(t *testing.T) {
 	}
 	if res.Provision.ApprovedSpecHash != cmd.ApprovedSpecHash {
 		t.Errorf("expected saved record to carry approved spec hash")
+	}
+	if res.Provision.ImagePullPolicy != "IfNotPresent" {
+		t.Errorf("expected ImagePullPolicy IfNotPresent, got %s", res.Provision.ImagePullPolicy)
+	}
+}
+
+func TestWorkloadProvisioningProductionBreakglassBypass(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:                      "wkld-brk-01",
+		TenantID:                "tenant-prod",
+		ServiceID:               "payment-service",
+		Namespace:               "payments-prod",
+		WorkloadName:            "payment-api",
+		Image:                   "repo/pay:v1.0.0",
+		BreakglassJustification: "SEV-1 emergency mitigation approved by security on-call",
+		Replicas:                2,
+		IdempotencyKey:          "idemp-brk-01",
+	}
+	cmd.ApprovedSpecHash = contracts.ComputeWorkloadSpecHash(cmd)
+	cmd.ApproverRole = "incident-commander"
+
+	res, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("expected breakglass deployment to succeed, got: %v", err)
+	}
+	if res.Provision.BreakglassJustification != cmd.BreakglassJustification {
+		t.Errorf("expected breakglass justification to be preserved in record")
+	}
+	if !res.Admission.Admitted {
+		t.Errorf("expected admission to be admitted via breakglass")
 	}
 }
 

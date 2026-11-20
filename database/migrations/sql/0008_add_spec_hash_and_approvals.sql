@@ -19,3 +19,4 @@ SET
     approved_spec_hash = COALESCE(NULLIF(approved_spec_hash, ''), 'sha256:legacy:' || id),
     approver_role = COALESCE(NULLIF(approver_role, ''), 'system-auto')
 WHERE spec_hash = '' OR approved_spec_hash = '' OR approver_role = '';
+

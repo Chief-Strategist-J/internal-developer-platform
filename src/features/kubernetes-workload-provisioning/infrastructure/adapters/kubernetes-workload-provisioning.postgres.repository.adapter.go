@@ -53,20 +53,8 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 		return err
 	}
 
-	strategy := resolveStrategy(record.Strategy)
-	publicID := resolvePublicID(record.PublicID, record.ID)
-	source := resolveSource(record.Source)
-	externalID := resolveExternalID(record.ExternalID, record.ID)
-	correlationID := resolveCorrelationID(record.CorrelationID)
-
-	_, err := a.db.ExecContext(ctx, queries.FLOW_INSERT_WORKLOAD_PROVISION,
-		record.ID, publicID, record.TenantID, source, externalID, correlationID,
-		record.SpecHash, record.ApprovedSpecHash, record.ApproverRole,
-		record.ServiceID, record.Namespace, record.WorkloadName, record.CPURequest, record.CPULimit,
-		record.MemoryRequest, record.MemoryLimit, record.Replicas, strategy, string(record.Status),
-		record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
-	)
-	if err != nil {
+	args := resolveRecordFields(record)
+	if _, err := a.db.ExecContext(ctx, queries.FLOW_INSERT_WORKLOAD_PROVISION, args...); err != nil {
 		conflictErr := errors.NewConflictError(err.Error())
 		observability.RecordError(span, conflictErr)
 		return conflictErr
@@ -168,6 +156,7 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 	err := s.Scan(
 		&rec.ID, &rec.PublicID, &rec.TenantID, &rec.Source, &rec.ExternalID, &rec.CorrelationID,
 		&rec.SpecHash, &rec.ApprovedSpecHash, &rec.ApproverRole,
+		&rec.ImagePullPolicy, &rec.BreakglassJustification,
 		&rec.ServiceID, &rec.Namespace, &rec.WorkloadName, &rec.CPURequest, &rec.CPULimit,
 		&rec.MemoryRequest, &rec.MemoryLimit, &rec.Replicas, &strategy, &status,
 		&rec.IdempotencyKey, &rec.Version, &rec.CreatedAt, &rec.UpdatedAt,
@@ -178,6 +167,25 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 	rec.Strategy = contracts.DeploymentStrategy(strategy)
 	rec.Status = contracts.WorkloadStatus(status)
 	return &rec, nil
+}
+
+func resolveImagePullPolicy(policy string) string {
+	if policy == "" {
+		return "IfNotPresent"
+	}
+	return policy
+}
+
+func resolveRecordFields(record contracts.WorkloadProvisionRecord) []interface{} {
+	return []interface{}{
+		record.ID, resolvePublicID(record.PublicID, record.ID), record.TenantID,
+		resolveSource(record.Source), resolveExternalID(record.ExternalID, record.ID),
+		resolveCorrelationID(record.CorrelationID), record.SpecHash, record.ApprovedSpecHash,
+		record.ApproverRole, resolveImagePullPolicy(record.ImagePullPolicy), record.BreakglassJustification,
+		record.ServiceID, record.Namespace, record.WorkloadName, record.CPURequest, record.CPULimit,
+		record.MemoryRequest, record.MemoryLimit, record.Replicas, resolveStrategy(record.Strategy),
+		string(record.Status), record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
+	}
 }
 
 func scanWorkloadRows(rows *sql.Rows) ([]contracts.WorkloadProvisionRecord, error) {
