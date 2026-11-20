@@ -6,6 +6,7 @@ routes:
     me: "/api/v1/auth/me"
     revoke: "/api/v1/auth/revoke"
     evaluate: "/api/v1/auth/evaluate"
+    jit: "/api/v1/auth/jit/grants"
   reconciliation:
     trigger: "/api/v1/reconciliations"
     status: "/api/v1/reconciliations/{id}"

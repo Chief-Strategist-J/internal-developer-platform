@@ -15,3 +15,10 @@ type TokenVerifierPort interface {
 	VerifyToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error)
 	IssueToken(subject rbacContracts.Subject) (string, error)
 }
+
+type AccessGrantRepositoryPort interface {
+	SaveGrant(ctx context.Context, grant rbacContracts.AccessGrantRecord) error
+	GetGrant(ctx context.Context, tenantID string, id string) (*rbacContracts.AccessGrantRecord, error)
+	RevokeGrant(ctx context.Context, tenantID string, id string) error
+	ListActiveGrants(ctx context.Context, tenantID string, subjectID string) ([]rbacContracts.AccessGrantRecord, error)
+}

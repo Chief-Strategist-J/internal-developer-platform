@@ -27,6 +27,8 @@ const (
 	EndpointAuthMe                = "/api/v1/auth/me"
 	EndpointAuthRevoke            = "/api/v1/auth/revoke"
 	EndpointAuthEvaluate          = "/api/v1/auth/evaluate"
+	EndpointAuthJITGrants         = "/api/v1/auth/jit/grants"
+	EndpointAuthJITGrantsPrefix   = "/api/v1/auth/jit/grants/"
 	EndpointReconciliations       = "/api/v1/reconciliations"
 	EndpointReconciliationsPrefix = "/api/v1/reconciliations/"
 	EndpointServices              = "/api/v1/services"
