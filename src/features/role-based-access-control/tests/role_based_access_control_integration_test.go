@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
+	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 )
 
 func TestRoleBasedAccessControlIntegration_LiveRedis(t *testing.T) {
@@ -47,3 +49,45 @@ func TestRoleBasedAccessControlIntegration_LiveRedis(t *testing.T) {
 		t.Fatalf("expected JTI revoked in Redis, got %v", revoked)
 	}
 }
+
+func TestRoleBasedAccessControl_MemoryGrantAdapterAndService(t *testing.T) {
+	ctx := context.Background()
+	grantRepo := rbacAdapters.NewMemoryAccessGrantAdapter()
+	svc := rbacService.NewRBACService(nil, nil, grantRepo)
+
+	req := rbacContracts.AccessGrantRequest{
+		ID:              "grant-mem-01",
+		TenantID:        "tenant-gov",
+		SubjectID:       "usr-bob",
+		TargetNamespace: "tax-prod",
+		Role:            "DeveloperDebug",
+		Reason:          "investigating memory leak on ingestion worker",
+		DurationSeconds: 3600,
+		ApproverRole:    "SecurityLead",
+		IdempotencyKey:  "idemp-mem-01",
+	}
+
+	record, err := svc.RequestJITAccess(ctx, req)
+	if err != nil {
+		t.Fatalf("failed to request JIT access: %v", err)
+	}
+
+	if record.Status != "ACTIVE" {
+		t.Fatalf("expected status ACTIVE, got %s", record.Status)
+	}
+
+	active, err := svc.ListActiveGrants(ctx, "tenant-gov", "usr-bob")
+	if err != nil || len(active) != 1 {
+		t.Fatalf("expected 1 active grant, got %d, err: %v", len(active), err)
+	}
+
+	if err := svc.RevokeJITAccess(ctx, "tenant-gov", "grant-mem-01"); err != nil {
+		t.Fatalf("failed to revoke grant: %v", err)
+	}
+
+	activeAfterRevoke, err := svc.ListActiveGrants(ctx, "tenant-gov", "usr-bob")
+	if err != nil || len(activeAfterRevoke) != 0 {
+		t.Fatalf("expected 0 active grants after revocation, got %d", len(activeAfterRevoke))
+	}
+}
+

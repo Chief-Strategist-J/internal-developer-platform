@@ -504,6 +504,33 @@ func TestGenerateLogSinkAndBucketYAML(t *testing.T) {
 	}
 }
 
+func TestValidateEphemeralDebugContainer_DigestAndRegistry(t *testing.T) {
+	approved := []string{"gcr.io/corp-prod/", "europe-west3-docker.pkg.dev/gov-platform/internal/"}
+
+	err := rules.ValidateEphemeralDebugContainer("gcr.io/corp-prod/debugger@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", approved, true)
+	if err != nil {
+		t.Fatalf("expected valid debug container with digest to pass, got: %v", err)
+	}
+
+	err = rules.ValidateEphemeralDebugContainer("gcr.io/corp-prod/debugger:v1.0.0", approved, true)
+	if err == nil {
+		t.Fatalf("expected V-26 failure for tag reference in production, got nil")
+	}
+
+	err = rules.ValidateEphemeralDebugContainer("docker.io/library/busybox@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", approved, true)
+	if err == nil {
+		t.Fatalf("expected V-26 failure for unapproved registry, got nil")
+	}
+}
+
+func TestGenerateJITRoleBindingYAML(t *testing.T) {
+	yaml := rules.GenerateJITRoleBindingYAML("g-123", "ns-payments", "usr-alice", "DeveloperDebug", "PlatformAdmin", "incident triage", "2026-11-20T22:00:00Z")
+	if !strings.Contains(yaml, "kind: RoleBinding") || !strings.Contains(yaml, "jit-grant-g-123") || !strings.Contains(yaml, "ns-payments") {
+		t.Fatalf("generated RoleBinding YAML missing expected fields: %s", yaml)
+	}
+}
+
+
 
 
 
