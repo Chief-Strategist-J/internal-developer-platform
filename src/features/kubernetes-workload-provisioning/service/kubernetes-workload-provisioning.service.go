@@ -190,45 +190,51 @@ func (s *WorkloadProvisioningService) observeWorkloadStatus(ctx context.Context,
 	})
 }
 
+func resolveApprovalBinding(cmd contracts.WorkloadProvisionCommand, specHash string) (string, string) {
+	approved := cmd.ApprovedSpecHash
+	if approved == "" {
+		approved = specHash
+	}
+	role := cmd.ApproverRole
+	if role == "" {
+		role = "system-auto"
+	}
+	return approved, role
+}
+
 func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) contracts.WorkloadProvisionRecord {
 	strategy := cmd.Strategy
 	if strategy == "" {
 		strategy = contracts.StrategyCanary
 	}
-	now := time.Now().UTC()
 	specHash := contracts.ComputeWorkloadSpecHash(cmd)
-	approvedHash := cmd.ApprovedSpecHash
-	if approvedHash == "" {
-		approvedHash = specHash
-	}
-	approverRole := cmd.ApproverRole
-	if approverRole == "" {
-		approverRole = "system-auto"
-	}
+	approvedHash, approverRole := resolveApprovalBinding(cmd, specHash)
 	return contracts.WorkloadProvisionRecord{
-		ID:               cmd.ID,
-		PublicID:         derivePublicID(cmd.PublicID, cmd.ID),
-		TenantID:         cmd.TenantID,
-		Source:           deriveFallback(cmd.Source, "api"),
-		ExternalID:       deriveFallback(cmd.ExternalID, cmd.ID),
-		CorrelationID:    deriveCorrelationID(cmd.CorrelationID),
-		SpecHash:         specHash,
-		ApprovedSpecHash: approvedHash,
-		ApproverRole:     approverRole,
-		ServiceID:        cmd.ServiceID,
-		Namespace:        cmd.Namespace,
-		WorkloadName:     cmd.WorkloadName,
-		CPURequest:       mutations.CPURequest,
-		CPULimit:         mutations.CPULimit,
-		MemoryRequest:    mutations.MemoryRequest,
-		MemoryLimit:      mutations.MemoryLimit,
-		Replicas:         cmd.Replicas,
-		Strategy:         strategy,
-		Status:           contracts.StatusSubmitted,
-		IdempotencyKey:   cmd.IdempotencyKey,
-		Version:          1,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                      cmd.ID,
+		PublicID:                derivePublicID(cmd.PublicID, cmd.ID),
+		TenantID:                cmd.TenantID,
+		Source:                  deriveFallback(cmd.Source, "api"),
+		ExternalID:              deriveFallback(cmd.ExternalID, cmd.ID),
+		CorrelationID:           deriveCorrelationID(cmd.CorrelationID),
+		SpecHash:                specHash,
+		ApprovedSpecHash:        approvedHash,
+		ApproverRole:            approverRole,
+		ImagePullPolicy:         mutations.ImagePullPolicy,
+		BreakglassJustification: cmd.BreakglassJustification,
+		ServiceID:               cmd.ServiceID,
+		Namespace:               cmd.Namespace,
+		WorkloadName:            cmd.WorkloadName,
+		CPURequest:              mutations.CPURequest,
+		CPULimit:                mutations.CPULimit,
+		MemoryRequest:           mutations.MemoryRequest,
+		MemoryLimit:             mutations.MemoryLimit,
+		Replicas:                cmd.Replicas,
+		Strategy:                strategy,
+		Status:                  contracts.StatusSubmitted,
+		IdempotencyKey:          cmd.IdempotencyKey,
+		Version:                 1,
+		CreatedAt:               time.Now().UTC(),
+		UpdatedAt:               time.Now().UTC(),
 	}
 }
 

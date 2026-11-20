@@ -53,6 +53,7 @@ type WorkloadMutations struct {
 	NamespaceLabels map[string]string
 	ResourceQuota   ResourceQuotaDefaults
 	LimitRange      LimitRangeDefaults
+	ImagePullPolicy string
 }
 
 func EvaluateWorkloadMutations(cmd contracts.WorkloadProvisionCommand) WorkloadMutations {
@@ -107,6 +108,17 @@ func EvaluateWorkloadMutations(cmd contracts.WorkloadProvisionCommand) WorkloadM
 		DefaultRequestMemory: "256Mi",
 	}
 
+	pullPolicy := cmd.ImagePullPolicy
+	if pullPolicy == "" {
+		if strings.Contains(cmd.Image, "@sha256:") {
+			pullPolicy = "IfNotPresent"
+		} else if strings.HasSuffix(cmd.Image, ":latest") {
+			pullPolicy = "Always"
+		} else {
+			pullPolicy = "IfNotPresent"
+		}
+	}
+
 	return WorkloadMutations{
 		SecurityContext: SecurityContextDefaults{
 			RunAsNonRoot:             true,
@@ -132,7 +144,77 @@ func EvaluateWorkloadMutations(cmd contracts.WorkloadProvisionCommand) WorkloadM
 		NamespaceLabels: labels,
 		ResourceQuota:   quota,
 		LimitRange:      limitRange,
+		ImagePullPolicy: pullPolicy,
 	}
+}
+
+func IsApprovedRegistry(image string) bool {
+	parts := strings.Split(image, "/")
+	if len(parts) < 2 {
+		return false
+	}
+	domain := parts[0]
+	if domain == "repo" || domain == "ghcr.io" || domain == "quay.io" {
+		return true
+	}
+	if domain == "gcr.io" || strings.HasSuffix(domain, ".gcr.io") {
+		return true
+	}
+	if domain == "pkg.dev" || strings.HasSuffix(domain, ".pkg.dev") {
+		return true
+	}
+	if strings.HasSuffix(domain, ".local") || strings.HasSuffix(domain, ".internal") {
+		return true
+	}
+	return false
+}
+
+func ValidateImageSupplyChain(cmd contracts.WorkloadProvisionCommand) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	critical := false
+	isProd := strings.Contains(cmd.Namespace, "prod")
+
+	if !IsApprovedRegistry(cmd.Image) {
+		critical = true
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "IMG-REG-001",
+			Message: fmt.Sprintf("image registry in %q is not in approved registry floor", cmd.Image),
+		})
+	}
+
+	hasDigest := strings.Contains(cmd.Image, "@sha256:")
+	isLatest := strings.HasSuffix(cmd.Image, ":latest")
+
+	if isProd {
+		if isLatest {
+			critical = true
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "IMG-TAG-001",
+				Message: "mutable image tag :latest is strictly prohibited in production",
+			})
+		}
+		if !hasDigest {
+			if cmd.BreakglassJustification != "" {
+				violations = append(violations, contracts.AdmissionViolation{
+					Rule:    "IMG-BRK-001",
+					Message: "breakglass emergency deploy admitted without immutable digest: " + cmd.BreakglassJustification,
+				})
+			} else {
+				critical = true
+				violations = append(violations, contracts.AdmissionViolation{
+					Rule:    "IMG-DIGEST-001",
+					Message: "production workloads strictly mandate immutable @sha256 digest",
+				})
+			}
+		}
+	} else if isLatest {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "IMG-001",
+			Message: "Warning: Mutable image tag :latest detected",
+		})
+	}
+
+	return !critical, violations
 }
 
 func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations WorkloadMutations) (contracts.AdmissionReport, error) {
@@ -171,12 +253,11 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 		})
 	}
 
-	if strings.HasSuffix(cmd.Image, ":latest") {
-		violations = append(violations, contracts.AdmissionViolation{
-			Rule:    "IMG-001",
-			Message: "Warning: Mutable image tag :latest detected",
-		})
+	imgOk, imgViolations := ValidateImageSupplyChain(cmd)
+	if !imgOk {
+		critical = true
 	}
+	violations = append(violations, imgViolations...)
 
 	if critical {
 		return contracts.AdmissionReport{
@@ -450,18 +531,7 @@ spec:
 %s`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID, metricsBuilder.String())
 }
 
-func GenerateArgoRolloutYAML(cmd contracts.WorkloadProvisionCommand, mutations WorkloadMutations, rolloutCfg contracts.RolloutConfig) string {
-	var stepsBuilder strings.Builder
-	for _, step := range rolloutCfg.CanarySteps {
-		stepsBuilder.WriteString(fmt.Sprintf(`        - setWeight: %d
-`, step.SetWeight))
-		if step.PauseDurationSeconds > 0 {
-			stepsBuilder.WriteString(fmt.Sprintf(`        - pause: { duration: %ds }
-`, step.PauseDurationSeconds))
-		}
-	}
-
-	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
+const RolloutTemplate = `apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: %s
@@ -498,6 +568,7 @@ spec:
       containers:
       - name: %s
         image: %s
+        imagePullPolicy: %s
         securityContext:
           allowPrivilegeEscalation: %t
           readOnlyRootFilesystem: %t
@@ -523,36 +594,32 @@ spec:
           httpGet:
             path: %s
             port: %d
-`,
-		cmd.WorkloadName,
-		cmd.Namespace,
-		cmd.WorkloadName,
-		cmd.TenantID,
-		cmd.Replicas,
-		cmd.WorkloadName,
-		cmd.WorkloadName,
-		cmd.WorkloadName,
-		stepsBuilder.String(),
-		cmd.WorkloadName,
-		cmd.TenantID,
-		mutations.SecurityContext.RunAsNonRoot,
-		mutations.SecurityContext.RunAsUser,
-		mutations.SecurityContext.RunAsGroup,
-		mutations.SecurityContext.SeccompProfileType,
-		cmd.WorkloadName,
-		cmd.Image,
-		mutations.SecurityContext.AllowPrivilegeEscalation,
-		mutations.SecurityContext.ReadOnlyRootFilesystem,
-		mutations.CPURequest,
-		mutations.MemoryRequest,
-		mutations.CPULimit,
-		mutations.MemoryLimit,
-		mutations.Probes.StartupPath,
-		mutations.Probes.Port,
-		mutations.Probes.LivenessPath,
-		mutations.Probes.Port,
-		mutations.Probes.ReadinessPath,
-		mutations.Probes.Port,
+`
+
+func buildRolloutSteps(steps []contracts.CanaryStep) string {
+	var sb strings.Builder
+	for _, step := range steps {
+		sb.WriteString(fmt.Sprintf("        - setWeight: %d\n", step.SetWeight))
+		if step.PauseDurationSeconds > 0 {
+			sb.WriteString(fmt.Sprintf("        - pause: { duration: %ds }\n", step.PauseDurationSeconds))
+		}
+	}
+	return sb.String()
+}
+
+func GenerateArgoRolloutYAML(cmd contracts.WorkloadProvisionCommand, mutations WorkloadMutations, rolloutCfg contracts.RolloutConfig) string {
+	steps := buildRolloutSteps(rolloutCfg.CanarySteps)
+	sc := mutations.SecurityContext
+	pb := mutations.Probes
+	return fmt.Sprintf(RolloutTemplate,
+		cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID,
+		cmd.Replicas, cmd.WorkloadName, cmd.WorkloadName, cmd.WorkloadName,
+		steps, cmd.WorkloadName, cmd.TenantID,
+		sc.RunAsNonRoot, sc.RunAsUser, sc.RunAsGroup, sc.SeccompProfileType,
+		cmd.WorkloadName, cmd.Image, mutations.ImagePullPolicy,
+		sc.AllowPrivilegeEscalation, sc.ReadOnlyRootFilesystem,
+		mutations.CPURequest, mutations.MemoryRequest, mutations.CPULimit, mutations.MemoryLimit,
+		pb.StartupPath, pb.Port, pb.LivenessPath, pb.Port, pb.ReadinessPath, pb.Port,
 	)
 }
 
