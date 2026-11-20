@@ -1,0 +1,6 @@
+enable_stateful_rollback: true
+enable_strict_wave_gating: true
+enable_canary_rollouts: false
+enable_mesh_routing: false
+max_sync_retry_attempts: 3
+sync_soak_window_seconds: 60

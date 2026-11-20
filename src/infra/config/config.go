@@ -1,16 +1,9 @@
-/*
-Package config provides strongly typed, declarative configuration loading and schema validation
-for the internal-developer-platform service. It loads baseline parameters from config/default.yaml,
-applies validated environment variable overrides from .env / process environment, and verifies all
-institutional invariants before service boot.
-
-ZERO-INLINE-COMMENT DOCTRINE: Method bodies remain 100% comment-free and pure.
-*/
 package config
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -53,33 +46,70 @@ type ArgoCDConfig struct {
 	Token    string `yaml:"token"`
 }
 
+type FeatureFlags struct {
+	EnableStatefulRollback bool `yaml:"enable_stateful_rollback"`
+	EnableStrictWaveGating bool `yaml:"enable_strict_wave_gating"`
+	EnableCanaryRollouts   bool `yaml:"enable_canary_rollouts"`
+	EnableMeshRouting      bool `yaml:"enable_mesh_routing"`
+	MaxSyncRetryAttempts   int  `yaml:"max_sync_retry_attempts"`
+	SyncSoakWindowSeconds  int  `yaml:"sync_soak_window_seconds"`
+}
+
+type RouteMap struct {
+	Trigger  string `yaml:"trigger"`
+	Status   string `yaml:"status"`
+	Services string `yaml:"services"`
+	Live     string `yaml:"live"`
+	Ready    string `yaml:"ready"`
+}
+
 type EndpointsConfig struct {
-	BasePath string `yaml:"base_path"`
+	BasePath string              `yaml:"base_path"`
+	Routes   map[string]RouteMap `yaml:"routes"`
 }
 
 type AppConfig struct {
-	Server     ServerConfig     `yaml:"server"`
-	Database   DatabaseConfig   `yaml:"database"`
-	Redis      RedisConfig      `yaml:"redis"`
-	Auth       AuthConfig       `yaml:"auth"`
-	Kubernetes KubernetesConfig `yaml:"kubernetes"`
-	ArgoCD     ArgoCDConfig     `yaml:"argocd"`
-	Endpoints  EndpointsConfig  `yaml:"endpoints"`
+	Server       ServerConfig     `yaml:"server"`
+	Database     DatabaseConfig   `yaml:"database"`
+	Redis        RedisConfig      `yaml:"redis"`
+	Auth         AuthConfig       `yaml:"auth"`
+	Kubernetes   KubernetesConfig `yaml:"kubernetes"`
+	ArgoCD       ArgoCDConfig     `yaml:"argocd"`
+	FeatureFlags FeatureFlags     `yaml:"feature_flags"`
+	Endpoints    EndpointsConfig  `yaml:"endpoints"`
 }
 
-func LoadConfig(configPath string) (*AppConfig, error) {
-	if configPath == "" {
-		configPath = "config/default.yaml"
+func LoadConfig(configPathOrDir string) (*AppConfig, error) {
+	if configPathOrDir == "" {
+		configPathOrDir = "config"
 	}
 
-	data, err := os.ReadFile(configPath)
+	configDir := configPathOrDir
+	defaultFile := configPathOrDir
+	if fi, err := os.Stat(configPathOrDir); err == nil && fi.IsDir() {
+		defaultFile = fmt.Sprintf("%s/default.yaml", configDir)
+	} else if strings.HasSuffix(configPathOrDir, ".yaml") || strings.HasSuffix(configPathOrDir, ".yml") {
+		configDir = filepath.Dir(configPathOrDir)
+	}
+
+	data, err := os.ReadFile(defaultFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file at %s: %w", configPath, err)
+		return nil, fmt.Errorf("failed to read default config at %s: %w", defaultFile, err)
 	}
 
 	var cfg AppConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse yaml config: %w", err)
+		return nil, fmt.Errorf("failed to parse default yaml config: %w", err)
+	}
+
+	flagsFile := fmt.Sprintf("%s/feature-flags.yaml", configDir)
+	if flagData, flagErr := os.ReadFile(flagsFile); flagErr == nil {
+		_ = yaml.Unmarshal(flagData, &cfg.FeatureFlags)
+	}
+
+	endpointsFile := fmt.Sprintf("%s/endpoints.yaml", configDir)
+	if epData, epErr := os.ReadFile(endpointsFile); epErr == nil {
+		_ = yaml.Unmarshal(epData, &cfg.Endpoints)
 	}
 
 	applyEnvironmentOverrides(&cfg)
@@ -176,4 +206,3 @@ func (c *AppConfig) PublicBindAddress() string {
 func (c *AppConfig) AdminBindAddress() string {
 	return fmt.Sprintf("127.0.0.1:%d", c.Server.AdminPort)
 }
-
