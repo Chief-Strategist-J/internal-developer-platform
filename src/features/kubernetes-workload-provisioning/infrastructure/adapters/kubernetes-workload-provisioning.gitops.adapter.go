@@ -60,6 +60,21 @@ func (a *GitOpsDeliveryAdapter) CommitManifestBundle(ctx context.Context, tenant
 	return err
 }
 
+func (a *GitOpsDeliveryAdapter) RevertManifestBundle(ctx context.Context, tenantID, workloadName, reason string) error {
+	revertPath := fmt.Sprintf("tenants/%s/workloads/%s/rollback.json", tenantID, workloadName)
+	content := fmt.Sprintf(`{"workload":%q,"tenant":%q,"status":"ROLLED_BACK","reason":%q}`, workloadName, tenantID, reason)
+	req := gitops.CommitRequest{
+		Author:    a.author,
+		Email:     a.email,
+		Branch:    a.branch,
+		Message:   fmt.Sprintf("revert(workload): rollback %s for tenant %s: %s", workloadName, tenantID, reason),
+		Files:     []gitops.ManifestFile{{Path: revertPath, Content: content}},
+		SignKeyID: "idp-platform-key-1",
+	}
+	_, err := a.committer.Commit(ctx, req)
+	return err
+}
+
 func buildManifestFiles(tenantID, workloadName string, bundle contracts.ManifestBundle) []gitops.ManifestFile {
 	basePath := fmt.Sprintf("tenants/%s/workloads/%s", tenantID, workloadName)
 	files := make([]gitops.ManifestFile, 0, 8)

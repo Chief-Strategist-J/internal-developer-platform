@@ -406,3 +406,28 @@ func (s *WorkloadProvisioningService) markWorkloadDegraded(ctx context.Context, 
 	_ = s.store.Update(ctx, *record)
 	return record, cause
 }
+
+func (s *WorkloadProvisioningService) RollbackWorkload(ctx context.Context, tenantID, workloadID, reason string) (*contracts.WorkloadProvisionRecord, error) {
+	return observability.RunTraced(ctx, "kubernetes.workload.rollback", func(ctx context.Context) (*contracts.WorkloadProvisionRecord, error) {
+		record, err := s.store.GetByID(ctx, tenantID, workloadID)
+		if err != nil || record == nil {
+			return nil, errors.NewNotFoundError("workload record not found")
+		}
+		if s.gitopsDelivery != nil {
+			if rErr := s.gitopsDelivery.RevertManifestBundle(ctx, tenantID, record.WorkloadName, reason); rErr != nil {
+				return nil, errors.NewConflictError("gitops revert failed: " + rErr.Error())
+			}
+		}
+		newStatus, err := machines.TransitionWorkloadState(record.Status, machines.EventDegrade)
+		if err != nil {
+			return nil, err
+		}
+		record.Status = newStatus
+		record.Version++
+		record.UpdatedAt = time.Now().UTC()
+		if uErr := s.store.Update(ctx, *record); uErr != nil {
+			return nil, uErr
+		}
+		return record, nil
+	})
+}

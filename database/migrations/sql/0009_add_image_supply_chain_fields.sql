@@ -17,3 +17,4 @@ SET
     image_pull_policy = COALESCE(NULLIF(image_pull_policy, ''), 'IfNotPresent'),
     breakglass_justification = COALESCE(breakglass_justification, '')
 WHERE image_pull_policy = '' OR breakglass_justification IS NULL;
+
