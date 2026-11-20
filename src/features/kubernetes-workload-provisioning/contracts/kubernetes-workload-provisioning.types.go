@@ -72,7 +72,11 @@ type GitOpsAppConfig struct {
 
 type WorkloadProvisionCommand struct {
 	ID             string             `json:"id"`
+	PublicID       string             `json:"publicId,omitempty"`
 	TenantID       string             `json:"tenantId"`
+	Source         string             `json:"source,omitempty"`
+	ExternalID     string             `json:"externalId,omitempty"`
+	CorrelationID  string             `json:"correlationId,omitempty"`
 	ServiceID      string             `json:"serviceId"`
 	Namespace      string             `json:"namespace"`
 	WorkloadName   string             `json:"workloadName"`
@@ -88,7 +92,11 @@ type WorkloadProvisionCommand struct {
 
 type WorkloadProvisionRecord struct {
 	ID             string             `json:"id"`
+	PublicID       string             `json:"publicId"`
 	TenantID       string             `json:"tenantId"`
+	Source         string             `json:"source"`
+	ExternalID     string             `json:"externalId"`
+	CorrelationID  string             `json:"correlationId"`
 	ServiceID      string             `json:"serviceId"`
 	Namespace      string             `json:"namespace"`
 	WorkloadName   string             `json:"workloadName"`
