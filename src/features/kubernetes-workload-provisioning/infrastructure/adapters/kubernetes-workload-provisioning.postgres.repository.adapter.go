@@ -159,6 +159,7 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 		&rec.ImagePullPolicy, &rec.BreakglassJustification,
 		&rec.ServiceID, &rec.Namespace, &rec.WorkloadName, &rec.CPURequest, &rec.CPULimit,
 		&rec.MemoryRequest, &rec.MemoryLimit, &rec.Replicas, &strategy, &status,
+		&rec.EnableDataAccessLogs, &rec.AuditDestinationBucket, &rec.AuditRetentionDays, &rec.AuditLockedRetention,
 		&rec.IdempotencyKey, &rec.Version, &rec.CreatedAt, &rec.UpdatedAt,
 	)
 	if err != nil {
@@ -184,7 +185,9 @@ func resolveRecordFields(record contracts.WorkloadProvisionRecord) []interface{}
 		record.ApproverRole, resolveImagePullPolicy(record.ImagePullPolicy), record.BreakglassJustification,
 		record.ServiceID, record.Namespace, record.WorkloadName, record.CPURequest, record.CPULimit,
 		record.MemoryRequest, record.MemoryLimit, record.Replicas, resolveStrategy(record.Strategy),
-		string(record.Status), record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
+		string(record.Status),
+		record.EnableDataAccessLogs, record.AuditDestinationBucket, record.AuditRetentionDays, record.AuditLockedRetention,
+		record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
 	}
 }
 

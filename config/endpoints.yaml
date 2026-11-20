@@ -2,13 +2,13 @@ base_path: "/api/v1"
 
 routes:
   reconciliation:
-    trigger: "/api/v1/gitops/reconciliation"
-    status: "/api/v1/gitops/reconciliation/{id}"
+    trigger: "/api/v1/reconciliations"
+    status: "/api/v1/reconciliations/{id}"
   workloads:
-    provision: "/api/v1/kubernetes/workloads"
-    status: "/api/v1/kubernetes/workloads/{id}"
+    provision: "/api/v1/workloads"
+    status: "/api/v1/workloads/{id}"
   catalog:
-    services: "/api/v1/catalog/services"
+    services: "/api/v1/services"
   health:
     live: "/healthz"
     ready: "/readyz"

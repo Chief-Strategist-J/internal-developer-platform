@@ -85,6 +85,16 @@ type EgressRule struct {
 	Protocol string `json:"protocol"`
 }
 
+type AuditLoggingConfig struct {
+	EnableDataAccessLogs bool   `json:"enableDataAccessLogs"`
+	DestinationBucket    string `json:"destinationBucket"`
+	RetentionDays        int    `json:"retentionDays"`
+	LockedRetention      bool   `json:"lockedRetention"`
+	KMSKeyURI            string `json:"kmsKeyUri,omitempty"`
+	OffNodeLogCollection bool   `json:"offNodeLogCollection"`
+	PIIScrubbingEnabled  bool   `json:"piiScrubbingEnabled"`
+}
+
 type SecretVolumeMount struct {
 	VolumeName string `json:"volumeName"`
 	SecretName string `json:"secretName"`
@@ -129,6 +139,7 @@ type WorkloadProvisionCommand struct {
 	MeshSecurity     MeshSecurityConfig  `json:"meshSecurity,omitempty"`
 	UnsupportedMeshResources []string    `json:"unsupportedMeshResources,omitempty"`
 	EgressRules      []EgressRule        `json:"egressRules,omitempty"`
+	AuditLogging     AuditLoggingConfig  `json:"auditLogging,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
@@ -153,6 +164,10 @@ type WorkloadProvisionRecord struct {
 	Replicas         int                `json:"replicas"`
 	Strategy         DeploymentStrategy `json:"strategy"`
 	Status           WorkloadStatus     `json:"status"`
+	EnableDataAccessLogs   bool         `json:"enableDataAccessLogs"`
+	AuditDestinationBucket string       `json:"auditDestinationBucket"`
+	AuditRetentionDays     int          `json:"auditRetentionDays"`
+	AuditLockedRetention   bool         `json:"auditLockedRetention"`
 	IdempotencyKey   string             `json:"idempotencyKey"`
 	Version          int64              `json:"version"`
 	CreatedAt        time.Time          `json:"createdAt"`
@@ -204,6 +219,8 @@ type ManifestBundle struct {
 	SecretYAML              string `json:"secretYaml,omitempty"`
 	PeerAuthenticationYAML  string `json:"peerAuthenticationYaml,omitempty"`
 	ServiceEntryYAML        string `json:"serviceEntryYaml,omitempty"`
+	LogSinkYAML             string `json:"logSinkYaml,omitempty"`
+	LoggingBucketYAML       string `json:"loggingBucketYaml,omitempty"`
 }
 
 type AdmissionViolation struct {
