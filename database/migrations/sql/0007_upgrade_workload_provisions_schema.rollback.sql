@@ -25,3 +25,4 @@ ALTER TABLE workload_provisions
 
 DROP TABLE IF EXISTS workload_lifecycle_states CASCADE;
 DROP TABLE IF EXISTS workload_deployment_strategies CASCADE;
+
