@@ -1,6 +1,11 @@
 base_path: "/api/v1"
 
 routes:
+  auth:
+    token: "/api/v1/auth/token"
+    me: "/api/v1/auth/me"
+    revoke: "/api/v1/auth/revoke"
+    evaluate: "/api/v1/auth/evaluate"
   reconciliation:
     trigger: "/api/v1/reconciliations"
     status: "/api/v1/reconciliations/{id}"

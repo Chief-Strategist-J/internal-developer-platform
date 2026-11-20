@@ -23,6 +23,10 @@ const (
 )
 
 const (
+	EndpointAuthToken             = "/api/v1/auth/token"
+	EndpointAuthMe                = "/api/v1/auth/me"
+	EndpointAuthRevoke            = "/api/v1/auth/revoke"
+	EndpointAuthEvaluate          = "/api/v1/auth/evaluate"
 	EndpointReconciliations       = "/api/v1/reconciliations"
 	EndpointReconciliationsPrefix = "/api/v1/reconciliations/"
 	EndpointServices              = "/api/v1/services"

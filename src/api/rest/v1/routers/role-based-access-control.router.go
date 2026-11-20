@@ -6,6 +6,7 @@ import (
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/middleware"
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/shared/constants"
 )
 
 type RBACRouter struct {
@@ -21,7 +22,7 @@ func NewRBACRouter(h *handlers.RBACHandler, m *middleware.RBACMiddleware) *RBACR
 }
 
 func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/v1/auth/token", func(w http.ResponseWriter, req *http.Request) {
+	mux.HandleFunc(constants.EndpointAuthToken, func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
 			r.handler.IssueToken(w, req)
 		} else {
@@ -36,7 +37,7 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
-	mux.HandleFunc("/api/v1/auth/me", r.rbacMiddle.RequirePermission(
+	mux.HandleFunc(constants.EndpointAuthMe, r.rbacMiddle.RequirePermission(
 		rbacContracts.ResourceAuth,
 		rbacContracts.ActionRead,
 		meHandler,
@@ -49,7 +50,7 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
-	mux.HandleFunc("/api/v1/auth/revoke", r.rbacMiddle.RequirePermission(
+	mux.HandleFunc(constants.EndpointAuthRevoke, r.rbacMiddle.RequirePermission(
 		rbacContracts.ResourceAll,
 		rbacContracts.ActionAll,
 		revokeHandler,
@@ -62,7 +63,7 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
-	mux.HandleFunc("/api/v1/auth/evaluate", r.rbacMiddle.RequirePermission(
+	mux.HandleFunc(constants.EndpointAuthEvaluate, r.rbacMiddle.RequirePermission(
 		rbacContracts.ResourceAuth,
 		rbacContracts.ActionRead,
 		evalHandler,

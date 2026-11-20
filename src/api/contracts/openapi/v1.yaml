@@ -3,6 +3,157 @@ info:
   title: internal-developer-platform API
   version: 1.0.0
 paths:
+  /api/v1/auth/token:
+    post:
+      summary: Issue RBAC authentication token
+      operationId: issueAuthToken
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueTokenRequest'
+      responses:
+        '200':
+          description: Token successfully issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueTokenResponseWrapper'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/me:
+    get:
+      summary: Get caller identity from authentication context
+      operationId: getCallerIdentity
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Caller identity returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallerIdentityResponseWrapper'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/revoke:
+    post:
+      summary: Revoke session or subject identity
+      operationId: revokeSession
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeSessionRequest'
+      responses:
+        '200':
+          description: Revocation acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeSessionResponseWrapper'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/evaluate:
+    post:
+      summary: Evaluate RBAC authorization policy for subject
+      operationId: evaluatePolicy
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluatePolicyRequest'
+      responses:
+        '200':
+          description: Policy evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluatePolicyResponseWrapper'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/reconciliations:
     post:
       summary: Trigger GitOps reconciliation
@@ -214,6 +365,133 @@ paths:
           description: Ready
 components:
   schemas:
+    Permission:
+      type: object
+      additionalProperties: false
+      required:
+        - resource
+        - action
+      properties:
+        resource:
+          type: string
+        action:
+          type: string
+    IssueTokenRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - subjectId
+        - tenantId
+        - roles
+      properties:
+        subjectId:
+          type: string
+        tenantId:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        ttlSeconds:
+          type: integer
+    IssueTokenResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - accessToken
+        - tokenType
+        - expiresIn
+        - subjectId
+        - tenantId
+        - roles
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+        expiresIn:
+          type: integer
+        subjectId:
+          type: string
+        tenantId:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+    CallerIdentityResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - subjectId
+        - tenantId
+        - roles
+        - issuer
+        - expiresAt
+      properties:
+        subjectId:
+          type: string
+        tenantId:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        issuer:
+          type: string
+        expiresAt:
+          type: string
+    RevokeSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        subjectId:
+          type: string
+        jti:
+          type: string
+        reason:
+          type: string
+    RevokeSessionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+    EvaluatePolicyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - targetTenantId
+        - resource
+        - action
+      properties:
+        targetTenantId:
+          type: string
+        resource:
+          type: string
+        action:
+          type: string
+    EvaluationResult:
+      type: object
+      additionalProperties: false
+      required:
+        - granted
+        - reason
+      properties:
+        granted:
+          type: boolean
+        reason:
+          type: string
     SyncCommand:
       type: object
       additionalProperties: false
@@ -407,13 +685,6 @@ components:
     AuditLoggingConfig:
       type: object
       additionalProperties: false
-      required:
-        - enableDataAccessLogs
-        - destinationBucket
-        - retentionDays
-        - lockedRetention
-        - offNodeLogCollection
-        - piiScrubbingEnabled
       properties:
         enableDataAccessLogs:
           type: boolean
@@ -773,5 +1044,73 @@ components:
           type: integer
         data:
           $ref: '#/components/schemas/WorkloadProvisionRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    IssueTokenResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/IssueTokenResponse'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    CallerIdentityResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/CallerIdentityResponse'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    RevokeSessionResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/RevokeSessionResponse'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    EvaluatePolicyResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/EvaluationResult'
         meta:
           $ref: '#/components/schemas/ResponseMeta'
