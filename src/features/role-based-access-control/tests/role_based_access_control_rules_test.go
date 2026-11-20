@@ -123,3 +123,76 @@ func TestRoleBasedAccessControlRules_AuthorizationDecisionTable(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateJITRequest_SecurityCeilingAndApprover(t *testing.T) {
+	validReq := rbacContracts.AccessGrantRequest{
+		ID:              "grant-001",
+		TenantID:        "tenant-finance",
+		SubjectID:       "usr-alice",
+		TargetNamespace: "payments-prod",
+		Role:            "DeveloperDebug",
+		Reason:          "investigating transaction deadlock incident INC-9982",
+		DurationSeconds: 7200,
+		ApproverRole:    "PlatformAdmin",
+		IdempotencyKey:  "idemp-jit-001",
+	}
+
+	if err := rules.ValidateJITRequest(validReq); err != nil {
+		t.Fatalf("expected valid JIT request to pass, got: %v", err)
+	}
+
+	ceilingExceededReq := validReq
+	ceilingExceededReq.DurationSeconds = 18000
+	if err := rules.ValidateJITRequest(ceilingExceededReq); err == nil {
+		t.Fatalf("expected error when duration > 14400s ceiling, got nil")
+	}
+
+	invalidDurationReq := validReq
+	invalidDurationReq.DurationSeconds = 0
+	if err := rules.ValidateJITRequest(invalidDurationReq); err == nil {
+		t.Fatalf("expected error when duration <= 0, got nil")
+	}
+
+	nodesProxyReq := validReq
+	nodesProxyReq.Role = "nodes/proxy-viewer"
+	if err := rules.ValidateJITRequest(nodesProxyReq); err == nil {
+		t.Fatalf("expected V-25 violation when role contains nodes/proxy, got nil")
+	}
+
+	shortReasonReq := validReq
+	shortReasonReq.Reason = "fix bug"
+	if err := rules.ValidateJITRequest(shortReasonReq); err == nil {
+		t.Fatalf("expected error when reason < 10 chars, got nil")
+	}
+
+	unauthorizedApproverReq := validReq
+	unauthorizedApproverReq.ApproverRole = "Developer"
+	if err := rules.ValidateJITRequest(unauthorizedApproverReq); err == nil {
+		t.Fatalf("expected error when approverRole is not PlatformAdmin or SecurityLead, got nil")
+	}
+}
+
+func TestValidateRoleSecurityPosture_RejectsNodesProxy(t *testing.T) {
+	safePerms := []rbacContracts.Permission{
+		{Resource: "pods", Action: "get"},
+		{Resource: "services", Action: "list"},
+	}
+	if err := rules.ValidateRoleSecurityPosture("SafeRole", safePerms); err != nil {
+		t.Fatalf("expected safe role to pass, got: %v", err)
+	}
+
+	proxyPerms := []rbacContracts.Permission{
+		{Resource: "nodes/proxy", Action: "get"},
+	}
+	if err := rules.ValidateRoleSecurityPosture("DangerousRole", proxyPerms); err == nil {
+		t.Fatalf("expected V-25 violation for nodes/proxy, got nil")
+	}
+
+	execPerms := []rbacContracts.Permission{
+		{Resource: "nodes", Action: "nodes/exec"},
+	}
+	if err := rules.ValidateRoleSecurityPosture("DangerousRole", execPerms); err == nil {
+		t.Fatalf("expected V-25 violation for nodes/exec, got nil")
+	}
+}
+

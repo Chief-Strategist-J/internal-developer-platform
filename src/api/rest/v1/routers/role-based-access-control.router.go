@@ -68,4 +68,33 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		rbacContracts.ActionRead,
 		evalHandler,
 	))
+
+	jitHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.Method {
+		case http.MethodPost:
+			r.handler.RequestJITAccess(w, req)
+		case http.MethodGet:
+			r.handler.ListActiveGrants(w, req)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc(constants.EndpointAuthJITGrants, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionRead,
+		jitHandler,
+	))
+
+	revokeJitHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.RevokeJITAccess(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointAuthJITGrantsPrefix, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAll,
+		rbacContracts.ActionAll,
+		revokeJitHandler,
+	))
 }

@@ -993,5 +993,48 @@ spec:
     defaultKmsKeyName: "%s"`, cfg.DestinationBucket, cmd.Namespace, cmd.WorkloadName, cfg.RetentionDays, cfg.LockedRetention, retentionSeconds, kmsKey)
 }
 
+func ValidateEphemeralDebugContainer(image string, approvedRegistries []string, isProduction bool) error {
+	if image == "" {
+		return errors.NewValidationError("debug image is required")
+	}
+	if isProduction && !strings.Contains(image, "@sha256:") {
+		return errors.NewValidationError("V-26 violation: production ephemeral debug containers must reference immutable digest (@sha256:)")
+	}
+	if len(approvedRegistries) > 0 {
+		approved := false
+		for _, reg := range approvedRegistries {
+			if strings.HasPrefix(image, reg) {
+				approved = true
+				break
+			}
+		}
+		if !approved {
+			return errors.NewValidationError("V-26 violation: debug image registry not permitted in cluster")
+		}
+	}
+	return nil
+}
+
+func GenerateJITRoleBindingYAML(grantID, namespace, subjectID, role, approvedBy, reason, expiresAt string) string {
+	return fmt.Sprintf(`apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jit-grant-%s
+  namespace: %s
+  annotations:
+    security.internal.idp/expires-at: "%s"
+    security.internal.idp/approved-by: "%s"
+    security.internal.idp/reason: "%s"
+subjects:
+- kind: User
+  name: %s
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: %s
+  apiGroup: rbac.authorization.k8s.io`, grantID, namespace, expiresAt, approvedBy, reason, subjectID, role)
+}
+
+
 
 

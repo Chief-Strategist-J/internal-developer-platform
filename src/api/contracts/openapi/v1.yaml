@@ -154,6 +154,115 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/jit/grants:
+    post:
+      summary: Request Just-In-Time (JIT) access grant
+      operationId: requestJITAccess
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessGrantRequest'
+      responses:
+        '201':
+          description: JIT access grant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessGrantRecordResponse'
+        '400':
+          description: Validation error or ceiling exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - nodes/proxy or unauthorized approver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: List active JIT access grants
+      operationId: listActiveGrants
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of active access grants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessGrantListResponse'
+  /api/v1/auth/jit/grants/{id}/revoke:
+    post:
+      summary: Revoke active JIT access grant
+      operationId: revokeJITAccess
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Grant revocation acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeSessionResponseWrapper'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/reconciliations:
     post:
       summary: Trigger GitOps reconciliation
@@ -1112,5 +1221,126 @@ components:
           type: integer
         data:
           $ref: '#/components/schemas/EvaluationResult'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    AccessGrantRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - subjectId
+        - targetNamespace
+        - role
+        - reason
+        - durationSeconds
+        - approverRole
+        - idempotencyKey
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        subjectId:
+          type: string
+        targetNamespace:
+          type: string
+        role:
+          type: string
+        reason:
+          type: string
+        durationSeconds:
+          type: integer
+          minimum: 1
+          maximum: 14400
+        approverRole:
+          type: string
+        idempotencyKey:
+          type: string
+    AccessGrantRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - subjectId
+        - targetNamespace
+        - role
+        - reason
+        - durationSeconds
+        - approvedBy
+        - status
+        - expiresAt
+        - idempotencyKey
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        subjectId:
+          type: string
+        targetNamespace:
+          type: string
+        role:
+          type: string
+        reason:
+          type: string
+        durationSeconds:
+          type: integer
+        approvedBy:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, EXPIRED, REVOKED]
+        expiresAt:
+          type: string
+          format: date-time
+        idempotencyKey:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AccessGrantRecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/AccessGrantRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    AccessGrantListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessGrantRecord'
         meta:
           $ref: '#/components/schemas/ResponseMeta'
