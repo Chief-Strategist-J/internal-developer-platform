@@ -7,6 +7,7 @@ source "${SCRIPT_DIR}/../lib/common.sh"
 CLUSTER_NAME="idp-cluster"
 ARGOCD_NAMESPACE="argocd"
 ARGOCD_PORT=8085
+GRAFANA_PORT=3000
 DEV_NAMESPACE="dev"
 
 create_cluster() {
@@ -68,26 +69,39 @@ apply_idp_project() {
     log_success "Dev environment manifests applied to cluster."
 }
 
+wait_for_services() {
+    log_info "Waiting for backing services to be ready..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n "${DEV_NAMESPACE}" --timeout=120s || true
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "${DEV_NAMESPACE}" --timeout=120s || true
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n "${DEV_NAMESPACE}" --timeout=120s || true
+    log_success "Backing services are ready."
+}
+
 start_port_forward() {
     log_info "Ensuring ArgoCD port-forward on port ${ARGOCD_PORT}..."
     pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
     nohup kubectl port-forward svc/argocd-server -n "${ARGOCD_NAMESPACE}" --address 0.0.0.0 "${ARGOCD_PORT}:443" > /tmp/argocd-port-forward.log 2>&1 &
+
+    log_info "Ensuring Grafana port-forward on port ${GRAFANA_PORT}..."
+    pkill -f "kubectl port-forward svc/grafana -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    nohup kubectl port-forward svc/grafana -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${GRAFANA_PORT}:3000" > /tmp/grafana-port-forward.log 2>&1 &
+
     sleep 2
     log_success "ArgoCD port-forward active on https://127.0.0.1:${ARGOCD_PORT}"
+    log_success "Grafana port-forward active on http://127.0.0.1:${GRAFANA_PORT}"
 }
 
 get_credentials() {
-    log_info "Extracting initial admin credentials..."
-    local password
-    password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
+    log_info "Extracting credentials..."
+    local argo_password
+    argo_password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
     
     echo ""
     log_success "=========================================================="
-    log_success "Enterprise Local Kubernetes & ArgoCD Environment Ready!"
+    log_success "Enterprise Local Kubernetes & Observability Environment Ready!"
     log_success "Cluster:   ${CLUSTER_NAME}"
-    log_success "ArgoCD:    https://127.0.0.1:${ARGOCD_PORT}"
-    log_success "Username:  admin"
-    log_success "Password:  ${password}"
+    log_success "ArgoCD:    https://127.0.0.1:${ARGOCD_PORT}  (admin / ${argo_password})"
+    log_success "Grafana:   http://127.0.0.1:${GRAFANA_PORT}   (admin / admin)"
     log_success "=========================================================="
     echo ""
     echo "To verify cluster workload status:"
@@ -98,6 +112,7 @@ get_credentials() {
 down_cluster() {
     log_info "Deleting kind cluster '${CLUSTER_NAME}'..."
     pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/grafana -n ${DEV_NAMESPACE}" 2>/dev/null || true
     kind delete cluster --name "${CLUSTER_NAME}"
     log_success "kind cluster deleted."
 }
@@ -112,6 +127,7 @@ main() {
             install_crd_dependencies
             install_argocd
             apply_idp_project
+            wait_for_services
             start_port_forward
             get_credentials
             ;;
