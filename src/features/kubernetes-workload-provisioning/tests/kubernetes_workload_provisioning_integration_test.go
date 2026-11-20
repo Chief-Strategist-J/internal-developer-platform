@@ -105,12 +105,15 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 		MemoryRequest:  "256Mi",
 		MemoryLimit:    "512Mi",
 		Replicas:       2,
-		Strategy:       contracts.StrategyCanary,
-		Status:         contracts.StatusSubmitted,
-		IdempotencyKey: idempKey,
-		Version:        1,
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
+		Strategy:         contracts.StrategyCanary,
+		Status:           contracts.StatusSubmitted,
+		SpecHash:         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		ApprovedSpecHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		ApproverRole:     "platform-admin",
+		IdempotencyKey:   idempKey,
+		Version:          1,
+		CreatedAt:        time.Now().UTC(),
+		UpdatedAt:        time.Now().UTC(),
 	}
 
 	if err := adapter.Save(ctx, record); err != nil {
@@ -123,6 +126,15 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 	}
 	if fetched.WorkloadName != "orders-backend" {
 		t.Errorf("expected WorkloadName orders-backend, got %s", fetched.WorkloadName)
+	}
+	if fetched.SpecHash != record.SpecHash {
+		t.Errorf("expected SpecHash %s, got %s", record.SpecHash, fetched.SpecHash)
+	}
+	if fetched.ApprovedSpecHash != record.ApprovedSpecHash {
+		t.Errorf("expected ApprovedSpecHash %s, got %s", record.ApprovedSpecHash, fetched.ApprovedSpecHash)
+	}
+	if fetched.ApproverRole != record.ApproverRole {
+		t.Errorf("expected ApproverRole %s, got %s", record.ApproverRole, fetched.ApproverRole)
 	}
 	if fetched.PublicID != "wld_"+uniqueSuffix {
 		t.Errorf("expected PublicID wld_%s, got %s", uniqueSuffix, fetched.PublicID)
@@ -562,3 +574,61 @@ func TestWorkloadProvisioningReadinessTimeoutDegrades(t *testing.T) {
 		t.Errorf("expected status DEGRADED upon timeout, got %s", observed.Status)
 	}
 }
+
+func TestWorkloadProvisioningSpecHashTamperingRejected(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:               "wkld-tamper-01",
+		TenantID:         "tenant-qa",
+		ServiceID:        "auth-service",
+		Namespace:        "auth-qa",
+		WorkloadName:     "auth-deploy",
+		Image:            "repo/auth:v2.0.0",
+		Replicas:         2,
+		ApprovedSpecHash: "deadbeef00000000000000000000000000000000000000000000000000000000",
+		IdempotencyKey:   "idemp-tamper-01",
+	}
+
+	_, err := svc.ProvisionWorkload(ctx, cmd)
+	if err == nil || !strings.Contains(err.Error(), "spec edited during approval") {
+		t.Fatalf("expected spec hash mismatch error, got: %v", err)
+	}
+}
+
+func TestWorkloadProvisioningProductionNamespaceApprovalGate(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-prod-gate-01",
+		TenantID:       "tenant-prod",
+		ServiceID:      "payment-service",
+		Namespace:      "payments-prod",
+		WorkloadName:   "payment-api",
+		Image:          "repo/pay:v1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-prod-gate-01",
+	}
+
+	_, err := svc.ProvisionWorkload(ctx, cmd)
+	if err == nil || !strings.Contains(err.Error(), "require explicit approval") {
+		t.Fatalf("expected production approval gate error, got: %v", err)
+	}
+
+	cmd.ApprovedSpecHash = contracts.ComputeWorkloadSpecHash(cmd)
+	cmd.ApproverRole = "secops-lead"
+	res, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("expected provisioning to succeed with approval, got: %v", err)
+	}
+	if res.Provision.ApprovedSpecHash != cmd.ApprovedSpecHash {
+		t.Errorf("expected saved record to carry approved spec hash")
+	}
+}
+
