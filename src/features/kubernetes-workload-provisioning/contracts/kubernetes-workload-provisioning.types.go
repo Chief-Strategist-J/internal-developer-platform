@@ -1,6 +1,12 @@
 package contracts
 
-import "time"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
+)
 
 type WorkloadStatus string
 
@@ -71,46 +77,74 @@ type GitOpsAppConfig struct {
 }
 
 type WorkloadProvisionCommand struct {
-	ID             string             `json:"id"`
-	PublicID       string             `json:"publicId,omitempty"`
-	TenantID       string             `json:"tenantId"`
-	Source         string             `json:"source,omitempty"`
-	ExternalID     string             `json:"externalId,omitempty"`
-	CorrelationID  string             `json:"correlationId,omitempty"`
-	ServiceID      string             `json:"serviceId"`
-	Namespace      string             `json:"namespace"`
-	WorkloadName   string             `json:"workloadName"`
-	Image          string             `json:"image"`
-	CPURequest     string             `json:"cpuRequest"`
-	CPULimit       string             `json:"cpuLimit"`
-	MemoryRequest  string             `json:"memoryRequest"`
-	MemoryLimit    string             `json:"memoryLimit"`
-	Replicas       int                `json:"replicas"`
-	Strategy       DeploymentStrategy `json:"strategy,omitempty"`
-	IdempotencyKey string             `json:"idempotencyKey"`
+	ID               string             `json:"id"`
+	PublicID         string             `json:"publicId,omitempty"`
+	TenantID         string             `json:"tenantId"`
+	Source           string             `json:"source,omitempty"`
+	ExternalID       string             `json:"externalId,omitempty"`
+	CorrelationID    string             `json:"correlationId,omitempty"`
+	ServiceID        string             `json:"serviceId"`
+	Namespace        string             `json:"namespace"`
+	WorkloadName     string             `json:"workloadName"`
+	Image            string             `json:"image"`
+	CPURequest       string             `json:"cpuRequest"`
+	CPULimit         string             `json:"cpuLimit"`
+	MemoryRequest    string             `json:"memoryRequest"`
+	MemoryLimit      string             `json:"memoryLimit"`
+	Replicas         int                `json:"replicas"`
+	Strategy         DeploymentStrategy `json:"strategy,omitempty"`
+	IdempotencyKey   string             `json:"idempotencyKey"`
+	ApprovedSpecHash string             `json:"approvedSpecHash,omitempty"`
+	ApproverRole     string             `json:"approverRole,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
-	ID             string             `json:"id"`
-	PublicID       string             `json:"publicId"`
-	TenantID       string             `json:"tenantId"`
-	Source         string             `json:"source"`
-	ExternalID     string             `json:"externalId"`
-	CorrelationID  string             `json:"correlationId"`
-	ServiceID      string             `json:"serviceId"`
-	Namespace      string             `json:"namespace"`
-	WorkloadName   string             `json:"workloadName"`
-	CPURequest     string             `json:"cpuRequest"`
-	CPULimit       string             `json:"cpuLimit"`
-	MemoryRequest  string             `json:"memoryRequest"`
-	MemoryLimit    string             `json:"memoryLimit"`
-	Replicas       int                `json:"replicas"`
-	Strategy       DeploymentStrategy `json:"strategy"`
-	Status         WorkloadStatus     `json:"status"`
-	IdempotencyKey string             `json:"idempotencyKey"`
-	Version        int64              `json:"version"`
-	CreatedAt      time.Time          `json:"createdAt"`
-	UpdatedAt      time.Time          `json:"updatedAt"`
+	ID               string             `json:"id"`
+	PublicID         string             `json:"publicId"`
+	TenantID         string             `json:"tenantId"`
+	Source           string             `json:"source"`
+	ExternalID       string             `json:"externalId"`
+	CorrelationID    string             `json:"correlationId"`
+	SpecHash         string             `json:"specHash"`
+	ApprovedSpecHash string             `json:"approvedSpecHash"`
+	ApproverRole     string             `json:"approverRole"`
+	ServiceID        string             `json:"serviceId"`
+	Namespace        string             `json:"namespace"`
+	WorkloadName     string             `json:"workloadName"`
+	CPURequest       string             `json:"cpuRequest"`
+	CPULimit         string             `json:"cpuLimit"`
+	MemoryRequest    string             `json:"memoryRequest"`
+	MemoryLimit      string             `json:"memoryLimit"`
+	Replicas         int                `json:"replicas"`
+	Strategy         DeploymentStrategy `json:"strategy"`
+	Status           WorkloadStatus     `json:"status"`
+	IdempotencyKey   string             `json:"idempotencyKey"`
+	Version          int64              `json:"version"`
+	CreatedAt        time.Time          `json:"createdAt"`
+	UpdatedAt        time.Time          `json:"updatedAt"`
+}
+
+func ComputeWorkloadSpecHash(cmd WorkloadProvisionCommand) string {
+	strategy := cmd.Strategy
+	if strategy == "" {
+		strategy = StrategyCanary
+	}
+	canonical := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%s",
+		strings.TrimSpace(cmd.TenantID),
+		strings.TrimSpace(cmd.ServiceID),
+		strings.TrimSpace(cmd.Namespace),
+		strings.TrimSpace(cmd.WorkloadName),
+		strings.TrimSpace(cmd.Image),
+		strings.TrimSpace(cmd.CPURequest),
+		strings.TrimSpace(cmd.CPULimit),
+		strings.TrimSpace(cmd.MemoryRequest),
+		strings.TrimSpace(cmd.MemoryLimit),
+		cmd.Replicas,
+		strategy,
+	)
+	hasher := sha256.New()
+	hasher.Write([]byte(canonical))
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 type ManifestBundle struct {

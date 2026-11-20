@@ -82,7 +82,7 @@ func (s *WorkloadProvisioningService) verifyQuotaHeadroom(ctx context.Context, c
 			return err
 		}
 		if quota != nil {
-			headroom := rules.EvaluateResourceQuotaHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas)
+			headroom := rules.EvaluateResourceQuotaSurgeHeadroom(*quota, mutations.CPURequest, mutations.MemoryRequest, cmd.Replicas, cmd.Strategy)
 			if !headroom.SufficientHeadroom {
 				return errors.NewConflictError("insufficient quota headroom: " + headroom.ViolationMessage)
 			}
@@ -196,27 +196,39 @@ func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.
 		strategy = contracts.StrategyCanary
 	}
 	now := time.Now().UTC()
+	specHash := contracts.ComputeWorkloadSpecHash(cmd)
+	approvedHash := cmd.ApprovedSpecHash
+	if approvedHash == "" {
+		approvedHash = specHash
+	}
+	approverRole := cmd.ApproverRole
+	if approverRole == "" {
+		approverRole = "system-auto"
+	}
 	return contracts.WorkloadProvisionRecord{
-		ID:             cmd.ID,
-		PublicID:       derivePublicID(cmd.PublicID, cmd.ID),
-		TenantID:       cmd.TenantID,
-		Source:         deriveFallback(cmd.Source, "api"),
-		ExternalID:     deriveFallback(cmd.ExternalID, cmd.ID),
-		CorrelationID:  deriveCorrelationID(cmd.CorrelationID),
-		ServiceID:      cmd.ServiceID,
-		Namespace:      cmd.Namespace,
-		WorkloadName:   cmd.WorkloadName,
-		CPURequest:     mutations.CPURequest,
-		CPULimit:       mutations.CPULimit,
-		MemoryRequest:  mutations.MemoryRequest,
-		MemoryLimit:    mutations.MemoryLimit,
-		Replicas:       cmd.Replicas,
-		Strategy:       strategy,
-		Status:         contracts.StatusSubmitted,
-		IdempotencyKey: cmd.IdempotencyKey,
-		Version:        1,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:               cmd.ID,
+		PublicID:         derivePublicID(cmd.PublicID, cmd.ID),
+		TenantID:         cmd.TenantID,
+		Source:           deriveFallback(cmd.Source, "api"),
+		ExternalID:       deriveFallback(cmd.ExternalID, cmd.ID),
+		CorrelationID:    deriveCorrelationID(cmd.CorrelationID),
+		SpecHash:         specHash,
+		ApprovedSpecHash: approvedHash,
+		ApproverRole:     approverRole,
+		ServiceID:        cmd.ServiceID,
+		Namespace:        cmd.Namespace,
+		WorkloadName:     cmd.WorkloadName,
+		CPURequest:       mutations.CPURequest,
+		CPULimit:         mutations.CPULimit,
+		MemoryRequest:    mutations.MemoryRequest,
+		MemoryLimit:      mutations.MemoryLimit,
+		Replicas:         cmd.Replicas,
+		Strategy:         strategy,
+		Status:           contracts.StatusSubmitted,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		Version:          1,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 }
 
@@ -294,6 +306,9 @@ func (s *WorkloadProvisioningService) executePipeline(ctx context.Context, cmd c
 func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd contracts.WorkloadProvisionCommand) (*contracts.WorkloadProvisionResult, error) {
 	return observability.RunTraced(ctx, "kubernetes.workload.provision", func(ctx context.Context) (*contracts.WorkloadProvisionResult, error) {
 		if err := contracts.ValidateWorkloadCommand(cmd); err != nil {
+			return nil, err
+		}
+		if err := rules.ValidateSpecApproval(cmd); err != nil {
 			return nil, err
 		}
 		if replay, err := s.checkIdempotencyReplay(ctx, cmd); replay != nil || err != nil {

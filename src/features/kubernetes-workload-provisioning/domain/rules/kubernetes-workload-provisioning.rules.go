@@ -237,10 +237,26 @@ func ParseMegabytes(val string) (int64, error) {
 	return bytes / (1024 * 1024), nil
 }
 
-func EvaluateResourceQuotaHeadroom(quota contracts.ResourceQuotaSpec, requestedCPU string, requestedMemory string, replicas int) contracts.QuotaCheckResult {
+func CalculateSurgePods(replicas int, strategy contracts.DeploymentStrategy) int {
+	if replicas <= 0 {
+		return 1
+	}
+	if strategy == contracts.StrategyRecreate {
+		return 0
+	}
+	surge := (replicas + 3) / 4
+	if surge < 1 {
+		surge = 1
+	}
+	return surge
+}
+
+func EvaluateResourceQuotaSurgeHeadroom(quota contracts.ResourceQuotaSpec, requestedCPU string, requestedMemory string, replicas int, strategy contracts.DeploymentStrategy) contracts.QuotaCheckResult {
 	if replicas <= 0 {
 		replicas = 1
 	}
+	surgePods := CalculateSurgePods(replicas, strategy)
+	totalPods := int64(replicas + surgePods)
 
 	hardCPU, err := ParseMillicores(quota.HardCPU)
 	if err != nil || hardCPU <= 0 {
@@ -261,20 +277,20 @@ func EvaluateResourceQuotaHeadroom(quota contracts.ResourceQuotaSpec, requestedC
 	if err != nil {
 		reqCPUMilli = 250
 	}
-	totalReqCPU := reqCPUMilli * int64(replicas)
+	totalReqCPU := reqCPUMilli * totalPods
 
 	reqMemMB, err := ParseMegabytes(requestedMemory)
 	if err != nil {
 		reqMemMB = 256
 	}
-	totalReqMem := reqMemMB * int64(replicas)
+	totalReqMem := reqMemMB * totalPods
 
 	if totalReqCPU > availCPU {
 		return contracts.QuotaCheckResult{
 			SufficientHeadroom: false,
 			AvailableCPU:       fmt.Sprintf("%dm", availCPU),
 			AvailableMemory:    fmt.Sprintf("%dMi", availMem),
-			ViolationMessage:   fmt.Sprintf("quota exceeded: requested cpu %dm exceeds available %dm", totalReqCPU, availCPU),
+			ViolationMessage:   fmt.Sprintf("quota exceeded for surge: requested cpu %dm (base %d + surge %d pods) exceeds available %dm", totalReqCPU, replicas, surgePods, availCPU),
 		}
 	}
 
@@ -283,7 +299,7 @@ func EvaluateResourceQuotaHeadroom(quota contracts.ResourceQuotaSpec, requestedC
 			SufficientHeadroom: false,
 			AvailableCPU:       fmt.Sprintf("%dm", availCPU),
 			AvailableMemory:    fmt.Sprintf("%dMi", availMem),
-			ViolationMessage:   fmt.Sprintf("quota exceeded: requested memory %dMi exceeds available %dMi", totalReqMem, availMem),
+			ViolationMessage:   fmt.Sprintf("quota exceeded for surge: requested memory %dMi (base %d + surge %d pods) exceeds available %dMi", totalReqMem, replicas, surgePods, availMem),
 		}
 	}
 
@@ -292,6 +308,25 @@ func EvaluateResourceQuotaHeadroom(quota contracts.ResourceQuotaSpec, requestedC
 		AvailableCPU:       fmt.Sprintf("%dm", availCPU),
 		AvailableMemory:    fmt.Sprintf("%dMi", availMem),
 	}
+}
+
+func EvaluateResourceQuotaHeadroom(quota contracts.ResourceQuotaSpec, requestedCPU string, requestedMemory string, replicas int) contracts.QuotaCheckResult {
+	return EvaluateResourceQuotaSurgeHeadroom(quota, requestedCPU, requestedMemory, replicas, contracts.StrategyCanary)
+}
+
+func ValidateSpecApproval(cmd contracts.WorkloadProvisionCommand) error {
+	specHash := contracts.ComputeWorkloadSpecHash(cmd)
+	if cmd.ApprovedSpecHash != "" && cmd.ApprovedSpecHash != specHash {
+		return errors.NewConflictError(fmt.Sprintf(
+			"spec edited during approval: approved hash %s does not match current spec hash %s",
+			cmd.ApprovedSpecHash, specHash,
+		))
+	}
+	isProduction := strings.Contains(cmd.Namespace, "prod") || strings.EqualFold(cmd.TenantID, "prod")
+	if isProduction && cmd.ApprovedSpecHash == "" {
+		return errors.NewForbiddenError("production workload changes require explicit approval bound to spec hash")
+	}
+	return nil
 }
 
 func GenerateArgoCDApplicationYAML(cmd contracts.WorkloadProvisionCommand, appConfig contracts.GitOpsAppConfig) string {
