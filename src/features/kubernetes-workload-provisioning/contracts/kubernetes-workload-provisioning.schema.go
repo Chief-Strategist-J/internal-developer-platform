@@ -51,5 +51,11 @@ func ValidateWorkloadCommand(cmd WorkloadProvisionCommand) error {
 	if cmd.IdempotencyKey == "" || len(cmd.IdempotencyKey) > 256 {
 		return errors.NewValidationError("idempotencyKey must be between 1 and 256 characters")
 	}
+	if cmd.ImagePullPolicy != "" && cmd.ImagePullPolicy != "IfNotPresent" && cmd.ImagePullPolicy != "Always" && cmd.ImagePullPolicy != "Never" {
+		return errors.NewValidationError("imagePullPolicy must be IfNotPresent, Always, or Never")
+	}
+	if len(cmd.BreakglassJustification) > 1024 {
+		return errors.NewValidationError("breakglassJustification must not exceed 1024 characters")
+	}
 	return nil
 }

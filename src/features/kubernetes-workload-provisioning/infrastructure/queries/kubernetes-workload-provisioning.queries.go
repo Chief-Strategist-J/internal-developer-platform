@@ -5,15 +5,17 @@ const (
 		INSERT INTO workload_provisions (
 			id, public_id, tenant_id, source, external_id, correlation_id,
 			spec_hash, approved_spec_hash, approver_role,
+			image_pull_policy, breakglass_justification,
 			service_id, namespace, workload_name,
 			cpu_request, cpu_limit, memory_request, memory_limit,
 			replicas, strategy, status, idempotency_key, version, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 	`
 
 	FLOW_SELECT_WORKLOAD_BY_ID = `
 		SELECT id, public_id, tenant_id, source, external_id, correlation_id,
 		       spec_hash, approved_spec_hash, approver_role,
+		       image_pull_policy, breakglass_justification,
 		       service_id, namespace, workload_name,
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status, idempotency_key, version, created_at, updated_at
@@ -24,6 +26,7 @@ const (
 	FLOW_SELECT_WORKLOAD_BY_IDEMPOTENCY = `
 		SELECT id, public_id, tenant_id, source, external_id, correlation_id,
 		       spec_hash, approved_spec_hash, approver_role,
+		       image_pull_policy, breakglass_justification,
 		       service_id, namespace, workload_name,
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status, idempotency_key, version, created_at, updated_at
@@ -34,6 +37,7 @@ const (
 	FLOW_LIST_WORKLOAD_PROVISIONS = `
 		SELECT id, public_id, tenant_id, source, external_id, correlation_id,
 		       spec_hash, approved_spec_hash, approver_role,
+		       image_pull_policy, breakglass_justification,
 		       service_id, namespace, workload_name,
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status, idempotency_key, version, created_at, updated_at
