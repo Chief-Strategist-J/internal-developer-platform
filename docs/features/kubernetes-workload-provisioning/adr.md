@@ -160,3 +160,60 @@
   2. `observability.RunTraced[T](ctx, spanName, fn, attrs...) (T, error)`
   3. Decompose all domain workflows, adapters, and services into single-responsibility functions strictly $\le 30$ lines, moving multiline manifest templates to package constants.
 - **Consequences**: Tracing lifecycle management is centralized in one place. Monolithic functions across domain workflows, adapters, and services are reduced from 280+ lines to under 30 lines each with zero mid-function comments.
+
+---
+
+## ADR-016: Cryptographic Spec Hashing & Role-Based Approval Binding
+- **Status**: Accepted
+- **Context**: In high-assurance environments, approving a release in an external management portal (e.g. Jira or ServiceNow) introduces a vulnerability window where malicious or accidental changes to the workload spec occur between approval time and the GitOps admission trigger.
+- **Decision**: 
+  1. Compute a deterministic SHA-256 canonical digest across core spec attributes (`TenantID`, `ServiceID`, `Namespace`, `WorkloadName`, `Image`, `CPURequest`, `CPULimit`, `MemoryRequest`, `MemoryLimit`, `Replicas`, `Strategy`).
+  2. In production namespaces, mandate non-empty `ApprovedSpecHash` and `ApproverRole` (`platform-admin`, `secops-lead`, etc.), validating that `ApprovedSpecHash == ComputeWorkloadSpecHash(cmd)`.
+  3. Reject any spec modification with HTTP 400 Validation Error.
+- **Consequences**: Out-of-band modifications to workload specifications during approval workflows are structurally blocked at the Workload API boundary.
+
+---
+
+## ADR-017: Image Supply Chain Floor & Immutable Digest Mandate
+- **Status**: Accepted
+- **Context**: Mutable container image tags (e.g., `:latest`, `:v1.0.0`) allow downstream registry poisoning, tag re-push exploits, and non-reproducible deployments. Additionally, deploying images from public, uncurated registries introduces untracked vulnerabilities.
+- **Decision**:
+  1. Restrict all container images to a verified registry floor (`IsApprovedRegistry`) supporting `gcr.io`, `*.pkg.dev`, `ghcr.io`, `quay.io`, and internal mirror endpoints.
+  2. In production namespaces, strictly enforce immutable digest pinning via `@sha256:` and reject mutable tags (`:latest`).
+  3. Synthesize explicit container `imagePullPolicy` (`IfNotPresent` for immutable digests; `Always` for mutable tags).
+  4. Provide an audited emergency Breakglass protocol (`IMG-BRK-001`) requiring documented justifications stored in the database audit log.
+- **Consequences**: Containers cannot be tampered with post-build; production workloads are 100% reproducible and tamper-evident.
+
+---
+
+## ADR-018: Application-Layer KMS Envelope Encryption & Key Custody Separation [V-34]
+- **Status**: Accepted
+- **Context**: Relying solely on default Kubernetes secret encryption leaves sensitive tenant credentials vulnerable to cluster-admin scraping or compromised etcd storage. Furthermore, storing KMS keys in the same cloud project as the workload violates tenant key custody separation requirements (B-1).
+- **Decision**:
+  1. Implement application-layer KMS envelope encryption (`AES-256-GCM-KMS-ENVELOPE`) via `src/infra/clients/kms` where data encryption keys (DEKs) are dynamically generated, encrypted under a Cloud KMS key, and stored alongside AES-256-GCM ciphertexts.
+  2. Enforce strict key custody admission rules (`ValidateKMSKeyCustody`): KMS keys must reside in a dedicated security project rather than the tenant workload project (`projects/<tenant>/` is rejected).
+  3. Populate KMS annotations (`kms.platform.idp.io/key-uri`, `kms.platform.idp.io/algorithm`) on synthesized Kubernetes Secret manifests.
+- **Consequences**: Cluster administrators and compromised cluster nodes cannot access raw secret payloads without separate IAM permissions on the dedicated KMS key project.
+
+---
+
+## ADR-019: Admission Guard Prohibiting subPath Mounts for Rotating Secret Material [V-15]
+- **Status**: Accepted
+- **Context**: When Kubernetes mounts a Secret or ConfigMap into a container volume using `subPath`, Linux bind mounts the file directly. As a consequence, atomic updates to the Secret symbolic link do not propagate to the container, leaving workloads permanently running on stale credentials following rotation.
+- **Decision**:
+  1. Add an admission validation guard in `rules.ValidateSecretVolumeMounts`.
+  2. Reject any workload mounting secrets with a non-empty `SubPath` field, emitting violation `SEC-SUBPATH-001`.
+  3. Mandate mounting secret volumes at directory level to guarantee atomic propagation of rotated credentials.
+- **Consequences**: Prevents credentials from becoming silently frozen after rotation; guarantees all secret consumers receive atomic credential updates without requiring pod restarts.
+
+---
+
+## ADR-020: Automated Cert-Manager Certificate Lifecycle & Expiry Alerting [V-17, V-18]
+- **Status**: Accepted
+- **Context**: Public and mesh ingress certificates are subject to shrinking maximum validity lifetimes (e.g. 90-day Let's Encrypt certificates). Manual renewal or silent ACME issuer failures cause unexpected production outages.
+- **Decision**:
+  1. Automatically synthesize `cert-manager.io/v1` `Certificate` manifests in `adapters.buildCertificateYAML` with 90-day duration (`2160h`) and 30-day renewBefore (`720h`) thresholds.
+  2. Provide continuous certificate expiration tracking via `rules.EvaluateCertificateExpiry`, categorizing remaining lifetime into `HEALTHY`, `WARNING_EXPIRING_SOON` (<= 30 days), and `CRITICAL_EXPIRED` (<= 0 days).
+  3. Wire certificate manifests into the GitOps bundle for automated reconciliation alongside ingress HTTPRoutes.
+- **Consequences**: Eliminates unexpected certificate expiration outages; guarantees timely automated renewals 30 days prior to expiry with proactive alert classification.
+
