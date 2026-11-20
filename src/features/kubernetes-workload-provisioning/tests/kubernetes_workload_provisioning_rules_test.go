@@ -119,6 +119,12 @@ func TestGenerateArgoCDApplicationYAML(t *testing.T) {
 	if !strings.Contains(yaml, "namespace: fintech-prod") {
 		t.Errorf("expected destination namespace fintech-prod in YAML")
 	}
+	if !strings.Contains(yaml, "group: networking.istio.io") || !strings.Contains(yaml, "/spec/http/0/route") {
+		t.Errorf("expected VirtualService route ignoreDifferences to prevent sync fights")
+	}
+	if !strings.Contains(yaml, "group: argoproj.io") {
+		t.Errorf("expected Rollout ignoreDifferences")
+	}
 }
 
 
@@ -168,6 +174,12 @@ func TestGenerateAnalysisTemplateYAML(t *testing.T) {
 	}
 	if !strings.Contains(yaml, "name: latency-p99") {
 		t.Errorf("expected latency-p99 metric")
+	}
+	if !strings.Contains(yaml, "inconclusiveLimit: 0") {
+		t.Errorf("expected inconclusiveLimit: 0 to treat missing metric as failure")
+	}
+	if !strings.Contains(yaml, "consecutiveErrorLimit: 1") {
+		t.Errorf("expected consecutiveErrorLimit: 1 for immediate abort on query failure")
 	}
 }
 
