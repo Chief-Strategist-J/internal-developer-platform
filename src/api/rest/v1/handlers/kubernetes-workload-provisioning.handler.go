@@ -59,7 +59,12 @@ func (h *KubernetesWorkloadHandler) ProvisionWorkload(w http.ResponseWriter, r *
 	meta := extractIngressMetadata(r)
 	cmd, err := decodeProvisionPayload(r, meta)
 	if err != nil {
-		h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", meta)
+		detail := types.ResponseErrorDetail{
+			Field: "body",
+			Issue: err.Error(),
+			Rule:  "closed_schema_json",
+		}
+		h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", meta, detail)
 		return
 	}
 	result, err := h.service.ProvisionWorkload(r.Context(), cmd)
@@ -74,7 +79,12 @@ func (h *KubernetesWorkloadHandler) GetWorkload(w http.ResponseWriter, r *http.R
 	meta := extractIngressMetadata(r)
 	id, err := extractWorkloadID(r.URL.Path)
 	if err != nil {
-		h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+		detail := types.ResponseErrorDetail{
+			Field: "id",
+			Issue: err.Error(),
+			Rule:  "path_workload_id",
+		}
+		h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta, detail)
 		return
 	}
 	result, err := h.service.GetWorkload(r.Context(), meta.TenantID, id)
@@ -156,7 +166,7 @@ func (h *KubernetesWorkloadHandler) writeSuccessResponse(w http.ResponseWriter, 
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (h *KubernetesWorkloadHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta IngressMetadata) {
+func (h *KubernetesWorkloadHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta IngressMetadata, details ...types.ResponseErrorDetail) {
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	if meta.Traceparent != "" {
 		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
@@ -165,10 +175,14 @@ func (h *KubernetesWorkloadHandler) writeErrorResponse(w http.ResponseWriter, st
 		w.Header().Set(constants.HeaderXRequestID, meta.RequestID)
 	}
 	w.WriteHeader(status)
+	errObj := &types.ResponseError{Code: code, Message: msg}
+	if len(details) > 0 {
+		errObj.Details = details
+	}
 	resp := types.ApiResponse{
 		Success:    false,
 		StatusCode: status,
-		Error:      &types.ResponseError{Code: code, Message: msg},
+		Error:      errObj,
 		Meta:       buildMeta(meta),
 	}
 	_ = json.NewEncoder(w).Encode(resp)

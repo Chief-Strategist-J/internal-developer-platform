@@ -6,6 +6,7 @@ import (
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/middleware"
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/shared/constants"
 )
 
 type ServiceCatalogRouter struct {
@@ -31,12 +32,12 @@ func (r *ServiceCatalogRouter) RegisterRoutes(mux *http.ServeMux) {
 	})
 
 	if r.rbacMiddle != nil {
-		mux.HandleFunc("/api/v1/services", r.rbacMiddle.RequirePermission(
+		mux.HandleFunc(constants.EndpointServices, r.rbacMiddle.RequirePermission(
 			rbacContracts.ResourceServiceCatalog,
 			rbacContracts.ActionWrite,
 			servicesHandler,
 		))
 	} else {
-		mux.HandleFunc("/api/v1/services", servicesHandler)
+		mux.HandleFunc(constants.EndpointServices, servicesHandler)
 	}
 }

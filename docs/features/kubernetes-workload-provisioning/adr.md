@@ -249,4 +249,35 @@
   3. Commit `ServiceEntry` manifests as part of the workload GitOps delivery bundle.
 - **Consequences**: Workloads can securely access designated external endpoints with full DNS resolution while maintaining strict perimeter isolation and preventing unauthorized data exfiltration.
 
+---
+
+## ADR-024: Mandatory Data Access Audit Logging and Dedicated Locked-Retention Log Sinks [V-32]
+- **Status**: Accepted
+- **Context**: In Google Cloud, Data Access audit logs are disabled by default. If left in the `_Default` log bucket, audit entries are pruned after 30 days. For government workloads requiring multi-year compliance retention (B-1), 30-day retention violates compliance and destroys forensics evidence.
+- **Decision**:
+  1. Mandate `enableDataAccessLogs: true` for all production namespaces in `rules.ValidateAuditLogging` (`AUD-DATA-001`).
+  2. Reject audit configurations targeting `_Default` or empty buckets (`AUD-SINK-001`). Sinks must route to dedicated user-defined storage buckets (`LoggingLogSink`).
+  3. Enforce a minimum retention period of 365 days with immutable bucket locking (`isLocked: true`, `AUD-LOCK-001`) to prevent administrative deletion or tampering.
+- **Consequences**: Audit logs are immutably preserved for compliance regimes; retention is legally locked and protected from administrative tampering.
+
+---
+
+## ADR-025: Continuous Off-Node Log Forwarding to Preempt Pod Eviction Log Loss [V-23]
+- **Context**: Node resource exhaustion, GKE auto-repair, and spot preemptions cause pod evictions. Upon eviction, local node-level container logs are pruned; `kubectl logs` only displays output from the newest container instance, wiping historical crash diagnostics.
+- **Decision**:
+  1. Add admission guard requiring `offNodeLogCollection: true` for all production workloads (`AUD-COLL-001`).
+  2. Synthesize Google Config Connector `LoggingLogSink` capturing `resource.type="k8s_container"` continuously off-node into Cloud Storage.
+- **Consequences**: Full stdout/stderr streams are preserved in immutable storage even if worker nodes are destroyed or evicted during critical cluster incidents.
+
+---
+
+## ADR-026: Pre-Storage PII Scrubbing and CMEK-Encrypted Audit Sinks
+- **Status**: Accepted
+- **Context**: Government data protection regulations mandate that Personally Identifiable Information (PII) such as national IDs, payment tokens, and authentication credentials must not be stored in plain text in centralized audit buckets. Furthermore, audit buckets must be encrypted using customer-managed encryption keys (CMEK).
+- **Decision**:
+  1. Enforce `piiScrubbingEnabled: true` at admission time for production workloads (`AUD-COLL-001`).
+  2. Synthesize declarative Google Config Connector `StorageBucket` resources configured with `encryption.defaultKmsKeyName` referencing dedicated security CMEK keys.
+- **Consequences**: Audit logs are protected by customer-held cryptographic keys and scrubbed of sensitive user data prior to long-term compliance archival.
+
+
 

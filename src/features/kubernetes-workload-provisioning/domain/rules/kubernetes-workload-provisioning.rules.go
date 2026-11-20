@@ -55,6 +55,26 @@ type WorkloadMutations struct {
 	ResourceQuota   ResourceQuotaDefaults
 	LimitRange      LimitRangeDefaults
 	ImagePullPolicy string
+	AuditLogging    contracts.AuditLoggingConfig
+}
+
+func resolveAuditDefaults(cmd contracts.WorkloadProvisionCommand) contracts.AuditLoggingConfig {
+	auditCfg := cmd.AuditLogging
+	if auditCfg.DestinationBucket == "" && !auditCfg.LockedRetention && auditCfg.RetentionDays == 0 {
+		bucket := fmt.Sprintf("%s-%s-audit-logs", cmd.TenantID, cmd.Namespace)
+		if cmd.TenantID == "" {
+			bucket = fmt.Sprintf("%s-audit-logs", cmd.Namespace)
+		}
+		return contracts.AuditLoggingConfig{
+			EnableDataAccessLogs: true,
+			DestinationBucket:    bucket,
+			RetentionDays:        400,
+			LockedRetention:      true,
+			OffNodeLogCollection: true,
+			PIIScrubbingEnabled:  true,
+		}
+	}
+	return auditCfg
 }
 
 func EvaluateWorkloadMutations(cmd contracts.WorkloadProvisionCommand) WorkloadMutations {
@@ -146,6 +166,7 @@ func EvaluateWorkloadMutations(cmd contracts.WorkloadProvisionCommand) WorkloadM
 		ResourceQuota:   quota,
 		LimitRange:      limitRange,
 		ImagePullPolicy: pullPolicy,
+		AuditLogging:    resolveAuditDefaults(cmd),
 	}
 }
 
@@ -283,6 +304,12 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 		critical = true
 	}
 	violations = append(violations, crdViolations...)
+
+	audOk, audViolations := ValidateAuditLogging(cmd.Namespace, mutations.AuditLogging)
+	if !audOk {
+		critical = true
+	}
+	violations = append(violations, audViolations...)
 
 	if critical {
 		return contracts.AdmissionReport{
@@ -880,5 +907,91 @@ spec:
 %s  resolution: DNS
   location: MESH_EXTERNAL`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, hosts.String(), ports.String())
 }
+
+func ValidateAuditLogging(namespace string, cfg contracts.AuditLoggingConfig) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	if !strings.Contains(namespace, "prod") {
+		return true, violations
+	}
+	if !cfg.EnableDataAccessLogs {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "AUD-DATA-001",
+			Message: "production namespaces mandate Data Access audit logs enabled (V-32)",
+		})
+	}
+	if cfg.DestinationBucket == "" || cfg.DestinationBucket == "_Default" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "AUD-SINK-001",
+			Message: "audit logs must route to a dedicated user-defined bucket, not _Default 30-day retention bucket (V-32)",
+		})
+	}
+	if cfg.RetentionDays < 365 || !cfg.LockedRetention {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "AUD-LOCK-001",
+			Message: "production audit logs require locked retention >= 365 days (V-32)",
+		})
+	}
+	if !cfg.OffNodeLogCollection || !cfg.PIIScrubbingEnabled {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "AUD-COLL-001",
+			Message: "production logging requires off-node shipment and PII scrubbing (V-23)",
+		})
+	}
+	return len(violations) == 0, violations
+}
+
+func GenerateLogSinkYAML(cmd contracts.WorkloadProvisionCommand) string {
+	cfg := cmd.AuditLogging
+	if cfg.DestinationBucket == "" {
+		return ""
+	}
+	return fmt.Sprintf(`apiVersion: logging.cnrm.cloud.google.com/v1beta1
+kind: LoggingLogSink
+metadata:
+  name: %s-audit-sink
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/managed-by: internal-developer-platform
+spec:
+  destination: storage.googleapis.com/%s
+  filter: logName:"cloudaudit.googleapis.com%%2Fdata_access" OR resource.type="k8s_container"
+  uniqueWriterIdentity: true`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cfg.DestinationBucket)
+}
+
+func GenerateLoggingBucketYAML(cmd contracts.WorkloadProvisionCommand) string {
+	cfg := cmd.AuditLogging
+	if cfg.DestinationBucket == "" {
+		return ""
+	}
+	retentionSeconds := int64(cfg.RetentionDays) * 86400
+	if retentionSeconds <= 0 {
+		retentionSeconds = 365 * 86400
+	}
+	kmsKey := cfg.KMSKeyURI
+	if kmsKey == "" {
+		kmsKey = cmd.KMSKeyURI
+	}
+	return fmt.Sprintf(`apiVersion: storage.cnrm.cloud.google.com/v1beta1
+kind: StorageBucket
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/managed-by: internal-developer-platform
+spec:
+  lifecycleRule:
+  - action:
+      type: Delete
+    condition:
+      age: %d
+  retentionPolicy:
+    isLocked: %t
+    retentionPeriod: %d
+  encryption:
+    defaultKmsKeyName: "%s"`, cfg.DestinationBucket, cmd.Namespace, cmd.WorkloadName, cfg.RetentionDays, cfg.LockedRetention, retentionSeconds, kmsKey)
+}
+
 
 

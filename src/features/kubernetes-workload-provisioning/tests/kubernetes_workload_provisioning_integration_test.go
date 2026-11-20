@@ -780,6 +780,50 @@ func TestWorkloadProvisioning_RejectsPermissiveMtlsInProduction(t *testing.T) {
 	}
 }
 
+func TestWorkloadProvisioning_AuditLoggingCompliance(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-audit-01",
+		TenantID:       "tenant-audit",
+		ServiceID:      "audit-service",
+		Namespace:      "audit-prod",
+		WorkloadName:   "audit-workload",
+		Image:          "gcr.io/bank/audit@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:       2,
+		IdempotencyKey: "idemp-audit-01",
+		AuditLogging: contracts.AuditLoggingConfig{
+			EnableDataAccessLogs: true,
+			DestinationBucket:    "audit-archive-bucket",
+			RetentionDays:        400,
+			LockedRetention:      true,
+			OffNodeLogCollection: true,
+			PIIScrubbingEnabled:  true,
+		},
+	}
+	hash := contracts.ComputeWorkloadSpecHash(cmd)
+	cmd.ApprovedSpecHash = hash
+	cmd.ApproverRole = "compliance-lead"
+
+	res, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error provisioning workload with audit logging: %v", err)
+	}
+	if !res.Admission.Admitted {
+		t.Errorf("expected admitted workload")
+	}
+	if res.Provision.AuditDestinationBucket != "audit-archive-bucket" {
+		t.Errorf("expected AuditDestinationBucket audit-archive-bucket, got %s", res.Provision.AuditDestinationBucket)
+	}
+	if !res.Provision.AuditLockedRetention {
+		t.Errorf("expected AuditLockedRetention true in persisted record")
+	}
+}
+
+
 
 
 
