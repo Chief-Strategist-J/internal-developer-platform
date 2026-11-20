@@ -2,23 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../lib/common.sh"
+
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/deploy/docker/compose/docker-compose.polyglot.yml"
 INFRA_COMPOSE_FILE="${REPO_ROOT}/deploy/docker/compose/docker-compose.infra.yml"
 
-log_info() {
-    echo -e "\033[1;34m[INFO]\033[0m $1"
-}
-
-log_success() {
-    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
-}
-
-log_error() {
-    echo -e "\033[1;31m[ERROR]\033[0m $1" >&2
-}
-
 validate_prerequisites() {
+    require_binaries docker curl
     log_info "Validating compose file existence..."
     if [[ ! -f "${COMPOSE_FILE}" ]]; then
         log_error "Compose file not found at ${COMPOSE_FILE}"
@@ -61,18 +52,8 @@ wait_for_services() {
 
     log_error "Timeout reached waiting for containers to become healthy."
     docker compose -f "${COMPOSE_FILE}" ps
-    diagnose_failures
+    diagnose_compose_failures "${COMPOSE_FILE}"
     exit 1
-}
-
-diagnose_failures() {
-    log_info "Diagnosing container logs for unhealthy/restarting services..."
-    local services
-    services=$(docker compose -f "${COMPOSE_FILE}" ps --format '{{.Service}}')
-    for svc in ${services}; do
-        log_info "=== Service: ${svc} (last 10 log lines) ==="
-        docker compose -f "${COMPOSE_FILE}" logs --tail 10 "${svc}" || true
-    done
 }
 
 verify_status() {
@@ -83,7 +64,6 @@ verify_status() {
 test_endpoints() {
     log_info "Verifying core service endpoints..."
 
-    # Database readiness check
     log_info "Checking PostgreSQL connection via docker exec..."
     if docker compose -f "${COMPOSE_FILE}" exec -T db pg_isready -U postgres >/dev/null 2>&1; then
         log_success "PostgreSQL is accepting connections."
@@ -91,7 +71,6 @@ test_endpoints() {
         log_error "PostgreSQL is not ready."
     fi
 
-    # Redis ping check
     log_info "Checking Redis cache ping..."
     if docker compose -f "${COMPOSE_FILE}" exec -T cache redis-cli ping | grep -q "PONG"; then
         log_success "Redis cache responded with PONG."
@@ -99,7 +78,6 @@ test_endpoints() {
         log_error "Redis cache ping failed."
     fi
 
-    # Ingress Proxy check
     log_info "Checking Caddy edge proxy (http://127.0.0.1:80)..."
     local proxy_code
     proxy_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:80/ || echo "000")
@@ -120,21 +98,13 @@ clean_containers() {
     docker compose -f "${COMPOSE_FILE}" down -v
 }
 
-prune_obsolete_images() {
-    log_info "Removing outdated container images to reclaim host memory and disk..."
-    local old_images=(
-        "postgres:16.4-bookworm"
-        "postgres:17-bookworm"
-        "redis:7.4-bookworm"
-        "golang:1.23.2-bookworm"
+cleanup_obsolete_images() {
+    prune_container_images \
+        "postgres:16.4-bookworm" \
+        "postgres:17-bookworm" \
+        "redis:7.4-bookworm" \
+        "golang:1.23.2-bookworm" \
         "node:22.11.0-slim"
-    )
-    for img in "${old_images[@]}"; do
-        if docker image inspect "${img}" >/dev/null 2>&1; then
-            log_info "Removing superseded image: ${img}"
-            docker rmi "${img}" || true
-        fi
-    done
 }
 
 main() {
@@ -148,7 +118,7 @@ main() {
             ;;
         prune)
             clean_containers
-            prune_obsolete_images
+            cleanup_obsolete_images
             ;;
         up)
             validate_prerequisites
@@ -162,7 +132,7 @@ main() {
             ;;
         all)
             clean_containers
-            prune_obsolete_images
+            cleanup_obsolete_images
             validate_prerequisites
             start_containers
             wait_for_services

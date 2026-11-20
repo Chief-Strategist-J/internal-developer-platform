@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	paccontracts "internal-developer-platform/src/features/policy-as-code/contracts"
 	pacadapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
+	"internal-developer-platform/src/infra/clients/gitops"
 	k8sclient "internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/resilience"
 	"internal-developer-platform/src/infra/observability"
@@ -434,5 +436,129 @@ func TestWorkloadProvisioningWithActivePolicyException(t *testing.T) {
 	}
 	if !res.Admission.Admitted {
 		t.Fatalf("expected workload to be admitted via exception, got admitted=false")
+	}
+}
+
+type delayedK8sPort struct {
+	kubernetesworkloadprovisioning.ClientPort
+	mu    sync.Mutex
+	ready bool
+}
+
+func (d *delayedK8sPort) ObserveWorkloadReadiness(ctx context.Context, ns, name string, desired int) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ready, nil
+}
+
+func (d *delayedK8sPort) setReady(ready bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.ready = ready
+}
+
+func TestWorkloadProvisioningWithGitOpsDelivery(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	committer := gitops.NewGitManifestCommitter(nil)
+	gitopsAdapter := kubernetesworkloadprovisioning.NewGitOpsDelivery(committer, "main", "idp-bot", "idp@company.com")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient).WithGitOpsDelivery(gitopsAdapter)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-gitops-01",
+		TenantID:       "tenant-gitops",
+		ServiceID:      "gitops-svc",
+		Namespace:      "gitops-ns",
+		WorkloadName:   "gitops-deploy",
+		Image:          "gcr.io/company/gitops:v1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-gitops-01",
+	}
+
+	result, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error provisioning with GitOps: %v", err)
+	}
+	if result.Provision.ID != "wkld-gitops-01" {
+		t.Errorf("expected ID wkld-gitops-01, got %s", result.Provision.ID)
+	}
+	if result.Manifests.DeploymentYAML == "" {
+		t.Errorf("expected DeploymentYAML in synthesized manifests")
+	}
+}
+
+func TestWorkloadProvisioningAsyncReadinessLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	rawK8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	delayedClient := &delayedK8sPort{ClientPort: rawK8sClient, ready: false}
+	svc := kubernetesworkloadprovisioning.NewService(store, delayedClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-async-01",
+		TenantID:       "tenant-async",
+		ServiceID:      "async-svc",
+		Namespace:      "async-ns",
+		WorkloadName:   "async-deploy",
+		Image:          "gcr.io/company/async:v1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-async-01",
+	}
+
+	result, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error on initial provision: %v", err)
+	}
+	if result.Provision.Status != contracts.StatusProvisioning {
+		t.Errorf("expected synchronous status to remain PROVISIONING, got %s", result.Provision.Status)
+	}
+
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		delayedClient.setReady(true)
+	}()
+
+	observed, err := svc.AwaitWorkloadReadiness(ctx, cmd.TenantID, cmd.ID, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error waiting for readiness: %v", err)
+	}
+	if observed.Status != contracts.StatusObservedReady {
+		t.Errorf("expected OBSERVED_READY, got %s", observed.Status)
+	}
+}
+
+func TestWorkloadProvisioningReadinessTimeoutDegrades(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	rawK8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	neverReadyClient := &delayedK8sPort{ClientPort: rawK8sClient, ready: false}
+	svc := kubernetesworkloadprovisioning.NewService(store, neverReadyClient)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-timeout-01",
+		TenantID:       "tenant-timeout",
+		ServiceID:      "timeout-svc",
+		Namespace:      "timeout-ns",
+		WorkloadName:   "timeout-deploy",
+		Image:          "gcr.io/company/timeout:v1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-timeout-01",
+	}
+
+	result, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error on initial provision: %v", err)
+	}
+	if result.Provision.Status != contracts.StatusProvisioning {
+		t.Errorf("expected synchronous status PROVISIONING, got %s", result.Provision.Status)
+	}
+
+	observed, err := svc.AwaitWorkloadReadiness(ctx, cmd.TenantID, cmd.ID, 60*time.Millisecond)
+	if err == nil {
+		t.Fatalf("expected deadline exceeded error, got nil")
+	}
+	if observed.Status != contracts.StatusDegraded {
+		t.Errorf("expected status DEGRADED upon timeout, got %s", observed.Status)
 	}
 }

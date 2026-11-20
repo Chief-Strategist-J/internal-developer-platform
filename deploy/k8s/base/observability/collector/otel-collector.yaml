@@ -24,7 +24,7 @@ spec:
       containers:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.108.0
-          command: ["--config=/etc/otelcol-contrib/config.yaml"]
+          args: ["--config=/etc/otelcol-contrib/config.yaml"]
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
@@ -36,6 +36,8 @@ spec:
               containerPort: 4317
             - name: otlp-http
               containerPort: 4318
+            - name: metrics
+              containerPort: 8889
           volumeMounts:
             - name: config
               mountPath: /etc/otelcol-contrib
@@ -69,5 +71,8 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: otlp-http
+    - name: metrics
+      port: 8889
+      targetPort: metrics
   selector:
     app.kubernetes.io/name: otel-collector

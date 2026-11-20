@@ -1,30 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="${PATH}:/snap/bin:/usr/local/go/bin:${HOME}/.local/bin:${HOME}/google-cloud-sdk/bin"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../lib/common.sh"
 
 CLUSTER_NAME="idp-cluster"
 ARGOCD_NAMESPACE="argocd"
 ARGOCD_PORT=8085
-
-log_info() {
-    echo -e "\033[1;34m[INFO]\033[0m $1"
-}
-
-log_success() {
-    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
-}
-
-log_error() {
-    echo -e "\033[1;31m[ERROR]\033[0m $1" >&2
-}
-
-check_prerequisites() {
-    log_info "Verifying CLI dependencies..."
-    command -v kind >/dev/null 2>&1 || { log_error "kind CLI not found in PATH"; exit 1; }
-    command -v kubectl >/dev/null 2>&1 || { log_error "kubectl CLI not found in PATH"; exit 1; }
-    command -v docker >/dev/null 2>&1 || { log_error "docker CLI not found in PATH"; exit 1; }
-}
+DEV_NAMESPACE="dev"
 
 create_cluster() {
     if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
@@ -65,8 +48,8 @@ install_argocd() {
     log_info "Creating namespace '${ARGOCD_NAMESPACE}'..."
     kubectl get ns "${ARGOCD_NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${ARGOCD_NAMESPACE}"
 
-    log_info "Applying official ArgoCD manifests..."
-    kubectl apply -n "${ARGOCD_NAMESPACE}" -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+    log_info "Applying official ArgoCD manifests using server-side apply..."
+    kubectl apply -n "${ARGOCD_NAMESPACE}" -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml --server-side --force-conflicts
 
     log_info "Waiting for ArgoCD server deployment to become available (timeout: 300s)..."
     kubectl wait --for=condition=available deployment/argocd-server -n "${ARGOCD_NAMESPACE}" --timeout=300s
@@ -75,25 +58,22 @@ install_argocd() {
 }
 
 apply_idp_project() {
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local root_dir="${script_dir}/../.."
+    local root_dir="${SCRIPT_DIR}/../.."
 
-    log_info "Applying modular IDP AppProject and ArgoCD Root App..."
+    log_info "Applying modular IDP AppProject..."
     kubectl apply -f "${root_dir}/deploy/argocd/projects/platform.project.yaml"
-    kubectl apply -f "${root_dir}/deploy/argocd/root-app-of-apps/root.dev.yaml"
-    kubectl apply -f "${root_dir}/deploy/argocd/applications/core/app.dev.yaml"
-    log_success "ArgoCD projects and applications registered."
 
-    log_info "Deploying backing infrastructure & platform workloads directly via Kustomize dev overlay..."
+    log_info "Deploying backing infrastructure & platform workloads directly via modular Kustomize dev overlay..."
     kubectl apply -k "${root_dir}/deploy/k8s/overlays/dev" --server-side --force-conflicts
     log_success "Dev environment manifests applied to cluster."
 }
 
 start_port_forward() {
     log_info "Ensuring ArgoCD port-forward on port ${ARGOCD_PORT}..."
-    pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE} ${ARGOCD_PORT}:80" 2>/dev/null || true
-    nohup kubectl port-forward svc/argocd-server -n "${ARGOCD_NAMESPACE}" "${ARGOCD_PORT}:80" > /tmp/argocd-port-forward.log 2>&1 &
+    pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
+    nohup kubectl port-forward svc/argocd-server -n "${ARGOCD_NAMESPACE}" --address 0.0.0.0 "${ARGOCD_PORT}:443" > /tmp/argocd-port-forward.log 2>&1 &
     sleep 2
+    log_success "ArgoCD port-forward active on https://127.0.0.1:${ARGOCD_PORT}"
 }
 
 get_credentials() {
@@ -105,26 +85,26 @@ get_credentials() {
     log_success "=========================================================="
     log_success "Enterprise Local Kubernetes & ArgoCD Environment Ready!"
     log_success "Cluster:   ${CLUSTER_NAME}"
-    log_success "ArgoCD:    http://127.0.0.1:${ARGOCD_PORT}"
+    log_success "ArgoCD:    https://127.0.0.1:${ARGOCD_PORT}"
     log_success "Username:  admin"
     log_success "Password:  ${password}"
     log_success "=========================================================="
     echo ""
     echo "To verify cluster workload status:"
-    echo "  kubectl get pods -n dev"
-    echo "  kubectl get pods -n argocd"
+    echo "  kubectl get pods -n ${DEV_NAMESPACE}"
+    echo "  kubectl get pods -n ${ARGOCD_NAMESPACE}"
 }
 
 down_cluster() {
     log_info "Deleting kind cluster '${CLUSTER_NAME}'..."
-    pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE} ${ARGOCD_PORT}:80" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
     kind delete cluster --name "${CLUSTER_NAME}"
     log_success "kind cluster deleted."
 }
 
 main() {
     local action="${1:-up}"
-    check_prerequisites
+    require_binaries kind kubectl docker
 
     case "${action}" in
         up)
@@ -142,7 +122,7 @@ main() {
             echo "--- ArgoCD Pods ---"
             kubectl get pods -n "${ARGOCD_NAMESPACE}"
             echo "--- Platform & Backing Infrastructure Pods ---"
-            kubectl get pods -n dev
+            kubectl get pods -n "${DEV_NAMESPACE}"
             ;;
         port-forward)
             start_port_forward
