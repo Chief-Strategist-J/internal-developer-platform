@@ -199,3 +199,80 @@ func TestGenerateMeshAuthorizationPolicyYAML(t *testing.T) {
 		t.Errorf("expected workload principal in rules")
 	}
 }
+
+func TestCalculateSurgePods(t *testing.T) {
+	if got := rules.CalculateSurgePods(1, contracts.StrategyCanary); got != 1 {
+		t.Errorf("expected 1 surge pod for 1 replica canary, got %d", got)
+	}
+	if got := rules.CalculateSurgePods(4, contracts.StrategyCanary); got != 1 {
+		t.Errorf("expected 1 surge pod for 4 replicas canary, got %d", got)
+	}
+	if got := rules.CalculateSurgePods(8, contracts.StrategyRollingUpdate); got != 2 {
+		t.Errorf("expected 2 surge pods for 8 replicas rolling update, got %d", got)
+	}
+	if got := rules.CalculateSurgePods(4, contracts.StrategyRecreate); got != 0 {
+		t.Errorf("expected 0 surge pods for recreate strategy, got %d", got)
+	}
+}
+
+func TestEvaluateResourceQuotaSurgeHeadroomExceeded(t *testing.T) {
+	quota := contracts.ResourceQuotaSpec{
+		HardCPU:    "1000m",
+		HardMemory: "2Gi",
+		UsedCPU:    "0m",
+		UsedMemory: "0Gi",
+	}
+	res := rules.EvaluateResourceQuotaSurgeHeadroom(quota, "250m", "512Mi", 4, contracts.StrategyCanary)
+	if res.SufficientHeadroom {
+		t.Fatalf("expected surge headroom to fail because 4+1 pods * 250m = 1250m > 1000m")
+	}
+	if !strings.Contains(res.ViolationMessage, "quota exceeded for surge") {
+		t.Errorf("expected surge violation message, got: %s", res.ViolationMessage)
+	}
+}
+
+func TestComputeWorkloadSpecHashDeterministic(t *testing.T) {
+	cmd1 := contracts.WorkloadProvisionCommand{
+		TenantID:     "tenant-1",
+		ServiceID:    "service-1",
+		Namespace:    "orders-prod",
+		WorkloadName: "orders-api",
+		Image:        "repo/orders:v1",
+		CPURequest:   "250m",
+		CPULimit:     "500m",
+		Replicas:     2,
+		Strategy:     contracts.StrategyCanary,
+	}
+	cmd2 := cmd1
+	hash1 := contracts.ComputeWorkloadSpecHash(cmd1)
+	hash2 := contracts.ComputeWorkloadSpecHash(cmd2)
+	if hash1 == "" || hash1 != hash2 {
+		t.Fatalf("expected non-empty deterministic hash, got %s and %s", hash1, hash2)
+	}
+	cmd2.Image = "repo/orders:v2"
+	if contracts.ComputeWorkloadSpecHash(cmd2) == hash1 {
+		t.Fatalf("expected hash to change when image changes")
+	}
+}
+
+func TestValidateSpecApprovalProductionAndTamper(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		TenantID:     "tenant-1",
+		Namespace:    "orders-prod",
+		WorkloadName: "orders-api",
+		Image:        "repo/orders:v1",
+		Replicas:     2,
+	}
+	if err := rules.ValidateSpecApproval(cmd); err == nil || !strings.Contains(err.Error(), "require explicit approval") {
+		t.Errorf("expected prod namespace to require spec approval, got: %v", err)
+	}
+	cmd.ApprovedSpecHash = "invalid-hash"
+	if err := rules.ValidateSpecApproval(cmd); err == nil || !strings.Contains(err.Error(), "spec edited during approval") {
+		t.Errorf("expected spec tamper error, got: %v", err)
+	}
+	cmd.ApprovedSpecHash = contracts.ComputeWorkloadSpecHash(cmd)
+	if err := rules.ValidateSpecApproval(cmd); err != nil {
+		t.Errorf("expected approval to pass with matching hash, got: %v", err)
+	}
+}
+

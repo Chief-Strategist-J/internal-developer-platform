@@ -204,5 +204,5 @@ func (c *AppConfig) PublicBindAddress() string {
 }
 
 func (c *AppConfig) AdminBindAddress() string {
-	return fmt.Sprintf("127.0.0.1:%d", c.Server.AdminPort)
+	return fmt.Sprintf("0.0.0.0:%d", c.Server.AdminPort)
 }
