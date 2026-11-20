@@ -333,4 +333,46 @@ func TestGenerateManifestBundle_PeerAuthenticationAndServiceEntry(t *testing.T) 
 	}
 }
 
+func TestGenerateManifestBundle_AuditLogSinkAndBucket(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-manifest-audit-01",
+		TenantID:       "tenant-payments",
+		ServiceID:      "payment-api",
+		Namespace:      "payments-prod",
+		WorkloadName:   "payment-processor",
+		Image:          "gcr.io/bank/payment@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:       2,
+		IdempotencyKey: "idemp-manifest-audit-01",
+		AuditLogging: contracts.AuditLoggingConfig{
+			EnableDataAccessLogs: true,
+			DestinationBucket:    "payments-audit-sink-bucket",
+			RetentionDays:        400,
+			LockedRetention:      true,
+			OffNodeLogCollection: true,
+			PIIScrubbingEnabled:  true,
+		},
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
+	if !strings.Contains(bundle.LogSinkYAML, "kind: LoggingLogSink") {
+		t.Errorf("expected LoggingLogSink manifest in bundle")
+	}
+	if !strings.Contains(bundle.LogSinkYAML, "payments-audit-sink-bucket") {
+		t.Errorf("expected destination bucket in LogSink")
+	}
+	if !strings.Contains(bundle.LoggingBucketYAML, "kind: StorageBucket") {
+		t.Errorf("expected StorageBucket manifest in bundle")
+	}
+	if !strings.Contains(bundle.LoggingBucketYAML, "isLocked: true") {
+		t.Errorf("expected isLocked: true in StorageBucket")
+	}
+}
+
+
 

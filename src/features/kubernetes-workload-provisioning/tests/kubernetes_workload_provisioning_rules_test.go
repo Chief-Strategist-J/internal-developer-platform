@@ -456,6 +456,55 @@ func TestGeneratePeerAuthenticationAndServiceEntry(t *testing.T) {
 	}
 }
 
+func TestValidateAuditLogging_ProductionRequirements(t *testing.T) {
+	cfg := contracts.AuditLoggingConfig{
+		EnableDataAccessLogs: false,
+		DestinationBucket:    "_Default",
+		RetentionDays:        30,
+		LockedRetention:      false,
+	}
+	ok, violations := rules.ValidateAuditLogging("payments-prod", cfg)
+	if ok || len(violations) == 0 {
+		t.Fatalf("expected audit logging violations in production")
+	}
+
+	validCfg := contracts.AuditLoggingConfig{
+		EnableDataAccessLogs: true,
+		DestinationBucket:    "gov-audit-logs-bucket",
+		RetentionDays:        400,
+		LockedRetention:      true,
+		OffNodeLogCollection: true,
+		PIIScrubbingEnabled:  true,
+	}
+	ok, violations = rules.ValidateAuditLogging("payments-prod", validCfg)
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected valid audit logging config to pass in production")
+	}
+}
+
+func TestGenerateLogSinkAndBucketYAML(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		WorkloadName: "audit-workload",
+		Namespace:    "audit-prod",
+		KMSKeyURI:    "projects/sec/locations/global/keyRings/ring/cryptoKeys/key",
+		AuditLogging: contracts.AuditLoggingConfig{
+			DestinationBucket: "gov-audit-bucket",
+			RetentionDays:     400,
+			LockedRetention:   true,
+		},
+	}
+	sinkYAML := rules.GenerateLogSinkYAML(cmd)
+	if !strings.Contains(sinkYAML, "kind: LoggingLogSink") || !strings.Contains(sinkYAML, "gov-audit-bucket") {
+		t.Errorf("expected LoggingLogSink manifest, got: %s", sinkYAML)
+	}
+
+	bucketYAML := rules.GenerateLoggingBucketYAML(cmd)
+	if !strings.Contains(bucketYAML, "kind: StorageBucket") || !strings.Contains(bucketYAML, "isLocked: true") {
+		t.Errorf("expected StorageBucket manifest with isLocked: true, got: %s", bucketYAML)
+	}
+}
+
+
 
 
 
