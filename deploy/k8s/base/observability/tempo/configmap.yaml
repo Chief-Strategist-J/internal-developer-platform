@@ -9,6 +9,7 @@ data:
   tempo.yaml: |
     server:
       http_listen_port: 3200
+
     distributor:
       receivers:
         otlp:
@@ -17,16 +18,19 @@ data:
               endpoint: "0.0.0.0:4317"
             http:
               endpoint: "0.0.0.0:4318"
+
     ingester:
       trace_idle_period: 10s
       max_block_bytes: 1000000
       max_block_duration: 5m
+
     compactor:
       compaction:
         compaction_window: 1h
         max_block_bytes: 100000000
         block_retention: 1h
         compacted_block_retention: 10m
+
     storage:
       trace:
         backend: local
@@ -34,3 +38,26 @@ data:
           path: /tmp/tempo/traces
         wal:
           path: /tmp/tempo/wal
+
+    metrics_generator:
+      registry:
+        collection_interval: 15s
+        external_labels:
+          cluster: "idp-cluster"
+      storage:
+        path: /tmp/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus.dev.svc:9090/api/v1/write
+            send_exemplars: true
+      processor:
+        local_blocks:
+          flush_to_storage: true
+          filter_server_spans: false
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors:
+            - local-blocks
+            - service-graphs
+            - span-metrics
