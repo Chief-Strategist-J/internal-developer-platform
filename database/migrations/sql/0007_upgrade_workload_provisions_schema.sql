@@ -113,3 +113,4 @@ CREATE TRIGGER trg_workload_provisions_immutability
     BEFORE UPDATE ON workload_provisions
     FOR EACH ROW
     EXECUTE FUNCTION trg_assert_workload_identifiers_immutable();
+

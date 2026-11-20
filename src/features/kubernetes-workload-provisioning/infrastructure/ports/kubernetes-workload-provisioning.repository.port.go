@@ -24,3 +24,7 @@ type K8sClientPort interface {
 	GetNamespaceQuota(ctx context.Context, namespace string) (*contracts.ResourceQuotaSpec, error)
 	ObserveWorkloadReadiness(ctx context.Context, namespace string, workloadName string, desiredReplicas int) (bool, error)
 }
+
+type GitOpsDeliveryPort interface {
+	CommitManifestBundle(ctx context.Context, tenantID, workloadName string, bundle contracts.ManifestBundle) error
+}
