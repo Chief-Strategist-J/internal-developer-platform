@@ -15,6 +15,7 @@ import (
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
 	pacports "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
+	"internal-developer-platform/src/infra/clients/kms"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -29,6 +30,7 @@ type WorkloadProvisioningService struct {
 	k8sClient      ports.K8sClientPort
 	policyRepo     pacports.PolicyRepositoryPort
 	gitopsDelivery ports.GitOpsDeliveryPort
+	kmsEngine      *kms.EnvelopeEncryptionEngine
 }
 
 func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
@@ -41,6 +43,11 @@ func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient por
 		k8sClient:  k8sClient,
 		policyRepo: pr,
 	}
+}
+
+func (s *WorkloadProvisioningService) WithKMSEngine(kmsEngine *kms.EnvelopeEncryptionEngine) *WorkloadProvisioningService {
+	s.kmsEngine = kmsEngine
+	return s
 }
 
 func (s *WorkloadProvisioningService) WithGitOpsDelivery(gitopsDelivery ports.GitOpsDeliveryPort) *WorkloadProvisioningService {
@@ -328,8 +335,27 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		if err != nil {
 			return nil, err
 		}
+		if err := s.encryptWorkloadSecrets(ctx, &cmd); err != nil {
+			return nil, err
+		}
 		return s.executePipeline(ctx, cmd, mutations, report)
 	}, attribute.String("tenant.id", cmd.TenantID), attribute.String("workload.name", cmd.WorkloadName))
+}
+
+func (s *WorkloadProvisioningService) encryptWorkloadSecrets(ctx context.Context, cmd *contracts.WorkloadProvisionCommand) error {
+	if s.kmsEngine == nil || len(cmd.EncryptedSecrets) == 0 {
+		return nil
+	}
+	encrypted := make(map[string]string)
+	for k, v := range cmd.EncryptedSecrets {
+		env, err := s.kmsEngine.EncryptSecret(ctx, cmd.KMSKeyURI, []byte(v), cmd.TenantID)
+		if err != nil {
+			return err
+		}
+		encrypted[k] = env.Ciphertext
+	}
+	cmd.EncryptedSecrets = encrypted
+	return nil
 }
 
 func (s *WorkloadProvisioningService) GetWorkload(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {

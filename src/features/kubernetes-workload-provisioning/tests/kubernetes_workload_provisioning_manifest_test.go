@@ -255,3 +255,44 @@ func TestKubernetesAdapterHealthCheck(t *testing.T) {
 		t.Errorf("expected non-empty deployment manifest in applied bundle")
 	}
 }
+
+func TestGenerateManifestBundle_CertAndSecretManifests(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:               "wkld-manifest-sec-01",
+		TenantID:         "tenant-payments",
+		ServiceID:        "payment-api",
+		Namespace:        "payments-prod",
+		WorkloadName:     "payment-processor",
+		Image:            "gcr.io/bank/payment@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		CPURequest:       "500m",
+		CPULimit:         "2000m",
+		MemoryRequest:    "1Gi",
+		MemoryLimit:      "4Gi",
+		Replicas:         2,
+		IdempotencyKey:   "idemp-manifest-sec-01",
+		KMSKeyURI:        "projects/platform-security-kms/locations/global/keyRings/ring/cryptoKeys/key",
+		EncryptedSecrets: map[string]string{"DB_PASSWORD": "encrypted-dek-payload"},
+		TLSHosts:         []string{"pay.example.gov"},
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
+	if !strings.Contains(bundle.CertificateYAML, "kind: Certificate") {
+		t.Errorf("expected Certificate manifest in bundle")
+	}
+	if !strings.Contains(bundle.CertificateYAML, "pay.example.gov") {
+		t.Errorf("expected pay.example.gov dns name in Certificate")
+	}
+	if !strings.Contains(bundle.SecretYAML, "kind: Secret") {
+		t.Errorf("expected Secret manifest in bundle")
+	}
+	if !strings.Contains(bundle.SecretYAML, "AES-256-GCM-KMS-ENVELOPE") {
+		t.Errorf("expected KMS envelope algorithm annotation in Secret")
+	}
+}
+

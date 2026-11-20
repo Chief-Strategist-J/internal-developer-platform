@@ -22,6 +22,7 @@ import (
 	paccontracts "internal-developer-platform/src/features/policy-as-code/contracts"
 	pacadapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
 	"internal-developer-platform/src/infra/clients/gitops"
+	"internal-developer-platform/src/infra/clients/kms"
 	k8sclient "internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/resilience"
 	"internal-developer-platform/src/infra/observability"
@@ -707,5 +708,47 @@ func TestWorkloadProvisioningRollbackRevertsGitAndDegradesState(t *testing.T) {
 		t.Errorf("expected DEGRADED status upon rollback, got %s", rolledBack.Status)
 	}
 }
+
+func TestWorkloadProvisioningWithKMSEnvelopeEncryption(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	mockKMS := kms.NewMockKMSClient()
+	kmsKeyURI := "projects/platform-security-kms/locations/global/keyRings/ring/cryptoKeys/key"
+	_ = mockKMS.RegisterKey(kmsKeyURI, make([]byte, 32))
+	engine := kms.NewEnvelopeEncryptionEngine(mockKMS)
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient).WithKMSEngine(engine)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:               "wkld-kms-01",
+		TenantID:         "tenant-sec",
+		ServiceID:        "secret-service",
+		Namespace:        "sec-prod",
+		WorkloadName:     "vault-client",
+		Image:            "gcr.io/bank/sec@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:         2,
+		IdempotencyKey:   "idemp-kms-01",
+		KMSKeyURI:        kmsKeyURI,
+		EncryptedSecrets: map[string]string{"DB_PASSWORD": "super-secret-password"},
+	}
+	hash := contracts.ComputeWorkloadSpecHash(cmd)
+	cmd.ApprovedSpecHash = hash
+	cmd.ApproverRole = "secops-lead"
+
+	res, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error provisioning workload with kms: %v", err)
+	}
+	if !res.Admission.Admitted {
+		t.Errorf("expected admitted workload")
+	}
+	if res.Manifests.SecretYAML == "" {
+		t.Errorf("expected Secret manifest to be generated")
+	}
+	if !strings.Contains(res.Manifests.SecretYAML, "AES-256-GCM-KMS-ENVELOPE") {
+		t.Errorf("expected envelope encryption algorithm annotation in Secret YAML")
+	}
+}
+
 
 
