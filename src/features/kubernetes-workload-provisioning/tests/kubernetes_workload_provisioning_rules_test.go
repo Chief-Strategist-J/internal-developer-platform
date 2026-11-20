@@ -403,5 +403,59 @@ func TestEvaluateCertificateExpiry(t *testing.T) {
 	}
 }
 
+func TestValidateMeshSecurity_ProductionSTRICTMandate(t *testing.T) {
+	ok, violations := rules.ValidateMeshSecurity("payments-prod", contracts.MeshSecurityConfig{MtlsMode: "PERMISSIVE"})
+	if ok || len(violations) == 0 || violations[0].Rule != "MESH-MTLS-001" {
+		t.Fatalf("expected MESH-MTLS-001 violation when prod namespace is PERMISSIVE")
+	}
+
+	ok, violations = rules.ValidateMeshSecurity("payments-prod", contracts.MeshSecurityConfig{MtlsMode: "STRICT"})
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected STRICT mTLS to pass in production")
+	}
+
+	ok, violations = rules.ValidateMeshSecurity("payments-dev", contracts.MeshSecurityConfig{MtlsMode: "PERMISSIVE"})
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected PERMISSIVE mTLS to pass in dev namespace")
+	}
+}
+
+func TestValidateMeshCRDCompatibility_RejectsInClusterIstio(t *testing.T) {
+	ok, violations := rules.ValidateMeshCRDCompatibility([]string{"EnvoyFilter"})
+	if ok || len(violations) == 0 || violations[0].Rule != "MESH-OSS-001" {
+		t.Fatalf("expected MESH-OSS-001 for EnvoyFilter")
+	}
+
+	ok, violations = rules.ValidateMeshCRDCompatibility([]string{"WasmPlugin", "istiod"})
+	if ok || len(violations) == 0 || violations[0].Rule != "MESH-OSS-001" {
+		t.Fatalf("expected MESH-OSS-001 for WasmPlugin/istiod")
+	}
+
+	ok, violations = rules.ValidateMeshCRDCompatibility([]string{"VirtualService", "DestinationRule"})
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected supported mesh resources to pass")
+	}
+}
+
+func TestGeneratePeerAuthenticationAndServiceEntry(t *testing.T) {
+	pa := rules.GeneratePeerAuthenticationYAML("payments-prod", "payment-service", "STRICT")
+	if !strings.Contains(pa, "kind: PeerAuthentication") || !strings.Contains(pa, "mode: STRICT") {
+		t.Errorf("expected PeerAuthentication with STRICT mode, got: %s", pa)
+	}
+
+	cmd := contracts.WorkloadProvisionCommand{
+		WorkloadName: "payment-service",
+		Namespace:    "payments-prod",
+		EgressRules: []contracts.EgressRule{
+			{Host: "api.stripe.com", Port: 443, Protocol: "HTTPS"},
+		},
+	}
+	se := rules.GenerateServiceEntryYAML(cmd)
+	if !strings.Contains(se, "kind: ServiceEntry") || !strings.Contains(se, "api.stripe.com") {
+		t.Errorf("expected ServiceEntry with api.stripe.com, got: %s", se)
+	}
+}
+
+
 
 

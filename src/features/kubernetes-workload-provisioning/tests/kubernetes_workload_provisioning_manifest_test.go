@@ -296,3 +296,41 @@ func TestGenerateManifestBundle_CertAndSecretManifests(t *testing.T) {
 	}
 }
 
+func TestGenerateManifestBundle_PeerAuthenticationAndServiceEntry(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-manifest-mesh-01",
+		TenantID:       "tenant-payments",
+		ServiceID:      "payment-api",
+		Namespace:      "payments-prod",
+		WorkloadName:   "payment-processor",
+		Image:          "gcr.io/bank/payment@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:       2,
+		IdempotencyKey: "idemp-manifest-mesh-01",
+		MeshSecurity:   contracts.MeshSecurityConfig{MtlsMode: "STRICT"},
+		EgressRules: []contracts.EgressRule{
+			{Host: "api.stripe.com", Port: 443, Protocol: "HTTPS"},
+		},
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
+	if !strings.Contains(bundle.PeerAuthenticationYAML, "kind: PeerAuthentication") {
+		t.Errorf("expected PeerAuthentication manifest in bundle")
+	}
+	if !strings.Contains(bundle.PeerAuthenticationYAML, "mode: STRICT") {
+		t.Errorf("expected mode: STRICT in PeerAuthentication")
+	}
+	if !strings.Contains(bundle.ServiceEntryYAML, "kind: ServiceEntry") {
+		t.Errorf("expected ServiceEntry manifest in bundle")
+	}
+	if !strings.Contains(bundle.ServiceEntryYAML, "api.stripe.com") {
+		t.Errorf("expected api.stripe.com host in ServiceEntry")
+	}
+}
+
+

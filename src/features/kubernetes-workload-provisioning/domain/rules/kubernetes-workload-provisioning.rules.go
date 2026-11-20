@@ -272,6 +272,18 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 	}
 	violations = append(violations, kmsViolations...)
 
+	meshOk, meshViolations := ValidateMeshSecurity(cmd.Namespace, cmd.MeshSecurity)
+	if !meshOk {
+		critical = true
+	}
+	violations = append(violations, meshViolations...)
+
+	crdOk, crdViolations := ValidateMeshCRDCompatibility(cmd.UnsupportedMeshResources)
+	if !crdOk {
+		critical = true
+	}
+	violations = append(violations, crdViolations...)
+
 	if critical {
 		return contracts.AdmissionReport{
 			Admitted:   false,
@@ -788,4 +800,85 @@ func EvaluateCertificateExpiry(expiresAt time.Time, renewBefore time.Duration) c
 		ExpirationTime: expiresAt,
 	}
 }
+
+func ValidateMeshSecurity(namespace string, secCfg contracts.MeshSecurityConfig) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	if strings.Contains(namespace, "prod") {
+		mode := strings.ToUpper(strings.TrimSpace(secCfg.MtlsMode))
+		if mode != "" && mode != "STRICT" {
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "MESH-MTLS-001",
+				Message: "production namespaces mandate mTLS mode STRICT (V-30)",
+			})
+			return false, violations
+		}
+	}
+	return true, violations
+}
+
+func ValidateMeshCRDCompatibility(resources []string) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	for _, r := range resources {
+		clean := strings.ToLower(strings.TrimSpace(r))
+		if clean == "envoyfilter" || clean == "wasmplugin" || clean == "istiod" || clean == "in-cluster-istio" {
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "MESH-OSS-001",
+				Message: fmt.Sprintf("unsupported mesh resource %q is prohibited; Cloud Service Mesh managed mode strictly prohibits in-cluster mesh control planes (V-30)", r),
+			})
+			return false, violations
+		}
+	}
+	return true, violations
+}
+
+func GeneratePeerAuthenticationYAML(namespace, workloadName, mode string) string {
+	effectiveMode := strings.ToUpper(strings.TrimSpace(mode))
+	if effectiveMode == "" {
+		effectiveMode = "STRICT"
+	}
+	return fmt.Sprintf(`apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: %s-peer-authn
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/managed-by: internal-developer-platform
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: %s
+  mtls:
+    mode: %s`, workloadName, namespace, workloadName, workloadName, effectiveMode)
+}
+
+func GenerateServiceEntryYAML(cmd contracts.WorkloadProvisionCommand) string {
+	if len(cmd.EgressRules) == 0 {
+		return ""
+	}
+	var hosts strings.Builder
+	var ports strings.Builder
+	for _, r := range cmd.EgressRules {
+		hosts.WriteString(fmt.Sprintf("  - %s\n", r.Host))
+		proto := r.Protocol
+		if proto == "" {
+			proto = "HTTPS"
+		}
+		ports.WriteString(fmt.Sprintf("  - number: %d\n    name: %s-%d\n    protocol: %s\n", r.Port, strings.ToLower(proto), r.Port, proto))
+	}
+	return fmt.Sprintf(`apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: %s-egress-allowlist
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/managed-by: internal-developer-platform
+spec:
+  hosts:
+%s  ports:
+%s  resolution: DNS
+  location: MESH_EXTERNAL`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, hosts.String(), ports.String())
+}
+
 
