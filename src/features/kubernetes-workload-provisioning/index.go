@@ -13,11 +13,13 @@ type Result = contracts.WorkloadProvisionResult
 type Record = contracts.WorkloadProvisionRecord
 type StorePort = ports.WorkloadStorePort
 type ClientPort = ports.K8sClientPort
+type GitOpsPort = ports.GitOpsDeliveryPort
 
 var NewService = service.NewWorkloadProvisioningService
 var NewMemoryStore = adapters.NewMemoryWorkloadRepositoryAdapter
 var NewPostgresStore = adapters.NewPostgresWorkloadRepositoryAdapter
 var NewK8sClient = adapters.NewKubernetesClientAdapter
 var NewLiveK8sClient = adapters.NewLiveKubernetesClientAdapter
+var NewGitOpsDelivery = adapters.NewGitOpsDeliveryAdapter
 
 

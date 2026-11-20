@@ -25,9 +25,10 @@ const (
 )
 
 type WorkloadProvisioningService struct {
-	store      ports.WorkloadStorePort
-	k8sClient  ports.K8sClientPort
-	policyRepo pacports.PolicyRepositoryPort
+	store          ports.WorkloadStorePort
+	k8sClient      ports.K8sClientPort
+	policyRepo     pacports.PolicyRepositoryPort
+	gitopsDelivery ports.GitOpsDeliveryPort
 }
 
 func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
@@ -40,6 +41,11 @@ func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient por
 		k8sClient:  k8sClient,
 		policyRepo: pr,
 	}
+}
+
+func (s *WorkloadProvisioningService) WithGitOpsDelivery(gitopsDelivery ports.GitOpsDeliveryPort) *WorkloadProvisioningService {
+	s.gitopsDelivery = gitopsDelivery
+	return s
 }
 
 func NewService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
@@ -123,30 +129,50 @@ func (s *WorkloadProvisioningService) advanceStateMachine(ctx context.Context, r
 			return err
 		}
 		record.Status = pStatus
-		return nil
+		record.Version = 2
+		record.UpdatedAt = time.Now().UTC()
+		return s.store.Update(ctx, *record)
 	})
 }
 
 func (s *WorkloadProvisioningService) applyWorkloadResources(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, record *contracts.WorkloadProvisionRecord) error {
 	return observability.WithSpan(ctx, "kubernetes.workload.apply_resources", func(ctx context.Context) error {
-		if err := s.k8sClient.ApplyDeployment(ctx, cmd, mutations); err != nil {
-			rej, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
-			record.Status = rej
-			record.Version = 2
-			_ = s.store.Update(ctx, *record)
-			return errors.NewConflictError("kubernetes deployment apply failed: " + err.Error())
-		}
-		if mutations.PDBRequired {
-			if err := s.k8sClient.ApplyPDB(ctx, cmd.Namespace, cmd.WorkloadName, mutations.MinAvailable); err != nil {
+		if s.gitopsDelivery != nil {
+			bundle, err := s.k8sClient.GenerateManifestBundle(ctx, cmd, mutations)
+			if err != nil {
+				return err
+			}
+			if err := s.gitopsDelivery.CommitManifestBundle(ctx, cmd.TenantID, cmd.WorkloadName, *bundle); err != nil {
 				rej, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
 				record.Status = rej
 				record.Version = 2
 				_ = s.store.Update(ctx, *record)
-				return errors.NewConflictError("kubernetes pdb apply failed: " + err.Error())
+				return errors.NewConflictError("gitops manifest commit failed: " + err.Error())
 			}
+			return nil
 		}
-		return nil
+		return s.applyDirectKubernetesResources(ctx, cmd, mutations, record)
 	})
+}
+
+func (s *WorkloadProvisioningService) applyDirectKubernetesResources(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, record *contracts.WorkloadProvisionRecord) error {
+	if err := s.k8sClient.ApplyDeployment(ctx, cmd, mutations); err != nil {
+		rej, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
+		record.Status = rej
+		record.Version = 2
+		_ = s.store.Update(ctx, *record)
+		return errors.NewConflictError("kubernetes deployment apply failed: " + err.Error())
+	}
+	if mutations.PDBRequired {
+		if err := s.k8sClient.ApplyPDB(ctx, cmd.Namespace, cmd.WorkloadName, mutations.MinAvailable); err != nil {
+			rej, _ := machines.TransitionWorkloadState(record.Status, machines.EventReject)
+			record.Status = rej
+			record.Version = 2
+			_ = s.store.Update(ctx, *record)
+			return errors.NewConflictError("kubernetes pdb apply failed: " + err.Error())
+		}
+	}
+	return nil
 }
 
 func (s *WorkloadProvisioningService) observeWorkloadStatus(ctx context.Context, cmd contracts.WorkloadProvisionCommand, record *contracts.WorkloadProvisionRecord) error {
@@ -155,14 +181,12 @@ func (s *WorkloadProvisioningService) observeWorkloadStatus(ctx context.Context,
 		if ready {
 			if obs, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady); err == nil {
 				record.Status = obs
-			}
-		} else {
-			if deg, err := machines.TransitionWorkloadState(record.Status, machines.EventDegrade); err == nil {
-				record.Status = deg
+				record.Version = 3
+				record.UpdatedAt = time.Now().UTC()
+				return s.store.Update(ctx, *record)
 			}
 		}
-		record.Version = 2
-		return s.store.Update(ctx, *record)
+		return nil
 	})
 }
 
@@ -303,4 +327,61 @@ func (s *WorkloadProvisioningService) ListWorkloads(ctx context.Context, filter 
 		}
 		return s.store.List(ctx, filter)
 	}, attribute.String("tenant.id", filter.TenantID))
+}
+
+func (s *WorkloadProvisioningService) AwaitWorkloadReadiness(ctx context.Context, tenantID, id string, timeout time.Duration) (*contracts.WorkloadProvisionRecord, error) {
+	return observability.RunTraced(ctx, "kubernetes.workload.await_readiness", func(ctx context.Context) (*contracts.WorkloadProvisionRecord, error) {
+		record, err := s.store.GetByID(ctx, tenantID, id)
+		if err != nil || record == nil {
+			return nil, errors.NewNotFoundError("workload record not found")
+		}
+		if record.Status == contracts.StatusObservedReady || record.Status == contracts.StatusActive {
+			return record, nil
+		}
+		return s.pollWorkloadReadiness(ctx, record, timeout)
+	})
+}
+
+func (s *WorkloadProvisioningService) pollWorkloadReadiness(ctx context.Context, record *contracts.WorkloadProvisionRecord, timeout time.Duration) (*contracts.WorkloadProvisionRecord, error) {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return s.markWorkloadDegraded(ctx, record, ctx.Err())
+		case now := <-ticker.C:
+			if now.After(deadline) {
+				return s.markWorkloadDegraded(ctx, record, errors.NewDeadlineExceededError("workload readiness timeout exceeded"))
+			}
+			ready, _ := s.k8sClient.ObserveWorkloadReadiness(ctx, record.Namespace, record.WorkloadName, record.Replicas)
+			if ready {
+				return s.markWorkloadReady(ctx, record)
+			}
+		}
+	}
+}
+
+func (s *WorkloadProvisioningService) markWorkloadReady(ctx context.Context, record *contracts.WorkloadProvisionRecord) (*contracts.WorkloadProvisionRecord, error) {
+	obs, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady)
+	if err != nil {
+		return record, err
+	}
+	record.Status = obs
+	record.Version++
+	if err := s.store.Update(ctx, *record); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (s *WorkloadProvisioningService) markWorkloadDegraded(ctx context.Context, record *contracts.WorkloadProvisionRecord, cause error) (*contracts.WorkloadProvisionRecord, error) {
+	deg, err := machines.TransitionWorkloadState(record.Status, machines.EventDegrade)
+	if err != nil {
+		return record, cause
+	}
+	record.Status = deg
+	record.Version++
+	_ = s.store.Update(ctx, *record)
+	return record, cause
 }
