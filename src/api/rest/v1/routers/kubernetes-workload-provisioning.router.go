@@ -1,3 +1,17 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS ROUTER
+
+1. Routing Flow Execution:
+   - Registers declarative endpoints for Kubernetes Workload Provisioning API.
+   - Binds root endpoint constants from shared system constants.
+   - Attaches Role-Based Access Control (RBAC) permission evaluation when middleware is supplied.
+   - Segregates collection endpoints (POST /api/v1/workloads) from entity lookups (GET /api/v1/workloads/{id}).
+
+2. Invariants:
+   - Zero inline comments inside function bodies.
+   - All functions strictly maintain a length <= 20 lines.
+   - All endpoint paths reference centralized package constants.
+*/
 package routers
 
 import (
@@ -23,37 +37,49 @@ func NewKubernetesWorkloadRouter(h *handlers.KubernetesWorkloadHandler, m *middl
 }
 
 func (r *KubernetesWorkloadRouter) RegisterRoutes(mux *http.ServeMux) {
-	workloadHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch req.Method {
-		case http.MethodPost:
-			r.handler.ProvisionWorkload(w, req)
-		default:
-			w.WriteHeader(http.StatusMethodNotAllowed)
-		}
-	})
+	workloadHandler := r.buildWorkloadHandler()
+	singleWorkloadHandler := r.buildSingleWorkloadHandler()
+	if r.rbacMiddle != nil {
+		r.registerSecuredRoutes(mux, workloadHandler, singleWorkloadHandler)
+		return
+	}
+	r.registerUnsecuredRoutes(mux, workloadHandler, singleWorkloadHandler)
+}
 
-	singleWorkloadHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+func (r *KubernetesWorkloadRouter) buildWorkloadHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.ProvisionWorkload(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (r *KubernetesWorkloadRouter) buildSingleWorkloadHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
 		if strings.HasPrefix(req.URL.Path, constants.EndpointWorkloadsPrefix) && req.Method == http.MethodGet {
 			r.handler.GetWorkload(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
-	})
-
-	if r.rbacMiddle != nil {
-		mux.HandleFunc(constants.EndpointWorkloads, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceServiceCatalog,
-			rbacContracts.ActionWrite,
-			workloadHandler,
-		))
-		mux.HandleFunc(constants.EndpointWorkloadsPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceServiceCatalog,
-			rbacContracts.ActionRead,
-			singleWorkloadHandler,
-		))
-	} else {
-		mux.HandleFunc(constants.EndpointWorkloads, workloadHandler)
-		mux.HandleFunc(constants.EndpointWorkloadsPrefix, singleWorkloadHandler)
 	}
 }
 
+func (r *KubernetesWorkloadRouter) registerSecuredRoutes(mux *http.ServeMux, wh, swh http.HandlerFunc) {
+	mux.HandleFunc(constants.EndpointWorkloads, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceServiceCatalog,
+		rbacContracts.ActionWrite,
+		wh,
+	))
+	mux.HandleFunc(constants.EndpointWorkloadsPrefix, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceServiceCatalog,
+		rbacContracts.ActionRead,
+		swh,
+	))
+}
+
+func (r *KubernetesWorkloadRouter) registerUnsecuredRoutes(mux *http.ServeMux, wh, swh http.HandlerFunc) {
+	mux.HandleFunc(constants.EndpointWorkloads, wh)
+	mux.HandleFunc(constants.EndpointWorkloadsPrefix, swh)
+}
