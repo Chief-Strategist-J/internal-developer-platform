@@ -675,3 +675,37 @@ func TestWorkloadProvisioningProductionBreakglassBypass(t *testing.T) {
 	}
 }
 
+func TestWorkloadProvisioningRollbackRevertsGitAndDegradesState(t *testing.T) {
+	ctx := context.Background()
+	store := kubernetesworkloadprovisioning.NewMemoryStore()
+	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	committer := gitops.NewGitManifestCommitter(nil)
+	gitopsAdapter := kubernetesworkloadprovisioning.NewGitOpsDelivery(committer, "main", "idp-bot", "idp@company.com")
+	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient).WithGitOpsDelivery(gitopsAdapter)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-rollback-01",
+		TenantID:       "tenant-rollback",
+		ServiceID:      "auth-service",
+		Namespace:      "auth-qa",
+		WorkloadName:   "auth-deploy",
+		Image:          "repo/auth:v1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-rollback-01",
+	}
+
+	result, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error provisioning: %v", err)
+	}
+
+	rolledBack, err := svc.RollbackWorkload(ctx, cmd.TenantID, result.Provision.ID, "Canary analysis failed: error delta exceeded")
+	if err != nil {
+		t.Fatalf("unexpected error during rollback: %v", err)
+	}
+	if rolledBack.Status != contracts.StatusDegraded {
+		t.Errorf("expected DEGRADED status upon rollback, got %s", rolledBack.Status)
+	}
+}
+
+

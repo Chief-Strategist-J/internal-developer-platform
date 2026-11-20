@@ -410,29 +410,7 @@ func ValidateSpecApproval(cmd contracts.WorkloadProvisionCommand) error {
 	return nil
 }
 
-func GenerateArgoCDApplicationYAML(cmd contracts.WorkloadProvisionCommand, appConfig contracts.GitOpsAppConfig) string {
-	project := appConfig.ProjectName
-	if project == "" {
-		project = "default"
-	}
-	revision := appConfig.TargetRevision
-	if revision == "" {
-		revision = "HEAD"
-	}
-	server := appConfig.ServerURL
-	if server == "" {
-		server = "https://kubernetes.default.svc"
-	}
-	repo := appConfig.RepoURL
-	if repo == "" {
-		repo = "https://github.com/Chief-Strategist-J/platform-gitops-manifests.git"
-	}
-	path := appConfig.Path
-	if path == "" {
-		path = fmt.Sprintf("workloads/%s/%s", cmd.Namespace, cmd.WorkloadName)
-	}
-
-	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
+const ArgoCDAppTemplate = `apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: %s
@@ -467,15 +445,48 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas
-`, cmd.WorkloadName, cmd.TenantID, project, repo, revision, path, server, cmd.Namespace)
+    - group: networking.istio.io
+      kind: VirtualService
+      jsonPointers:
+        - /spec/http/0/route
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /status
+`
+
+func resolveFallback(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
 }
 
+func resolveAppPath(explicitPath, namespace, workloadName string) string {
+	if explicitPath != "" {
+		return explicitPath
+	}
+	return fmt.Sprintf("workloads/%s/%s", namespace, workloadName)
+}
+
+func GenerateArgoCDApplicationYAML(cmd contracts.WorkloadProvisionCommand, appConfig contracts.GitOpsAppConfig) string {
+	project := resolveFallback(appConfig.ProjectName, "default")
+	revision := resolveFallback(appConfig.TargetRevision, "HEAD")
+	server := resolveFallback(appConfig.ServerURL, "https://kubernetes.default.svc")
+	repo := resolveFallback(appConfig.RepoURL, "https://github.com/Chief-Strategist-J/platform-gitops-manifests.git")
+	path := resolveAppPath(appConfig.Path, cmd.Namespace, cmd.WorkloadName)
+	return fmt.Sprintf(ArgoCDAppTemplate, cmd.WorkloadName, cmd.TenantID, project, repo, revision, path, server, cmd.Namespace)
+}
 
 func EvaluateDefaultRolloutConfig(cmd contracts.WorkloadProvisionCommand) contracts.RolloutConfig {
 	strategy := cmd.Strategy
 	if strategy == "" {
 		strategy = contracts.StrategyCanary
 	}
+	errorDeltaQuery := fmt.Sprintf(`(sum(rate(istio_requests_total{reporter="destination",destination_workload="%s-canary",response_code=~"5.*"}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_workload="%s-canary"}[1m]))) - (sum(rate(istio_requests_total{reporter="destination",destination_workload="%s-stable",response_code=~"5.*"}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_workload="%s-stable"}[1m])))`,
+		cmd.WorkloadName, cmd.WorkloadName, cmd.WorkloadName, cmd.WorkloadName)
+	latencyP99Query := fmt.Sprintf(`histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_workload="%s-canary"}[1m])) by (le))`,
+		cmd.WorkloadName)
 
 	return contracts.RolloutConfig{
 		Strategy: strategy,
@@ -487,18 +498,24 @@ func EvaluateDefaultRolloutConfig(cmd contracts.WorkloadProvisionCommand) contra
 		},
 		AnalysisMetrics: []contracts.AnalysisMetric{
 			{
-				Name:             "success-rate",
-				Interval:         "30s",
-				SuccessCondition: "result[0] >= 0.99",
-				FailureLimit:     3,
-				Query:            `sum(rate(istio_requests_total{reporter="destination",response_code!~"5.*"}[1m])) / sum(rate(istio_requests_total{reporter="destination"}[1m]))`,
+				Name:                  "success-rate",
+				Interval:              "30s",
+				Count:                 5,
+				SuccessCondition:      "result[0] <= 0.001",
+				FailureLimit:          1,
+				InconclusiveLimit:     0,
+				ConsecutiveErrorLimit: 1,
+				Query:                 errorDeltaQuery,
 			},
 			{
-				Name:             "latency-p99",
-				Interval:         "30s",
-				SuccessCondition: "result[0] <= 500",
-				FailureLimit:     3,
-				Query:            `histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket{reporter="destination"}[1m])) by (le))`,
+				Name:                  "latency-p99",
+				Interval:              "30s",
+				Count:                 5,
+				SuccessCondition:      "result[0] <= 500",
+				FailureLimit:          1,
+				InconclusiveLimit:     0,
+				ConsecutiveErrorLimit: 1,
+				Query:                 latencyP99Query,
 			},
 		},
 	}
@@ -507,15 +524,30 @@ func EvaluateDefaultRolloutConfig(cmd contracts.WorkloadProvisionCommand) contra
 func GenerateAnalysisTemplateYAML(cmd contracts.WorkloadProvisionCommand, metrics []contracts.AnalysisMetric) string {
 	var metricsBuilder strings.Builder
 	for _, m := range metrics {
+		count := m.Count
+		if count <= 0 {
+			count = 5
+		}
+		consecLimit := m.ConsecutiveErrorLimit
+		if consecLimit <= 0 {
+			consecLimit = 1
+		}
+		failLimit := m.FailureLimit
+		if failLimit <= 0 {
+			failLimit = 1
+		}
 		metricsBuilder.WriteString(fmt.Sprintf(`    - name: %s
       interval: %s
+      count: %d
       successCondition: %s
       failureLimit: %d
+      inconclusiveLimit: %d
+      consecutiveErrorLimit: %d
       provider:
         prometheus:
           address: http://prometheus-k8s.monitoring.svc:9090
           query: %s
-`, m.Name, m.Interval, m.SuccessCondition, m.FailureLimit, m.Query))
+`, m.Name, m.Interval, count, m.SuccessCondition, failLimit, m.InconclusiveLimit, consecLimit, m.Query))
 	}
 
 	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1

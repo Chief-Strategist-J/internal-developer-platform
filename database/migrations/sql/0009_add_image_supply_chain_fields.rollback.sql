@@ -4,3 +4,4 @@
 ALTER TABLE workload_provisions
     DROP COLUMN IF EXISTS breakglass_justification,
     DROP COLUMN IF EXISTS image_pull_policy;
+
