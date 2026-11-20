@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
@@ -171,7 +174,11 @@ func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.
 	now := time.Now().UTC()
 	return contracts.WorkloadProvisionRecord{
 		ID:             cmd.ID,
+		PublicID:       derivePublicID(cmd.PublicID, cmd.ID),
 		TenantID:       cmd.TenantID,
+		Source:         deriveFallback(cmd.Source, "api"),
+		ExternalID:     deriveFallback(cmd.ExternalID, cmd.ID),
+		CorrelationID:  deriveCorrelationID(cmd.CorrelationID),
 		ServiceID:      cmd.ServiceID,
 		Namespace:      cmd.Namespace,
 		WorkloadName:   cmd.WorkloadName,
@@ -187,6 +194,31 @@ func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
+}
+
+func deriveCorrelationID(correlationID string) string {
+	if _, err := uuid.Parse(correlationID); err == nil {
+		return correlationID
+	}
+	return uuid.New().String()
+}
+
+func derivePublicID(explicitID, fallbackID string) string {
+	if explicitID != "" {
+		return explicitID
+	}
+	clean := strings.ReplaceAll(fallbackID, "-", "")
+	if len(clean) > 26 {
+		clean = clean[:26]
+	}
+	return fmt.Sprintf("wld_%s", clean)
+}
+
+func deriveFallback(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
 }
 
 func mergeCanaryBundle(bundle *contracts.ManifestBundle, canaryBundle *workflows.SynthesizedCanaryBundle) contracts.ManifestBundle {
