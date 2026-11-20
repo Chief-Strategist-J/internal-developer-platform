@@ -106,6 +106,7 @@ spec:
       containers:
       - name: %s
         image: %s
+        imagePullPolicy: %s
         securityContext:
           allowPrivilegeEscalation: %t
           readOnlyRootFilesystem: %t
@@ -213,7 +214,7 @@ func buildDeploymentYAML(cmd contracts.WorkloadProvisionCommand, mutations rules
 		cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID,
 		cmd.Replicas, cmd.WorkloadName, cmd.WorkloadName, cmd.TenantID,
 		sc.RunAsNonRoot, sc.RunAsUser, sc.RunAsGroup, sc.SeccompProfileType,
-		cmd.WorkloadName, cmd.Image, sc.AllowPrivilegeEscalation, sc.ReadOnlyRootFilesystem,
+		cmd.WorkloadName, cmd.Image, mutations.ImagePullPolicy, sc.AllowPrivilegeEscalation, sc.ReadOnlyRootFilesystem,
 		mutations.CPURequest, mutations.MemoryRequest, mutations.CPULimit, mutations.MemoryLimit,
 		pb.StartupPath, pb.Port, pb.LivenessPath, pb.Port, pb.ReadinessPath, pb.Port,
 	)

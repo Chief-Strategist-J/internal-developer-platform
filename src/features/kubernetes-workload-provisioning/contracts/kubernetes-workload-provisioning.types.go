@@ -87,6 +87,8 @@ type WorkloadProvisionCommand struct {
 	Namespace        string             `json:"namespace"`
 	WorkloadName     string             `json:"workloadName"`
 	Image            string             `json:"image"`
+	ImagePullPolicy  string             `json:"imagePullPolicy,omitempty"`
+	BreakglassJustification string      `json:"breakglassJustification,omitempty"`
 	CPURequest       string             `json:"cpuRequest"`
 	CPULimit         string             `json:"cpuLimit"`
 	MemoryRequest    string             `json:"memoryRequest"`
@@ -108,6 +110,8 @@ type WorkloadProvisionRecord struct {
 	SpecHash         string             `json:"specHash"`
 	ApprovedSpecHash string             `json:"approvedSpecHash"`
 	ApproverRole     string             `json:"approverRole"`
+	ImagePullPolicy  string             `json:"imagePullPolicy"`
+	BreakglassJustification string      `json:"breakglassJustification"`
 	ServiceID        string             `json:"serviceId"`
 	Namespace        string             `json:"namespace"`
 	WorkloadName     string             `json:"workloadName"`

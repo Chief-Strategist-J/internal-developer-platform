@@ -42,6 +42,13 @@ fields:
     type: text
     null: no
     default: 'system-auto'
+  - name: image_pull_policy
+    type: text
+    null: no
+    default: 'IfNotPresent'
+  - name: breakglass_justification
+    type: text
+    null: yes
   - name: service_id
     type: text
     null: no
