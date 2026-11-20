@@ -3,6 +3,7 @@ package tests
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
@@ -343,5 +344,64 @@ func TestValidateImageSupplyChain_BreakglassBypass(t *testing.T) {
 		t.Errorf("expected IMG-BRK-001 breakglass warning, got %+v", violations)
 	}
 }
+
+func TestValidateSecretVolumeMounts_SubPathProhibited(t *testing.T) {
+	mounts := []contracts.SecretVolumeMount{
+		{VolumeName: "app-secret", SecretName: "db-secret", MountPath: "/etc/secrets", SubPath: "db.key"},
+	}
+	ok, violations := rules.ValidateSecretVolumeMounts(mounts)
+	if ok || len(violations) == 0 {
+		t.Fatalf("expected subPath mount on secret to fail admission")
+	}
+	if violations[0].Rule != "SEC-SUBPATH-001" {
+		t.Errorf("expected SEC-SUBPATH-001 violation, got %s", violations[0].Rule)
+	}
+
+	validMounts := []contracts.SecretVolumeMount{
+		{VolumeName: "app-secret", SecretName: "db-secret", MountPath: "/etc/secrets"},
+	}
+	ok, violations = rules.ValidateSecretVolumeMounts(validMounts)
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected directory volume mount without subPath to pass")
+	}
+}
+
+func TestValidateKMSKeyCustody(t *testing.T) {
+	ok, violations := rules.ValidateKMSKeyCustody("tenant-alpha", "", map[string]string{"DB_PASSWORD": "secret"})
+	if ok || len(violations) == 0 || violations[0].Rule != "SEC-KMS-001" {
+		t.Fatalf("expected SEC-KMS-001 when encrypted secrets lack key URI")
+	}
+
+	sameProjectKey := "projects/tenant-alpha/locations/global/keyRings/ring/cryptoKeys/key"
+	ok, violations = rules.ValidateKMSKeyCustody("tenant-alpha", sameProjectKey, nil)
+	if ok || len(violations) == 0 || violations[0].Rule != "SEC-KMS-002" {
+		t.Fatalf("expected SEC-KMS-002 when KMS key is in tenant project")
+	}
+
+	secProjectKey := "projects/platform-security-kms/locations/global/keyRings/ring/cryptoKeys/key"
+	ok, violations = rules.ValidateKMSKeyCustody("tenant-alpha", secProjectKey, nil)
+	if !ok || len(violations) != 0 {
+		t.Fatalf("expected separate KMS project key to pass custody check")
+	}
+}
+
+func TestEvaluateCertificateExpiry(t *testing.T) {
+	renewBefore := 30 * 24 * time.Hour
+	expired := rules.EvaluateCertificateExpiry(time.Now().Add(-1*time.Hour), renewBefore)
+	if !expired.NeedsRenewal || expired.AlertSeverity != "CRITICAL_EXPIRED" {
+		t.Errorf("expected CRITICAL_EXPIRED for expired certificate, got %+v", expired)
+	}
+
+	soon := rules.EvaluateCertificateExpiry(time.Now().Add(10*24*time.Hour), renewBefore)
+	if !soon.NeedsRenewal || soon.AlertSeverity != "WARNING_EXPIRING_SOON" {
+		t.Errorf("expected WARNING_EXPIRING_SOON for 10 days remaining, got %+v", soon)
+	}
+
+	healthy := rules.EvaluateCertificateExpiry(time.Now().Add(60*24*time.Hour), renewBefore)
+	if healthy.NeedsRenewal || healthy.AlertSeverity != "HEALTHY" {
+		t.Errorf("expected HEALTHY for 60 days remaining, got %+v", healthy)
+	}
+}
+
 
 

@@ -79,6 +79,21 @@ type GitOpsAppConfig struct {
 	ServerURL      string `json:"serverUrl"`
 }
 
+type SecretVolumeMount struct {
+	VolumeName string `json:"volumeName"`
+	SecretName string `json:"secretName"`
+	MountPath  string `json:"mountPath"`
+	SubPath    string `json:"subPath,omitempty"`
+	ReadOnly   bool   `json:"readOnly,omitempty"`
+}
+
+type CertificateExpiryStatus struct {
+	NeedsRenewal   bool      `json:"needsRenewal"`
+	DaysRemaining  int       `json:"daysRemaining"`
+	AlertSeverity  string    `json:"alertSeverity"`
+	ExpirationTime time.Time `json:"expirationTime"`
+}
+
 type WorkloadProvisionCommand struct {
 	ID               string             `json:"id"`
 	PublicID         string             `json:"publicId,omitempty"`
@@ -101,6 +116,10 @@ type WorkloadProvisionCommand struct {
 	IdempotencyKey   string             `json:"idempotencyKey"`
 	ApprovedSpecHash string             `json:"approvedSpecHash,omitempty"`
 	ApproverRole     string             `json:"approverRole,omitempty"`
+	SecretMounts     []SecretVolumeMount `json:"secretMounts,omitempty"`
+	KMSKeyURI        string              `json:"kmsKeyUri,omitempty"`
+	EncryptedSecrets map[string]string   `json:"encryptedSecrets,omitempty"`
+	TLSHosts         []string            `json:"tlsHosts,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
@@ -172,6 +191,8 @@ type ManifestBundle struct {
 	HTTPRouteYAML           string `json:"httpRouteYaml,omitempty"`
 	BackendPolicyYAML       string `json:"backendPolicyYaml,omitempty"`
 	SecurityPolicyYAML      string `json:"securityPolicyYaml,omitempty"`
+	CertificateYAML         string `json:"certificateYaml,omitempty"`
+	SecretYAML              string `json:"secretYaml,omitempty"`
 }
 
 type AdmissionViolation struct {

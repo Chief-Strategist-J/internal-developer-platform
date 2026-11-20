@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/shared/errors"
@@ -258,6 +259,18 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 		critical = true
 	}
 	violations = append(violations, imgViolations...)
+
+	secOk, secViolations := ValidateSecretVolumeMounts(cmd.SecretMounts)
+	if !secOk {
+		critical = true
+	}
+	violations = append(violations, secViolations...)
+
+	kmsOk, kmsViolations := ValidateKMSKeyCustody(cmd.TenantID, cmd.KMSKeyURI, cmd.EncryptedSecrets)
+	if !kmsOk {
+		critical = true
+	}
+	violations = append(violations, kmsViolations...)
 
 	if critical {
 		return contracts.AdmissionReport{
@@ -709,3 +722,70 @@ spec:
         methods:
 %s`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID, mode, cmd.WorkloadName, principalsBuilder.String(), methodsBuilder.String())
 }
+
+func ValidateSecretVolumeMounts(mounts []contracts.SecretVolumeMount) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	critical := false
+	for _, m := range mounts {
+		if strings.TrimSpace(m.SubPath) != "" {
+			critical = true
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "SEC-SUBPATH-001",
+				Message: fmt.Sprintf("subPath %q on secret mount %q is prohibited; subPath mounts break atomic rotation (V-15)", m.SubPath, m.SecretName),
+			})
+		}
+	}
+	return !critical, violations
+}
+
+func ValidateKMSKeyCustody(tenantID, keyURI string, encryptedSecrets map[string]string) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	if len(encryptedSecrets) > 0 && strings.TrimSpace(keyURI) == "" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "SEC-KMS-001",
+			Message: "KMS key URI is required when encrypted secrets are configured (V-34)",
+		})
+		return false, violations
+	}
+	if strings.TrimSpace(keyURI) == "" {
+		return true, violations
+	}
+	prefix := fmt.Sprintf("projects/%s/", strings.TrimSpace(tenantID))
+	if strings.Contains(keyURI, prefix) {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "SEC-KMS-002",
+			Message: "KMS key must reside in a dedicated security project, not workload tenant project (V-34)",
+		})
+		return false, violations
+	}
+	return true, violations
+}
+
+func EvaluateCertificateExpiry(expiresAt time.Time, renewBefore time.Duration) contracts.CertificateExpiryStatus {
+	now := time.Now().UTC()
+	diff := expiresAt.Sub(now)
+	daysRemaining := int(diff.Hours() / 24)
+	if diff <= 0 {
+		return contracts.CertificateExpiryStatus{
+			NeedsRenewal:   true,
+			DaysRemaining:  daysRemaining,
+			AlertSeverity:  "CRITICAL_EXPIRED",
+			ExpirationTime: expiresAt,
+		}
+	}
+	if diff <= renewBefore {
+		return contracts.CertificateExpiryStatus{
+			NeedsRenewal:   true,
+			DaysRemaining:  daysRemaining,
+			AlertSeverity:  "WARNING_EXPIRING_SOON",
+			ExpirationTime: expiresAt,
+		}
+	}
+	return contracts.CertificateExpiryStatus{
+		NeedsRenewal:   false,
+		DaysRemaining:  daysRemaining,
+		AlertSeverity:  "HEALTHY",
+		ExpirationTime: expiresAt,
+	}
+}
+
