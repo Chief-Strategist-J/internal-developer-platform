@@ -30,6 +30,18 @@ fields:
     type: uuid
     null: no
     constraint: immutable, no FK
+  - name: spec_hash
+    type: text
+    null: no
+    constraint: immutable, sha256 hex digest
+  - name: approved_spec_hash
+    type: text
+    null: no
+    constraint: immutable, matching spec_hash at approval time
+  - name: approver_role
+    type: text
+    null: no
+    default: 'system-auto'
   - name: service_id
     type: text
     null: no

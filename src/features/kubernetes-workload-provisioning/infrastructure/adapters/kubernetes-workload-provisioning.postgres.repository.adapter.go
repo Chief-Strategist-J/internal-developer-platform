@@ -61,6 +61,7 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 
 	_, err := a.db.ExecContext(ctx, queries.FLOW_INSERT_WORKLOAD_PROVISION,
 		record.ID, publicID, record.TenantID, source, externalID, correlationID,
+		record.SpecHash, record.ApprovedSpecHash, record.ApproverRole,
 		record.ServiceID, record.Namespace, record.WorkloadName, record.CPURequest, record.CPULimit,
 		record.MemoryRequest, record.MemoryLimit, record.Replicas, strategy, string(record.Status),
 		record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
@@ -166,6 +167,7 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 	var status string
 	err := s.Scan(
 		&rec.ID, &rec.PublicID, &rec.TenantID, &rec.Source, &rec.ExternalID, &rec.CorrelationID,
+		&rec.SpecHash, &rec.ApprovedSpecHash, &rec.ApproverRole,
 		&rec.ServiceID, &rec.Namespace, &rec.WorkloadName, &rec.CPURequest, &rec.CPULimit,
 		&rec.MemoryRequest, &rec.MemoryLimit, &rec.Replicas, &strategy, &status,
 		&rec.IdempotencyKey, &rec.Version, &rec.CreatedAt, &rec.UpdatedAt,

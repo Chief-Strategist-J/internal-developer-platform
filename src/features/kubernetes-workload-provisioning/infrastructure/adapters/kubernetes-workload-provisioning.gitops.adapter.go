@@ -80,3 +80,4 @@ func appendIfPresent(files []gitops.ManifestFile, path, content string) []gitops
 	}
 	return files
 }
+

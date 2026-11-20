@@ -7,6 +7,11 @@ source "${SCRIPT_DIR}/../lib/common.sh"
 CLUSTER_NAME="idp-cluster"
 ARGOCD_NAMESPACE="argocd"
 ARGOCD_PORT=8085
+GRAFANA_PORT=3000
+PLATFORM_API_PORT=8080
+OTEL_PORT=4318
+POSTGRES_PORT=5432
+REDIS_PORT=6379
 DEV_NAMESPACE="dev"
 
 create_cluster() {
@@ -57,6 +62,33 @@ install_argocd() {
     log_success "ArgoCD server is healthy and running."
 }
 
+build_and_load_platform_api() {
+    local root_dir="${SCRIPT_DIR}/../.."
+    log_info "Building and packaging native Go platform-api container image..."
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/platform-svc "${root_dir}/src/main.go"
+    
+    local tmp_build="${root_dir}/deploy/docker/tmp-build"
+    mkdir -p "${tmp_build}"
+    cp /tmp/platform-svc "${tmp_build}/platform-svc"
+    cat << 'EOF_DOCKER' > "${tmp_build}/Dockerfile"
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/*
+COPY platform-svc /app/platform-svc
+EXPOSE 8080 8081 9090
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/platform-svc"]
+EOF_DOCKER
+
+    docker build -t ghcr.io/scaibu/platform-api:latest "${tmp_build}" > /dev/null
+    rm -rf "${tmp_build}"
+    rm -f /tmp/platform-svc
+
+    log_info "Importing platform-api image into Kind cluster..."
+    docker save ghcr.io/scaibu/platform-api:latest | docker exec -i "${CLUSTER_NAME}-control-plane" ctr --namespace=k8s.io images import - > /dev/null
+    log_success "platform-api image imported into cluster."
+}
+
 apply_idp_project() {
     local root_dir="${SCRIPT_DIR}/../.."
 
@@ -68,51 +100,89 @@ apply_idp_project() {
     log_success "Dev environment manifests applied to cluster."
 }
 
+apply_migrations() {
+    local root_dir="${SCRIPT_DIR}/../.."
+    log_info "Applying database schema migrations..."
+    "${root_dir}/scripts/migrate/migrate.sh"
+}
+
+wait_for_services() {
+    log_info "Waiting for all cluster pods to reach Ready status..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "${DEV_NAMESPACE}" --timeout=120s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n "${DEV_NAMESPACE}" --timeout=120s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n "${DEV_NAMESPACE}" --timeout=120s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=otel-collector -n "${DEV_NAMESPACE}" --timeout=120s
+    kubectl wait --for=condition=available deployment/platform-api -n "${DEV_NAMESPACE}" --timeout=120s
+    log_success "All application and backing services are ready."
+}
+
 start_port_forward() {
-    log_info "Ensuring ArgoCD port-forward on port ${ARGOCD_PORT}..."
+    log_info "Establishing persistent port-forwarding for all platform endpoints..."
     pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/grafana -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/platform-api -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/otel-collector -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/postgres -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/redis -n ${DEV_NAMESPACE}" 2>/dev/null || true
+
     nohup kubectl port-forward svc/argocd-server -n "${ARGOCD_NAMESPACE}" --address 0.0.0.0 "${ARGOCD_PORT}:443" > /tmp/argocd-port-forward.log 2>&1 &
+    nohup kubectl port-forward svc/grafana -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${GRAFANA_PORT}:3000" > /tmp/grafana-port-forward.log 2>&1 &
+    nohup kubectl port-forward svc/platform-api -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${PLATFORM_API_PORT}:8080" > /tmp/platform-api-port-forward.log 2>&1 &
+    nohup kubectl port-forward svc/otel-collector -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${OTEL_PORT}:4318" > /tmp/otel-collector-port-forward.log 2>&1 &
+    nohup kubectl port-forward svc/postgres -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${POSTGRES_PORT}:5432" > /tmp/postgres-port-forward.log 2>&1 &
+    nohup kubectl port-forward svc/redis -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${REDIS_PORT}:6379" > /tmp/redis-port-forward.log 2>&1 &
+
     sleep 2
-    log_success "ArgoCD port-forward active on https://127.0.0.1:${ARGOCD_PORT}"
+    log_success "All platform endpoints forwarded successfully."
 }
 
 get_credentials() {
-    log_info "Extracting initial admin credentials..."
-    local password
-    password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
+    log_info "Extracting credentials..."
+    local argo_password
+    argo_password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
     
     echo ""
-    log_success "=========================================================="
-    log_success "Enterprise Local Kubernetes & ArgoCD Environment Ready!"
-    log_success "Cluster:   ${CLUSTER_NAME}"
-    log_success "ArgoCD:    https://127.0.0.1:${ARGOCD_PORT}"
-    log_success "Username:  admin"
-    log_success "Password:  ${password}"
-    log_success "=========================================================="
+    log_success "================================================================================"
+    log_success " Enterprise Local Kubernetes & Observability Platform Ready! (Single Script)"
+    log_success "================================================================================"
+    log_success " Platform API Gateway : http://localhost:${PLATFORM_API_PORT} (Health: /healthz, /readyz)"
+    log_success " Grafana Observability: http://localhost:${GRAFANA_PORT} (admin / admin)"
+    log_success " ArgoCD GitOps Engine : https://127.0.0.1:${ARGOCD_PORT} (admin / ${argo_password})"
+    log_success " OpenTelemetry OTLP   : http://localhost:${OTEL_PORT} (v1/traces, v1/logs)"
+    log_success " PostgreSQL 18 DB     : 127.0.0.1:${POSTGRES_PORT} (postgres / postgres_dev_password_123)"
+    log_success " Redis 7.4 In-Memory  : 127.0.0.1:${REDIS_PORT}"
+    log_success "================================================================================"
     echo ""
-    echo "To verify cluster workload status:"
-    echo "  kubectl get pods -n ${DEV_NAMESPACE}"
-    echo "  kubectl get pods -n ${ARGOCD_NAMESPACE}"
+    echo "To check pod status:"
+    echo "  ./scripts/run/k8s-local.sh status"
 }
 
 down_cluster() {
-    log_info "Deleting kind cluster '${CLUSTER_NAME}'..."
+    log_info "Deleting kind cluster '${CLUSTER_NAME}' and stopping port-forwards..."
     pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/grafana -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/platform-api -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/otel-collector -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/postgres -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    pkill -f "kubectl port-forward svc/redis -n ${DEV_NAMESPACE}" 2>/dev/null || true
     kind delete cluster --name "${CLUSTER_NAME}"
     log_success "kind cluster deleted."
 }
 
 main() {
     local action="${1:-up}"
-    require_binaries kind kubectl docker
+    require_binaries kind kubectl docker go
 
     case "${action}" in
         up)
             create_cluster
             install_crd_dependencies
             install_argocd
+            build_and_load_platform_api
             apply_idp_project
+            wait_for_services
             start_port_forward
+            apply_migrations
             get_credentials
             ;;
         down)
@@ -121,7 +191,8 @@ main() {
         status)
             echo "--- ArgoCD Pods ---"
             kubectl get pods -n "${ARGOCD_NAMESPACE}"
-            echo "--- Platform & Backing Infrastructure Pods ---"
+            echo ""
+            echo "--- Platform & Backing Infrastructure Pods (dev namespace) ---"
             kubectl get pods -n "${DEV_NAMESPACE}"
             ;;
         port-forward)

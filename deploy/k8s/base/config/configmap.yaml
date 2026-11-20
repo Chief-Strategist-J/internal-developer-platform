@@ -11,6 +11,54 @@ data:
   ADMIN_PORT: "8081"
   METRICS_PORT: "9090"
   LOG_LEVEL: "info"
-  DATABASE_URL: "postgres://postgres:postgres_dev_password_123@postgres:5432/idp_db?sslmode=disable"
-  REDIS_ADDR: "redis:6379"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+  DATABASE_URL: "postgres://postgres:postgres_dev_password_123@postgres.dev.svc:5432/idp_db?sslmode=disable"
+  REDIS_ADDR: "redis.dev.svc:6379"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.dev.svc:4318"
+  default.yaml: |
+    server:
+      name: "internal-developer-platform"
+      port: 8080
+      admin_port: 8081
+      idle_timeout_seconds: 75
+      header_timeout_seconds: 15
+      drain_deadline_seconds: 15
+      shutdown_deadline_seconds: 30
+    database:
+      url: "postgres://postgres:postgres_dev_password_123@postgres.dev.svc:5432/idp_db?sslmode=disable"
+      max_open_conns: 25
+      max_idle_conns: 5
+      conn_max_lifetime_minutes: 5
+    redis:
+      address: "redis.dev.svc:6379"
+      timeout_seconds: 2
+    auth:
+      jwt_secret: "platform-secure-jwt-signing-key-production"
+      issuer: "internal-developer-platform"
+    kubernetes:
+      endpoint: "https://kubernetes.default.svc:443"
+    argocd:
+      endpoint: "https://argocd-server.argocd.svc:443"
+      token: ""
+    endpoints:
+      base_path: "/api/v1"
+  endpoints.yaml: |
+    base_path: "/api/v1"
+    routes:
+      reconciliation:
+        trigger: "/api/v1/gitops/reconciliation"
+        status: "/api/v1/gitops/reconciliation/{id}"
+      workloads:
+        provision: "/api/v1/kubernetes/workloads"
+        status: "/api/v1/kubernetes/workloads/{id}"
+      catalog:
+        services: "/api/v1/catalog/services"
+      health:
+        live: "/healthz"
+        ready: "/readyz"
+  feature-flags.yaml: |
+    enable_stateful_rollback: true
+    enable_strict_wave_gating: true
+    enable_canary_rollouts: false
+    enable_mesh_routing: false
+    max_sync_retry_attempts: 3
+    sync_soak_window_seconds: 60
