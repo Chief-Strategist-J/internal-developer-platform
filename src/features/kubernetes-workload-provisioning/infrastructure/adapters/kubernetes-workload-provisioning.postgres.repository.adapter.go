@@ -1,11 +1,29 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: POSTGRESQL WORKLOAD REPOSITORY ADAPTER
+
+1. Persistence Flow Execution:
+   - Implements WorkloadStorePort backed by PostgreSQL 18.
+   - Enforces the 5-identifier roles contract: id (surrogate), public_id (external), tenant_id (scope),
+     source + external_id (natural key), and correlation_id (causation trace).
+   - Validates entity boundary prerequisites before issuing parameterized SQL statements.
+   - Maps database rows to strongly typed WorkloadProvisionRecord domain entities.
+   - Integrates W3C distributed tracing with standard OpenTelemetry db.system attributes.
+
+2. Invariants:
+   - Zero inline comments inside method bodies.
+   - All methods strictly maintain a length <= 25 lines.
+   - Zero raw SQL queries; all statements reference queries.FLOW_* constants.
+*/
 package adapters
 
 import (
 	"context"
 	"database/sql"
-	"time"
+	"strings"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/queries"
@@ -17,18 +35,16 @@ type PostgresWorkloadRepositoryAdapter struct {
 	db *sql.DB
 }
 
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
 func NewPostgresWorkloadRepositoryAdapter(db *sql.DB) *PostgresWorkloadRepositoryAdapter {
 	return &PostgresWorkloadRepositoryAdapter{db: db}
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record contracts.WorkloadProvisionRecord) error {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "postgres.workload.save",
-		attribute.String("db.system", "postgresql"),
-		attribute.String("db.operation", "INSERT"),
-		attribute.String("tenant.id", record.TenantID),
-		attribute.String("workload.id", record.ID),
-	)
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.save", "INSERT", record.TenantID, record.ID)
 	defer span.End()
 
 	if record.TenantID == "" || record.ID == "" {
@@ -37,30 +53,17 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 		return err
 	}
 
-	strategy := string(record.Strategy)
-	if strategy == "" {
-		strategy = string(contracts.StrategyCanary)
-	}
+	strategy := resolveStrategy(record.Strategy)
+	publicID := resolvePublicID(record.PublicID, record.ID)
+	source := resolveSource(record.Source)
+	externalID := resolveExternalID(record.ExternalID, record.ID)
+	correlationID := resolveCorrelationID(record.CorrelationID)
 
-	_, err := a.db.ExecContext(
-		ctx,
-		queries.FLOW_INSERT_WORKLOAD_PROVISION,
-		record.ID,
-		record.TenantID,
-		record.ServiceID,
-		record.Namespace,
-		record.WorkloadName,
-		record.CPURequest,
-		record.CPULimit,
-		record.MemoryRequest,
-		record.MemoryLimit,
-		record.Replicas,
-		strategy,
-		string(record.Status),
-		record.IdempotencyKey,
-		record.Version,
-		record.CreatedAt,
-		record.UpdatedAt,
+	_, err := a.db.ExecContext(ctx, queries.FLOW_INSERT_WORKLOAD_PROVISION,
+		record.ID, publicID, record.TenantID, source, externalID, correlationID,
+		record.ServiceID, record.Namespace, record.WorkloadName, record.CPURequest, record.CPULimit,
+		record.MemoryRequest, record.MemoryLimit, record.Replicas, strategy, string(record.Status),
+		record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
 	)
 	if err != nil {
 		conflictErr := errors.NewConflictError(err.Error())
@@ -71,13 +74,7 @@ func (a *PostgresWorkloadRepositoryAdapter) Save(ctx context.Context, record con
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantID string, id string) (*contracts.WorkloadProvisionRecord, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "postgres.workload.get_by_id",
-		attribute.String("db.system", "postgresql"),
-		attribute.String("db.operation", "SELECT"),
-		attribute.String("tenant.id", tenantID),
-		attribute.String("workload.id", id),
-	)
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.get_by_id", "SELECT", tenantID, id)
 	defer span.End()
 
 	if tenantID == "" || id == "" {
@@ -87,27 +84,7 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantI
 	}
 
 	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_WORKLOAD_BY_ID, tenantID, id)
-	var rec contracts.WorkloadProvisionRecord
-	var strategy string
-	var status string
-	err := row.Scan(
-		&rec.ID,
-		&rec.TenantID,
-		&rec.ServiceID,
-		&rec.Namespace,
-		&rec.WorkloadName,
-		&rec.CPURequest,
-		&rec.CPULimit,
-		&rec.MemoryRequest,
-		&rec.MemoryLimit,
-		&rec.Replicas,
-		&strategy,
-		&status,
-		&rec.IdempotencyKey,
-		&rec.Version,
-		&rec.CreatedAt,
-		&rec.UpdatedAt,
-	)
+	rec, err := scanWorkloadRecord(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			notFoundErr := errors.NewNotFoundError("workload provision record not found")
@@ -117,19 +94,11 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByID(ctx context.Context, tenantI
 		observability.RecordError(span, err)
 		return nil, err
 	}
-	rec.Strategy = contracts.DeploymentStrategy(strategy)
-	rec.Status = contracts.WorkloadStatus(status)
-	return &rec, nil
+	return rec, nil
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Context, tenantID string, key string) (*contracts.WorkloadProvisionRecord, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "postgres.workload.get_by_idempotency",
-		attribute.String("db.system", "postgresql"),
-		attribute.String("db.operation", "SELECT"),
-		attribute.String("tenant.id", tenantID),
-		attribute.String("idempotency.key", key),
-	)
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.get_by_idempotency", "SELECT", tenantID, "")
 	defer span.End()
 
 	if tenantID == "" || key == "" {
@@ -139,27 +108,7 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Cont
 	}
 
 	row := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_WORKLOAD_BY_IDEMPOTENCY, tenantID, key)
-	var rec contracts.WorkloadProvisionRecord
-	var strategy string
-	var status string
-	err := row.Scan(
-		&rec.ID,
-		&rec.TenantID,
-		&rec.ServiceID,
-		&rec.Namespace,
-		&rec.WorkloadName,
-		&rec.CPURequest,
-		&rec.CPULimit,
-		&rec.MemoryRequest,
-		&rec.MemoryLimit,
-		&rec.Replicas,
-		&strategy,
-		&status,
-		&rec.IdempotencyKey,
-		&rec.Version,
-		&rec.CreatedAt,
-		&rec.UpdatedAt,
-	)
+	rec, err := scanWorkloadRecord(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -167,18 +116,11 @@ func (a *PostgresWorkloadRepositoryAdapter) GetByIdempotencyKey(ctx context.Cont
 		observability.RecordError(span, err)
 		return nil, err
 	}
-	rec.Strategy = contracts.DeploymentStrategy(strategy)
-	rec.Status = contracts.WorkloadStatus(status)
-	return &rec, nil
+	return rec, nil
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.WorkloadProvisionRecord, error) {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "postgres.workload.list",
-		attribute.String("db.system", "postgresql"),
-		attribute.String("db.operation", "SELECT"),
-		attribute.String("tenant.id", filter.TenantID),
-	)
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.list", "SELECT", filter.TenantID, "")
 	defer span.End()
 
 	if filter.TenantID == "" {
@@ -187,15 +129,7 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 		return nil, err
 	}
 
-	limit := filter.Limit
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	offset := filter.Offset
-	if offset < 0 {
-		offset = 0
-	}
-
+	limit, offset := sanitizePagination(filter.Limit, filter.Offset)
 	rows, err := a.db.QueryContext(ctx, queries.FLOW_LIST_WORKLOAD_PROVISIONS, filter.TenantID, limit, offset)
 	if err != nil {
 		observability.RecordError(span, err)
@@ -203,51 +137,11 @@ func (a *PostgresWorkloadRepositoryAdapter) List(ctx context.Context, filter con
 	}
 	defer rows.Close()
 
-	records := make([]contracts.WorkloadProvisionRecord, 0)
-	for rows.Next() {
-		var rec contracts.WorkloadProvisionRecord
-		var strategy string
-		var status string
-		if err := rows.Scan(
-			&rec.ID,
-			&rec.TenantID,
-			&rec.ServiceID,
-			&rec.Namespace,
-			&rec.WorkloadName,
-			&rec.CPURequest,
-			&rec.CPULimit,
-			&rec.MemoryRequest,
-			&rec.MemoryLimit,
-			&rec.Replicas,
-			&strategy,
-			&status,
-			&rec.IdempotencyKey,
-			&rec.Version,
-			&rec.CreatedAt,
-			&rec.UpdatedAt,
-		); err != nil {
-			observability.RecordError(span, err)
-			return nil, err
-		}
-		rec.Strategy = contracts.DeploymentStrategy(strategy)
-		rec.Status = contracts.WorkloadStatus(status)
-		records = append(records, rec)
-	}
-	if err := rows.Err(); err != nil {
-		observability.RecordError(span, err)
-		return nil, err
-	}
-	return records, nil
+	return scanWorkloadRows(rows)
 }
 
 func (a *PostgresWorkloadRepositoryAdapter) Update(ctx context.Context, record contracts.WorkloadProvisionRecord) error {
-	tracer := observability.GetTracer()
-	ctx, span := tracer.StartSpan(ctx, "postgres.workload.update",
-		attribute.String("db.system", "postgresql"),
-		attribute.String("db.operation", "UPDATE"),
-		attribute.String("tenant.id", record.TenantID),
-		attribute.String("workload.id", record.ID),
-	)
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.update", "UPDATE", record.TenantID, record.ID)
 	defer span.End()
 
 	if record.TenantID == "" || record.ID == "" {
@@ -256,26 +150,113 @@ func (a *PostgresWorkloadRepositoryAdapter) Update(ctx context.Context, record c
 		return err
 	}
 
-	res, err := a.db.ExecContext(
-		ctx,
-		queries.FLOW_UPDATE_WORKLOAD_PROVISION,
-		string(record.Status),
-		time.Now().UTC(),
-		record.TenantID,
-		record.ID,
-		record.Version,
+	res, err := a.db.ExecContext(ctx, queries.FLOW_UPDATE_WORKLOAD_PROVISION,
+		string(record.Status), record.UpdatedAt, record.TenantID, record.ID, record.Version,
 	)
 	if err != nil {
 		observability.RecordError(span, err)
 		return err
 	}
-	affected, err := res.RowsAffected()
+	return verifyRowsAffected(res, span)
+}
+
+func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error) {
+	var rec contracts.WorkloadProvisionRecord
+	var strategy string
+	var status string
+	err := s.Scan(
+		&rec.ID, &rec.PublicID, &rec.TenantID, &rec.Source, &rec.ExternalID, &rec.CorrelationID,
+		&rec.ServiceID, &rec.Namespace, &rec.WorkloadName, &rec.CPURequest, &rec.CPULimit,
+		&rec.MemoryRequest, &rec.MemoryLimit, &rec.Replicas, &strategy, &status,
+		&rec.IdempotencyKey, &rec.Version, &rec.CreatedAt, &rec.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	rec.Strategy = contracts.DeploymentStrategy(strategy)
+	rec.Status = contracts.WorkloadStatus(status)
+	return &rec, nil
+}
+
+func scanWorkloadRows(rows *sql.Rows) ([]contracts.WorkloadProvisionRecord, error) {
+	var records []contracts.WorkloadProvisionRecord
+	for rows.Next() {
+		rec, err := scanWorkloadRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, *rec)
+	}
+	return records, rows.Err()
+}
+
+func startWorkloadSpan(ctx context.Context, name, op, tenantID, workloadID string) (context.Context, trace.Span) {
+	tracer := observability.GetTracer()
+	return tracer.StartSpan(ctx, name,
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", op),
+		attribute.String("tenant.id", tenantID),
+		attribute.String("workload.id", workloadID),
+	)
+}
+
+func resolveStrategy(strategy contracts.DeploymentStrategy) string {
+	if strategy == "" {
+		return string(contracts.StrategyCanary)
+	}
+	return string(strategy)
+}
+
+func resolvePublicID(publicID, id string) string {
+	if publicID != "" {
+		return publicID
+	}
+	clean := strings.ReplaceAll(id, "-", "")
+	if len(clean) > 26 {
+		clean = clean[:26]
+	}
+	return "wld_" + clean
+}
+
+func resolveSource(source string) string {
+	if source != "" {
+		return source
+	}
+	return "api"
+}
+
+func resolveExternalID(externalID, id string) string {
+	if externalID != "" {
+		return externalID
+	}
+	return id
+}
+
+func resolveCorrelationID(correlationID string) string {
+	if _, err := uuid.Parse(correlationID); err == nil {
+		return correlationID
+	}
+	return uuid.New().String()
+}
+
+func sanitizePagination(limit, offset int) (int, int) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+func verifyRowsAffected(res sql.Result, span trace.Span) error {
+	rowsAffected, err := res.RowsAffected()
 	if err != nil {
 		observability.RecordError(span, err)
 		return err
 	}
-	if affected == 0 {
-		conflictErr := errors.NewConflictError("optimistic concurrency conflict on update")
+	if rowsAffected == 0 {
+		conflictErr := errors.NewConflictError("optimistic lock failed: version mismatch or record not found")
 		observability.RecordError(span, conflictErr)
 		return conflictErr
 	}

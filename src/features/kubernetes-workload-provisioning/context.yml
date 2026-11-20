@@ -5,36 +5,56 @@ entity: workload_provisions
 owner: platform-core
 fields:
   - name: id
-    type: varchar(128)
+    type: uuid
     null: no
+    default: gen_random_uuid()
     constraint: PK(tenant_id, id), immutable
+  - name: public_id
+    type: text
+    null: no
+    constraint: UNIQUE, immutable, format 'wld_' + 26 chars
   - name: tenant_id
-    type: varchar(128)
+    type: uuid
     null: no
     constraint: PK(tenant_id, id), immutable
+  - name: source
+    type: text
+    null: no
+    constraint: CHECK (source = btrim(source) AND source <> '')
+  - name: external_id
+    type: text
+    null: no
+    normalize: trim
+    constraint: UNIQUE(tenant_id, source, external_id), length 1..128
+  - name: correlation_id
+    type: uuid
+    null: no
+    constraint: immutable, no FK
   - name: service_id
-    type: varchar(128)
+    type: text
     null: no
     constraint: immutable, INDEX(tenant_id, service_id)
   - name: namespace
-    type: varchar(256)
+    type: text
     null: no
-    constraint: immutable, format RFC-1123
+    normalize: trim
+    constraint: immutable, CHECK (namespace = btrim(namespace) AND namespace <> '')
   - name: workload_name
-    type: varchar(256)
+    type: text
     null: no
-    constraint: immutable, format RFC-1123
+    normalize: trim
+    constraint: immutable, CHECK (workload_name = btrim(workload_name) AND workload_name <> '')
   - name: cpu_request
-    type: varchar(32)
+    type: text
     null: no
   - name: cpu_limit
-    type: varchar(32)
+    type: text
     null: no
   - name: memory_request
-    type: varchar(32)
+    type: text
     null: no
   - name: memory_limit
-    type: varchar(32)
+    type: text
     null: no
   - name: replicas
     type: integer
@@ -42,11 +62,16 @@ fields:
     default: 2
     constraint: CHECK (replicas >= 1 AND replicas <= 100)
   - name: status
-    type: varchar(64)
+    type: text
     null: no
-    constraint: CHECK IN ('SUBMITTED', 'VALIDATED', 'ADMITTED', 'ACTIVE', 'REJECTED'), INDEX(status)
+    constraint: FK workload_lifecycle_states(code), INDEX(status)
+  - name: strategy
+    type: text
+    null: no
+    default: 'Canary'
+    constraint: FK workload_deployment_strategies(code)
   - name: idempotency_key
-    type: varchar(256)
+    type: text
     null: no
     constraint: UNIQUE(tenant_id, idempotency_key), immutable
   - name: version
@@ -62,6 +87,8 @@ fields:
     null: no
     default: now()
 invariants:
+  - tenant_id, source, and external_id uniquely identify an upstream system record
   - tenant_id and idempotency_key uniquely identify a provision request
+  - immutability enforced on id, public_id, tenant_id, and correlation_id
   - status transitions follow strict FSM rules
   - version increments on every successful mutation

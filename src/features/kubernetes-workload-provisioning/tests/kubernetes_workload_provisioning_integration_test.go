@@ -55,7 +55,7 @@ func getTestDatabaseConnection(t *testing.T) *sql.DB {
 	}
 	dbname := os.Getenv("DB_NAME")
 	if dbname == "" {
-		dbname = "postgres"
+		dbname = "idp_db"
 	}
 
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable connect_timeout=3", host, port, user, pass, dbname)
@@ -90,7 +90,11 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 
 	record := contracts.WorkloadProvisionRecord{
 		ID:             recordID,
+		PublicID:       "wld_" + uniqueSuffix,
 		TenantID:       tenantID,
+		Source:         "developer-portal",
+		ExternalID:     "ext-" + uniqueSuffix,
+		CorrelationID:  "00000000-0000-0000-0000-000000000001",
 		ServiceID:      "order-service",
 		Namespace:      "orders-live",
 		WorkloadName:   "orders-backend",
@@ -117,6 +121,18 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 	}
 	if fetched.WorkloadName != "orders-backend" {
 		t.Errorf("expected WorkloadName orders-backend, got %s", fetched.WorkloadName)
+	}
+	if fetched.PublicID != "wld_"+uniqueSuffix {
+		t.Errorf("expected PublicID wld_%s, got %s", uniqueSuffix, fetched.PublicID)
+	}
+	if fetched.Source != "developer-portal" {
+		t.Errorf("expected Source developer-portal, got %s", fetched.Source)
+	}
+	if fetched.ExternalID != "ext-"+uniqueSuffix {
+		t.Errorf("expected ExternalID ext-%s, got %s", uniqueSuffix, fetched.ExternalID)
+	}
+	if fetched.CorrelationID != "00000000-0000-0000-0000-000000000001" {
+		t.Errorf("expected CorrelationID 00000000-0000-0000-0000-000000000001, got %s", fetched.CorrelationID)
 	}
 	if fetched.Strategy != contracts.StrategyCanary {
 		t.Errorf("expected Strategy CANARY, got %s", fetched.Strategy)

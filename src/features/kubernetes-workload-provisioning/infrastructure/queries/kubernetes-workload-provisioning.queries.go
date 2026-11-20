@@ -3,14 +3,16 @@ package queries
 const (
 	FLOW_INSERT_WORKLOAD_PROVISION = `
 		INSERT INTO workload_provisions (
-			id, tenant_id, service_id, namespace, workload_name,
+			id, public_id, tenant_id, source, external_id, correlation_id,
+			service_id, namespace, workload_name,
 			cpu_request, cpu_limit, memory_request, memory_limit,
 			replicas, strategy, status, idempotency_key, version, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`
 
 	FLOW_SELECT_WORKLOAD_BY_ID = `
-		SELECT id, tenant_id, service_id, namespace, workload_name,
+		SELECT id, public_id, tenant_id, source, external_id, correlation_id,
+		       service_id, namespace, workload_name,
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status, idempotency_key, version, created_at, updated_at
 		FROM workload_provisions
@@ -18,7 +20,8 @@ const (
 	`
 
 	FLOW_SELECT_WORKLOAD_BY_IDEMPOTENCY = `
-		SELECT id, tenant_id, service_id, namespace, workload_name,
+		SELECT id, public_id, tenant_id, source, external_id, correlation_id,
+		       service_id, namespace, workload_name,
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status, idempotency_key, version, created_at, updated_at
 		FROM workload_provisions
@@ -26,7 +29,8 @@ const (
 	`
 
 	FLOW_LIST_WORKLOAD_PROVISIONS = `
-		SELECT id, tenant_id, service_id, namespace, workload_name,
+		SELECT id, public_id, tenant_id, source, external_id, correlation_id,
+		       service_id, namespace, workload_name,
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status, idempotency_key, version, created_at, updated_at
 		FROM workload_provisions
