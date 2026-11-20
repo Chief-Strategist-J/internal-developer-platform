@@ -3,12 +3,14 @@ package adapters
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/infra/clients/certificates"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/gateway"
 	"internal-developer-platform/src/infra/clients/kubernetes"
@@ -266,6 +268,55 @@ func buildGatewayManifests(cmd contracts.WorkloadProvisionCommand) (string, stri
 	return rt, bp
 }
 
+func buildCertificateYAML(cmd contracts.WorkloadProvisionCommand) string {
+	hosts := cmd.TLSHosts
+	if len(hosts) == 0 {
+		hosts = []string{fmt.Sprintf("%s.%s.example.com", cmd.WorkloadName, cmd.TenantID)}
+	}
+	spec := certificates.CertificateSpec{
+		Name:         fmt.Sprintf("%s-tls", cmd.WorkloadName),
+		Namespace:    cmd.Namespace,
+		SecretName:   fmt.Sprintf("%s-tls-cert", cmd.WorkloadName),
+		DNSNames:     hosts,
+		IssuerName:   "letsencrypt-prod",
+		IssuerKind:   certificates.IssuerKindCluster,
+		KeyAlgorithm: certificates.KeyAlgorithmECDSA,
+		KeySize:      256,
+		Duration:     certificates.DefaultCertDuration,
+		RenewBefore:  certificates.DefaultRenewBefore,
+	}
+	certYAML, err := certificates.GenerateCertificateYAML(spec)
+	if err != nil {
+		return ""
+	}
+	return certYAML
+}
+
+func buildSecretYAML(cmd contracts.WorkloadProvisionCommand) string {
+	if len(cmd.EncryptedSecrets) == 0 && cmd.KMSKeyURI == "" {
+		return ""
+	}
+	var dataBuilder strings.Builder
+	for k, v := range cmd.EncryptedSecrets {
+		dataBuilder.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
+	}
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s-secrets
+  namespace: %s
+  labels:
+    app.kubernetes.io/name: %s
+    app.kubernetes.io/part-of: %s
+    app.kubernetes.io/managed-by: internal-developer-platform
+  annotations:
+    kms.platform.idp.io/key-uri: %s
+    kms.platform.idp.io/algorithm: AES-256-GCM-KMS-ENVELOPE
+type: Opaque
+data:
+%s`, cmd.WorkloadName, cmd.Namespace, cmd.WorkloadName, cmd.TenantID, cmd.KMSKeyURI, dataBuilder.String())
+}
+
 func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (*contracts.ManifestBundle, error) {
 	return observability.RunTraced(ctx, "k8s.manifest.generate_bundle", func(ctx context.Context) (*contracts.ManifestBundle, error) {
 		vsYAML, drYAML := buildMeshManifests(cmd)
@@ -293,6 +344,8 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 			DatabaseYAML:            sqlYAML,
 			HTTPRouteYAML:           rtYAML,
 			BackendPolicyYAML:       bpYAML,
+			CertificateYAML:         buildCertificateYAML(cmd),
+			SecretYAML:              buildSecretYAML(cmd),
 		}, nil
 	}, attribute.String("workload.name", cmd.WorkloadName), attribute.String("namespace", cmd.Namespace))
 }
