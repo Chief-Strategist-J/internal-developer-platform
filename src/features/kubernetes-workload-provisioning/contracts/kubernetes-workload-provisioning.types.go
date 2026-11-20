@@ -1,4 +1,4 @@
-cpackage contracts
+package contracts
 
 import (
 	"crypto/sha256"
