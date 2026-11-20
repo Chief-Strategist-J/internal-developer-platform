@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"internal-developer-platform/src/api/rest/v1/middleware"
@@ -219,6 +220,110 @@ func (h *RBACHandler) writeError(w http.ResponseWriter, code int, errCode, messa
 			Message:   message,
 			Retryable: code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable,
 		},
+		Meta: types.ResponseMeta{
+			RequestID:       reqID,
+			CorrelationID:   corrID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	})
+}
+
+func (h *RBACHandler) RequestJITAccess(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	w.Header().Set("Content-Type", "application/json")
+	traceparent := r.Header.Get(constants.HeaderTraceparent)
+	reqID := r.Header.Get(constants.HeaderXRequestID)
+	corrID := r.Header.Get(constants.HeaderXCorrelationID)
+
+	var req rbacContracts.AccessGrantRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", start, reqID, corrID)
+		return
+	}
+
+	result, err := h.rbacSvc.RequestJITAccess(r.Context(), req)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start, reqID, corrID)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	w.Header().Set(constants.HeaderTraceparent, traceparent)
+	json.NewEncoder(w).Encode(types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusCreated,
+		Data:       result,
+		Meta: types.ResponseMeta{
+			RequestID:       reqID,
+			CorrelationID:   corrID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	})
+}
+
+func (h *RBACHandler) ListActiveGrants(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	w.Header().Set("Content-Type", "application/json")
+	traceparent := r.Header.Get(constants.HeaderTraceparent)
+	reqID := r.Header.Get(constants.HeaderXRequestID)
+	corrID := r.Header.Get(constants.HeaderXCorrelationID)
+	tenantID := r.Header.Get(constants.HeaderXTenantID)
+	subjectID := r.URL.Query().Get("subjectId")
+
+	grants, err := h.rbacSvc.ListActiveGrants(r.Context(), tenantID, subjectID)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start, reqID, corrID)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set(constants.HeaderTraceparent, traceparent)
+	json.NewEncoder(w).Encode(types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       grants,
+		Meta: types.ResponseMeta{
+			RequestID:       reqID,
+			CorrelationID:   corrID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	})
+}
+
+func (h *RBACHandler) RevokeJITAccess(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	w.Header().Set("Content-Type", "application/json")
+	traceparent := r.Header.Get(constants.HeaderTraceparent)
+	reqID := r.Header.Get(constants.HeaderXRequestID)
+	corrID := r.Header.Get(constants.HeaderXCorrelationID)
+	tenantID := r.Header.Get(constants.HeaderXTenantID)
+
+	trimmed := strings.Trim(r.URL.Path, "/")
+	parts := strings.Split(trimmed, "/")
+	grantID := ""
+	if len(parts) >= 5 {
+		grantID = parts[len(parts)-2]
+	}
+
+	if err := h.rbacSvc.RevokeJITAccess(r.Context(), tenantID, grantID); err != nil {
+		h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start, reqID, corrID)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set(constants.HeaderTraceparent, traceparent)
+	json.NewEncoder(w).Encode(types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       map[string]string{"status": "grant revoked"},
 		Meta: types.ResponseMeta{
 			RequestID:       reqID,
 			CorrelationID:   corrID,

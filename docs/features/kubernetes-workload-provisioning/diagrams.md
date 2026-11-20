@@ -270,6 +270,23 @@ erDiagram
         timestamptz created_at "Creation Timestamp"
         timestamptz updated_at "Update Timestamp"
     }
+
+    ACCESS_GRANTS {
+        varchar id PK "Access Grant ID"
+        varchar tenant_id "Tenant Isolation Boundary"
+        varchar subject_id "Subject Identity / User ID"
+        varchar target_namespace "Scoped Namespace Boundary"
+        varchar role "Granted JIT Debug Role"
+        text reason "Mandatory Business / Incident Justification"
+        int duration_seconds "Session Duration <= 14400s (4h ceiling)"
+        varchar approved_by "Authorizing Approver Role / Actor"
+        varchar status "CHECK: ACTIVE, EXPIRED, REVOKED"
+        timestamptz expires_at "Hard Session Expiration Timestamp"
+        varchar idempotency_key UK "Deduplication Key"
+        bigint version "Optimistic Concurrency Counter"
+        timestamptz created_at "Creation Timestamp"
+        timestamptz updated_at "Update Timestamp"
+    }
 ```
 
 ### Criticality Rationale: Why Cross-Feature Relational Integrity Is Essential

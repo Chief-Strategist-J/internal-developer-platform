@@ -279,5 +279,39 @@
   2. Synthesize declarative Google Config Connector `StorageBucket` resources configured with `encryption.defaultKmsKeyName` referencing dedicated security CMEK keys.
 - **Consequences**: Audit logs are protected by customer-held cryptographic keys and scrubbed of sensitive user data prior to long-term compliance archival.
 
+---
+
+## ADR-027: Just-In-Time (JIT) Access Grants and Hard Session Duration Ceilings
+- **Status**: Accepted
+- **Context**: Standing privileged access in production environments presents extreme security exposure and violates compliance regimes (B-1). Developers and operators require temporary access for active incident debugging, but naked Kubernetes RoleBindings lack native expiration or revocation mechanics.
+- **Decision**:
+  1. Enforce a zero standing production access baseline.
+  2. Require all production access via Just-In-Time (JIT) `access_grants` with mandatory business reason and approved role authorization (`PlatformAdmin` or `SecurityLead`).
+  3. Enforce a hard security ceiling of 4 hours (14,400 seconds) on any JIT session (`JIT-DUR-001`).
+  4. Automatically invalidate and revoke expired grants via asynchronous eviction and verification guards.
+- **Consequences**: Prevents privilege accumulation; ensures every production access session is time-bounded, justified, and cryptographically revocable.
+
+---
+
+## ADR-028: Absolute Prohibition of `nodes/proxy` and Kubelet Exec Privileges [V-25]
+- **Status**: Accepted
+- **Context**: In Kubernetes, granting `nodes/proxy` or `nodes/exec` permissions allows callers to interact directly with the Kubelet API on worker nodes, bypassing Pod Security Standards, admission webhooks, network policies, and audit logging sinks.
+- **Decision**:
+  1. Add admission guard `ValidateRoleSecurityPosture` prohibiting `nodes/proxy`, `nodes/exec`, and direct kubelet subresource permissions across all human and monitoring roles (`SEC-PROXY-001`).
+  2. Enforce database-level check constraint `chk_prohibit_nodes_proxy` on `access_grants` table to guarantee that no JIT grant can request or bind node proxy privileges.
+- **Consequences**: Eliminates node-level privilege escalation pathways; guarantees all cluster interactions remain constrained within tenant namespace boundaries.
+
+---
+
+## ADR-029: Ephemeral Debug Container Supply Chain and Continuous Auditing [V-24, V-26, V-32]
+- **Status**: Accepted
+- **Context**: Ephemeral debug containers (`kubectl debug`) injected into running production pods run with elevated debugging tools. If unvetted public images are attached mid-incident, malicious binaries or unverified diagnostic tools could compromise pod memory and secrets.
+- **Decision**:
+  1. Enforce `ValidateEphemeralDebugContainer`: ephemeral debug images must originate strictly from approved internal container registries (`V-26`).
+  2. Require immutable digest references (`@sha256:`) for ephemeral containers in production namespaces.
+  3. Emit structured audit events (`V-32`) for every ephemeral container attachment and pod exec session, capturing caller identity and target container PID.
+- **Consequences**: Incident debugging remains responsive while ensuring forensic integrity and protecting workload memory from untrusted tooling.
+
+
 
 
