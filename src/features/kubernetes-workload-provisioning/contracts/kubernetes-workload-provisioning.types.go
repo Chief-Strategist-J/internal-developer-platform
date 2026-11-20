@@ -35,11 +35,14 @@ type CanaryStep struct {
 }
 
 type AnalysisMetric struct {
-	Name             string `json:"name"`
-	Interval         string `json:"interval"`
-	SuccessCondition string `json:"successCondition"`
-	FailureLimit     int    `json:"failureLimit"`
-	Query            string `json:"query"`
+	Name                  string `json:"name"`
+	Interval              string `json:"interval"`
+	Count                 int    `json:"count,omitempty"`
+	SuccessCondition      string `json:"successCondition"`
+	FailureLimit          int    `json:"failureLimit"`
+	InconclusiveLimit     int    `json:"inconclusiveLimit"`
+	ConsecutiveErrorLimit int    `json:"consecutiveErrorLimit"`
+	Query                 string `json:"query"`
 }
 
 type RolloutConfig struct {

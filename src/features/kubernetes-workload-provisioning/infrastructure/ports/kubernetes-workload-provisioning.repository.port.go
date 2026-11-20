@@ -27,4 +27,5 @@ type K8sClientPort interface {
 
 type GitOpsDeliveryPort interface {
 	CommitManifestBundle(ctx context.Context, tenantID, workloadName string, bundle contracts.ManifestBundle) error
+	RevertManifestBundle(ctx context.Context, tenantID, workloadName, reason string) error
 }
