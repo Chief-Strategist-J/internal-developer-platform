@@ -217,3 +217,36 @@
   3. Wire certificate manifests into the GitOps bundle for automated reconciliation alongside ingress HTTPRoutes.
 - **Consequences**: Eliminates unexpected certificate expiration outages; guarantees timely automated renewals 30 days prior to expiry with proactive alert classification.
 
+---
+
+## ADR-021: Cloud Service Mesh Managed Control Plane & PeerAuthentication STRICT Enforcement [V-30]
+- **Status**: Accepted
+- **Context**: Government zero-trust security architecture mandates mutual TLS (mTLS) for all inter-service communications in production namespaces. Relying on default mesh settings leaves traffic in `PERMISSIVE` mode, allowing unauthenticated and unencrypted plaintext communication.
+- **Decision**:
+  1. Mandate mTLS `STRICT` mode for all production namespaces in `rules.ValidateMeshSecurity` (`MESH-MTLS-001`). Reject any `PERMISSIVE` or `DISABLE` configuration at admission time.
+  2. Synthesize declarative `security.istio.io/v1beta1` `PeerAuthentication` manifests in `adapters.buildMeshManifests` targeting workload labels with `spec.mtls.mode: STRICT`.
+  3. Include `PeerAuthentication` manifests in the GitOps delivery bundle reconciled by Argo CD.
+- **Consequences**: Guarantees zero plaintext inter-service traffic in production; non-mTLS connections are rejected at the Envoy proxy layer.
+
+---
+
+## ADR-022: Admission Prohibition of In-Cluster OSS Istio and Unsupported EnvoyFilter/WasmPlugin CRDs [V-30]
+- **Status**: Accepted
+- **Context**: Managed Google Cloud Service Mesh does not support in-cluster `istiod` control planes and explicitly does not support custom `EnvoyFilter` or `WasmPlugin` CRDs. Applying these resources breaks automated mesh upgrades, corrupts proxy configurations, and causes cluster-wide network outages.
+- **Decision**:
+  1. Add admission guard `rules.ValidateMeshCRDCompatibility` checking tenant workload resource lists.
+  2. Reject any workload manifest attempting to declare or reference `EnvoyFilter`, `WasmPlugin`, `istiod`, or `in-cluster-istio` with violation `MESH-OSS-001`.
+- **Consequences**: Protects managed mesh stability; prevents tenant teams from deploying unmaintainable or incompatible Layer-7 proxy filters that break fleet upgrade rings.
+
+---
+
+## ADR-023: Tenant Egress Perimeter Control via Declarative NetworkPolicy & ServiceEntry Boundaries
+- **Status**: Accepted
+- **Context**: Workload namespaces enforce default-deny egress (allowing only DNS on port 53). Workloads requiring external third-party API access (e.g. Stripe, AWS S3, OAuth providers) fail connection attempts unless explicit egress permissions are provisioned. However, wildcard egress violates zero-trust perimeters.
+- **Decision**:
+  1. Introduce structured `contracts.EgressRule` (`Host`, `Port`, `Protocol`) in `WorkloadProvisionCommand`.
+  2. Synthesize declarative `networking.istio.io/v1beta1` `ServiceEntry` resources (`MESH_EXTERNAL`, DNS resolution) for allowlisted third-party hostnames and ports.
+  3. Commit `ServiceEntry` manifests as part of the workload GitOps delivery bundle.
+- **Consequences**: Workloads can securely access designated external endpoints with full DNS resolution while maintaining strict perimeter isolation and preventing unauthorized data exfiltration.
+
+

@@ -346,6 +346,8 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 			BackendPolicyYAML:       bpYAML,
 			CertificateYAML:         buildCertificateYAML(cmd),
 			SecretYAML:              buildSecretYAML(cmd),
+			PeerAuthenticationYAML:  rules.GeneratePeerAuthenticationYAML(cmd.Namespace, cmd.WorkloadName, cmd.MeshSecurity.MtlsMode),
+			ServiceEntryYAML:        rules.GenerateServiceEntryYAML(cmd),
 		}, nil
 	}, attribute.String("workload.name", cmd.WorkloadName), attribute.String("namespace", cmd.Namespace))
 }
