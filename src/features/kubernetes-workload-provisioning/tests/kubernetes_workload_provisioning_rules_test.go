@@ -735,4 +735,36 @@ func TestValidateIncidentAndOnCallRules(t *testing.T) {
 			t.Fatalf("expected all disallowed resources rejected, got ok=%v, violations=%d", ok, len(violations))
 		}
 	})
+
+	t.Run("dr active-passive topology requires fencing and single writer", func(t *testing.T) {
+		cfg := contracts.MultiClusterDRConfig{
+			Enabled:               true,
+			Topology:              contracts.TopologyActivePassive,
+			PrimaryCluster:        "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod-us-central1",
+			StandbyCluster:        "projects/gov-idp-prod/locations/us-east1/clusters/gke-dr-us-east1",
+			StandbyRegion:         "us-east1",
+			DatasetFencingEnabled: true,
+			ActiveWriterCluster:   "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod-us-central1",
+		}
+		ok, violations := rules.ValidateDisasterRecoveryConfig(cfg)
+		if !ok || len(violations) > 0 {
+			t.Fatalf("expected valid DR config to pass, got violations: %v", violations)
+		}
+	})
+
+	t.Run("dr active-passive without fencing fails", func(t *testing.T) {
+		cfg := contracts.MultiClusterDRConfig{
+			Enabled:               true,
+			Topology:              contracts.TopologyActivePassive,
+			PrimaryCluster:        "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod-us-central1",
+			StandbyCluster:        "projects/gov-idp-prod/locations/us-east1/clusters/gke-dr-us-east1",
+			StandbyRegion:         "us-east1",
+			DatasetFencingEnabled: false,
+			ActiveWriterCluster:   "",
+		}
+		ok, violations := rules.ValidateDisasterRecoveryConfig(cfg)
+		if ok || len(violations) == 0 {
+			t.Fatal("expected failure for unfenced active-passive topology")
+		}
+	})
 }
