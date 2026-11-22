@@ -187,13 +187,24 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 8] POST /api/v1/workloads -> Provision Workload with Distributed Traces"
 echo "--------------------------------------------------------------------------------"
+WKLD_DEV_SUB="wkld-dev-$(date +%s%N)"
+WKLD_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"subjectId\": \"${WKLD_DEV_SUB}\",
+    \"tenantId\": \"fintech-team\",
+    \"roles\": [\"Developer\"],
+    \"ttlSeconds\": 3600
+  }")
+WKLD_TOKEN=$(echo "${WKLD_TOKEN_RESP}" | grep -o '"accessToken":"[^"]*' | cut -d'"' -f4)
+
 WKLD_ID="wkld-e2e-$(date +%s)"
 TRACE_ID="4bf92f3577b34da6a3ce929d0e0e4736"
 SPAN_ID="00f067aa0ba902b7"
 TRACEPARENT="00-${TRACE_ID}-${SPAN_ID}-01"
 
 WORKLOAD_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads" \
-  -H "Authorization: Bearer ${DEV_TOKEN}" \
+  -H "Authorization: Bearer ${WKLD_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: ${TRACEPARENT}" \
   -H "Content-Type: application/json" \
@@ -201,7 +212,7 @@ WORKLOAD_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workload
     \"id\": \"${WKLD_ID}\",
     \"tenantId\": \"fintech-team\",
     \"serviceId\": \"fintech-ledger-api\",
-    \"namespace\": \"fintech-prod\",
+    \"namespace\": \"fintech-dev\",
     \"workloadName\": \"ledger-worker\",
     \"image\": \"gcr.io/fintech-team/worker@sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",
     \"cpuRequest\": \"250m\",
@@ -226,7 +237,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 9] GET /api/v1/workloads/${WKLD_ID} -> Retrieve Workload State"
 echo "--------------------------------------------------------------------------------"
 GET_WKLD_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/${WKLD_ID}" \
-  -H "Authorization: Bearer ${DEV_TOKEN}" \
+  -H "Authorization: Bearer ${WKLD_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: ${TRACEPARENT}")
 
