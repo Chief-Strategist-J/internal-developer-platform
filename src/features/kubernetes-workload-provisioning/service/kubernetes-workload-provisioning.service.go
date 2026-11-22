@@ -474,3 +474,69 @@ func (s *WorkloadProvisioningService) RollbackWorkload(ctx context.Context, tena
 		return record, nil
 	})
 }
+
+func (s *WorkloadProvisioningService) DecommissionWorkload(ctx context.Context, cmd contracts.WorkloadDecommissionCommand) (*contracts.DecommissionExecutionResult, error) {
+	return observability.RunTraced(ctx, "kubernetes.workload.decommission", func(ctx context.Context) (*contracts.DecommissionExecutionResult, error) {
+		if err := rules.ValidateDecommissionDecision(cmd); err != nil {
+			return nil, err
+		}
+
+		records, err := s.store.List(ctx, contracts.FilterCriteria{
+			TenantID: cmd.TenantID,
+			Limit:    100,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		var targetRecord *contracts.WorkloadProvisionRecord
+		for _, r := range records {
+			if r.Namespace == cmd.Namespace && r.WorkloadName == cmd.WorkloadName {
+				rec := r
+				targetRecord = &rec
+				break
+			}
+		}
+
+		if targetRecord == nil {
+			return nil, errors.NewNotFoundError(fmt.Sprintf("workload %s/%s not found for decommissioning", cmd.Namespace, cmd.WorkloadName))
+		}
+
+		decommStatus, err := machines.TransitionWorkloadState(targetRecord.Status, machines.EventDecommission)
+		if err != nil {
+			return nil, err
+		}
+		targetRecord.Status = decommStatus
+		targetRecord.Version++
+		targetRecord.UpdatedAt = time.Now().UTC()
+		if err := s.store.Update(ctx, *targetRecord); err != nil {
+			return nil, err
+		}
+
+		executedSteps, err := workflows.ExecuteDecommissionDAG(ctx, cmd)
+		if err != nil {
+			_, _ = machines.TransitionWorkloadState(targetRecord.Status, machines.EventReject)
+			return nil, err
+		}
+
+		finalStatus, err := machines.TransitionWorkloadState(targetRecord.Status, machines.EventCompleteDecommission)
+		if err != nil {
+			return nil, err
+		}
+		targetRecord.Status = finalStatus
+		targetRecord.Version++
+		targetRecord.UpdatedAt = time.Now().UTC()
+		if err := s.store.Update(ctx, *targetRecord); err != nil {
+			return nil, err
+		}
+
+		auditRecordID := fmt.Sprintf("decomm-audit-%s", uuid.New().String())
+		return &contracts.DecommissionExecutionResult{
+			WorkloadName:  cmd.WorkloadName,
+			Namespace:     cmd.Namespace,
+			Status:        finalStatus,
+			StepsExecuted: executedSteps,
+			AuditRecordID: auditRecordID,
+		}, nil
+	}, attribute.String("tenant.id", cmd.TenantID), attribute.String("workload.name", cmd.WorkloadName))
+}
