@@ -305,6 +305,12 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 	}
 	violations = append(violations, crdViolations...)
 
+	tenantCRDOk, tenantCRDViolations := ValidateTenantCRDAndClusterScope(cmd.RequestedResources)
+	if !tenantCRDOk {
+		critical = true
+	}
+	violations = append(violations, tenantCRDViolations...)
+
 	audOk, audViolations := ValidateAuditLogging(cmd.Namespace, mutations.AuditLogging)
 	if !audOk {
 		critical = true
@@ -1125,6 +1131,39 @@ func ValidateDecommissionDecision(cmd contracts.WorkloadDecommissionCommand) err
 		return errors.NewValidationError("V-34 violation: locked backups must outlive decommissioned workload")
 	}
 	return nil
+}
+
+func ValidateTenantCRDAndClusterScope(resources []string) (bool, []contracts.AdmissionViolation) {
+	if len(resources) == 0 {
+		return true, nil
+	}
+
+	disallowedClusterKinds := map[string]string{
+		"customresourcedefinition":       "CRDs are platform-only; tenants cannot define or install CustomResourceDefinitions",
+		"crd":                            "CRDs are platform-only; tenants cannot define or install CustomResourceDefinitions",
+		"clusterrole":                    "ClusterRole is cluster-scoped; tenants must use namespace-scoped Roles",
+		"clusterrolebinding":             "ClusterRoleBinding is cluster-scoped; tenants must use namespace-scoped RoleBindings",
+		"validatingwebhookconfiguration": "Cluster admission webhooks are platform-managed only",
+		"mutatingwebhookconfiguration":   "Cluster mutating webhooks are platform-managed only",
+		"storageclass":                   "StorageClasses are platform-managed; tenants must consume existing storage classes",
+		"priorityclass":                  "PriorityClasses are cluster-scoped; tenants cannot define global priority classes",
+	}
+
+	violations := make([]contracts.AdmissionViolation, 0)
+	for _, res := range resources {
+		normalized := strings.ToLower(strings.TrimSpace(res))
+		if msg, exists := disallowedClusterKinds[normalized]; exists {
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "V-05",
+				Message: fmt.Sprintf("disallowed cluster-scoped or CRD resource '%s': %s", res, msg),
+			})
+		}
+	}
+
+	if len(violations) > 0 {
+		return false, violations
+	}
+	return true, nil
 }
 
 

@@ -222,6 +222,7 @@ type WorkloadProvisionCommand struct {
 	OnCallPager      string              `json:"onCallPager,omitempty"`
 	RunbookURL       string              `json:"runbookUrl,omitempty"`
 	IncidentTier     IncidentTier        `json:"incidentTier,omitempty"`
+	RequestedResources []string          `json:"requestedResources,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
