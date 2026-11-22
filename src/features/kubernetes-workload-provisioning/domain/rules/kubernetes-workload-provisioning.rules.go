@@ -1099,6 +1099,34 @@ func ValidateBackupPlanRules(cmd contracts.WorkloadProvisionCommand) error {
 	return nil
 }
 
+func ValidateDecommissionDecision(cmd contracts.WorkloadDecommissionCommand) error {
+	if strings.TrimSpace(cmd.TenantID) == "" {
+		return errors.NewValidationError("V-34 violation: tenantId must not be empty for decommissioning")
+	}
+	if strings.TrimSpace(cmd.Namespace) == "" {
+		return errors.NewValidationError("V-34 violation: namespace must not be empty for decommissioning")
+	}
+	if strings.TrimSpace(cmd.WorkloadName) == "" {
+		return errors.NewValidationError("V-34 violation: workloadName must not be empty for decommissioning")
+	}
+	if !cmd.Decision.DecisionRecorded {
+		return errors.NewValidationError("V-34 violation: decommissioning blocked - no data may be deleted without a recorded decision")
+	}
+	if strings.TrimSpace(cmd.Decision.ApprovedBy) == "" {
+		return errors.NewValidationError("V-34 violation: decommissioning decision must be approved by authorized role")
+	}
+	if strings.TrimSpace(cmd.Decision.Reason) == "" {
+		return errors.NewValidationError("V-34 violation: decommissioning decision must state business reason")
+	}
+	if cmd.Decision.RetentionDays < 30 {
+		return errors.NewValidationError("V-34 violation: compliance floor breach - audit/backup retention during decommission must be at least 30 days")
+	}
+	if !cmd.Decision.LockBackups {
+		return errors.NewValidationError("V-34 violation: locked backups must outlive decommissioned workload")
+	}
+	return nil
+}
+
 
 
 
