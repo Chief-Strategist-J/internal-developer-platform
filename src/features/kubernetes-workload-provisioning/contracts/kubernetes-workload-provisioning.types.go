@@ -130,6 +130,25 @@ type CertificateExpiryStatus struct {
 	ExpirationTime time.Time `json:"expirationTime"`
 }
 
+type BackupPlanConfig struct {
+	Enabled           bool     `json:"enabled"`
+	Cluster           string   `json:"cluster"`
+	Location          string   `json:"location"`
+	CronSchedule      string   `json:"cronSchedule,omitempty"`
+	RetentionDays     int      `json:"retentionDays"`
+	LockedRetention   bool     `json:"lockedRetention"`
+	IncludeSecrets    bool     `json:"includeSecrets"`
+	IncludeVolumeData bool     `json:"includeVolumeData"`
+	EncryptionKeyKMS  string   `json:"encryptionKeyKms,omitempty"`
+}
+
+type RestorePlanConfig struct {
+	Enabled          bool   `json:"enabled"`
+	TargetCluster    string `json:"targetCluster"`
+	SourceBackupPlan string `json:"sourceBackupPlan"`
+	ConflictPolicy   string `json:"conflictPolicy,omitempty"`
+}
+
 type WorkloadProvisionCommand struct {
 	ID               string             `json:"id"`
 	PublicID         string             `json:"publicId,omitempty"`
@@ -160,6 +179,8 @@ type WorkloadProvisionCommand struct {
 	UnsupportedMeshResources []string    `json:"unsupportedMeshResources,omitempty"`
 	EgressRules      []EgressRule        `json:"egressRules,omitempty"`
 	AuditLogging     AuditLoggingConfig  `json:"auditLogging,omitempty"`
+	BackupPlan       BackupPlanConfig    `json:"backupPlan,omitempty"`
+	RestorePlan      RestorePlanConfig   `json:"restorePlan,omitempty"`
 	OnCallPager      string              `json:"onCallPager,omitempty"`
 	RunbookURL       string              `json:"runbookUrl,omitempty"`
 	IncidentTier     IncidentTier        `json:"incidentTier,omitempty"`
@@ -247,6 +268,8 @@ type ManifestBundle struct {
 	ServiceEntryYAML        string `json:"serviceEntryYaml,omitempty"`
 	LogSinkYAML             string `json:"logSinkYaml,omitempty"`
 	LoggingBucketYAML       string `json:"loggingBucketYaml,omitempty"`
+	BackupPlanYAML          string `json:"backupPlanYaml,omitempty"`
+	RestorePlanYAML         string `json:"restorePlanYaml,omitempty"`
 }
 
 type AdmissionViolation struct {

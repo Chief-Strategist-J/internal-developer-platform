@@ -142,8 +142,8 @@ func TestExecuteProvisionDAG_SynthesizesCanaryAndCloudBundle(t *testing.T) {
 		t.Fatalf("unexpected error executing DAG: %v", err)
 	}
 
-	if len(exec.Steps) != 8 {
-		t.Errorf("expected 8 DAG steps, got %d", len(exec.Steps))
+	if len(exec.Steps) != 9 {
+		t.Errorf("expected 9 DAG steps, got %d", len(exec.Steps))
 	}
 
 	if bundle == nil {

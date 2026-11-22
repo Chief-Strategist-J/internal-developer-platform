@@ -1061,6 +1061,45 @@ func ValidateIncidentAndOnCallRules(tier contracts.IncidentTier, pager, runbookU
 	return nil
 }
 
+func ValidateBackupPlanRules(cmd contracts.WorkloadProvisionCommand) error {
+	if !cmd.BackupPlan.Enabled {
+		return nil
+	}
+
+	if strings.TrimSpace(cmd.BackupPlan.Cluster) == "" {
+		return errors.NewValidationError("V-33 violation: backup cluster resource path must not be empty")
+	}
+
+	if strings.TrimSpace(cmd.BackupPlan.Location) == "" {
+		return errors.NewValidationError("V-33 violation: backup location must not be empty")
+	}
+
+	if cmd.BackupPlan.RetentionDays < 30 {
+		return errors.NewValidationError("V-33 violation: backup retention must be at least 30 days")
+	}
+
+	if !cmd.BackupPlan.LockedRetention {
+		return errors.NewValidationError("V-33 violation: backup retention lock is mandatory for compliance")
+	}
+
+	if !cmd.BackupPlan.IncludeSecrets {
+		return errors.NewValidationError("V-33 violation: backup plan must include secrets")
+	}
+
+	if !cmd.BackupPlan.IncludeVolumeData {
+		return errors.NewValidationError("V-33 violation: backup plan must include volume data")
+	}
+
+	if cmd.RestorePlan.Enabled {
+		if strings.TrimSpace(cmd.RestorePlan.TargetCluster) == "" {
+			return errors.NewValidationError("V-33 violation: restore target cluster must not be empty")
+		}
+	}
+
+	return nil
+}
+
+
 
 
 
