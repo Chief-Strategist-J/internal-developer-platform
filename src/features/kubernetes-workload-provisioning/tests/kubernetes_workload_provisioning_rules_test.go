@@ -647,4 +647,77 @@ func TestValidateIncidentAndOnCallRules(t *testing.T) {
 			t.Fatal("expected error for missing secrets, got nil")
 		}
 	})
+
+	t.Run("decommission valid decision passes", func(t *testing.T) {
+		cmd := contracts.WorkloadDecommissionCommand{
+			TenantID:     "tenant-fintech",
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			Decision: contracts.DecommissionDecision{
+				ApprovedBy:       "arch-lead",
+				Reason:           "Service migration to v2 complete",
+				RetentionDays:    90,
+				LockBackups:      true,
+				DecisionRecorded: true,
+				RecordedAt:       time.Now().UTC(),
+			},
+		}
+		if err := rules.ValidateDecommissionDecision(cmd); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("decommission unrecorded decision blocked", func(t *testing.T) {
+		cmd := contracts.WorkloadDecommissionCommand{
+			TenantID:     "tenant-fintech",
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			Decision: contracts.DecommissionDecision{
+				ApprovedBy:       "arch-lead",
+				Reason:           "Cleanup",
+				RetentionDays:    90,
+				LockBackups:      true,
+				DecisionRecorded: false,
+			},
+		}
+		if err := rules.ValidateDecommissionDecision(cmd); err == nil {
+			t.Fatal("expected error for unrecorded decision, got nil")
+		}
+	})
+
+	t.Run("decommission retention below 30 days fails", func(t *testing.T) {
+		cmd := contracts.WorkloadDecommissionCommand{
+			TenantID:     "tenant-fintech",
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			Decision: contracts.DecommissionDecision{
+				ApprovedBy:       "arch-lead",
+				Reason:           "Cleanup",
+				RetentionDays:    15,
+				LockBackups:      true,
+				DecisionRecorded: true,
+			},
+		}
+		if err := rules.ValidateDecommissionDecision(cmd); err == nil {
+			t.Fatal("expected error for retention < 30 days, got nil")
+		}
+	})
+
+	t.Run("decommission unlocked backups fails", func(t *testing.T) {
+		cmd := contracts.WorkloadDecommissionCommand{
+			TenantID:     "tenant-fintech",
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			Decision: contracts.DecommissionDecision{
+				ApprovedBy:       "arch-lead",
+				Reason:           "Cleanup",
+				RetentionDays:    30,
+				LockBackups:      false,
+				DecisionRecorded: true,
+			},
+		}
+		if err := rules.ValidateDecommissionDecision(cmd); err == nil {
+			t.Fatal("expected error for unlocked backups, got nil")
+		}
+	})
 }
