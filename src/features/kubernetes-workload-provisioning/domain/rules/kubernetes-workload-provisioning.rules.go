@@ -323,6 +323,18 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 	}
 	violations = append(violations, audViolations...)
 
+	costOk, costViolations := ValidateCostAndChargebackLabels(cmd)
+	if !costOk {
+		critical = true
+	}
+	violations = append(violations, costViolations...)
+
+	depOk, depViolations := ValidateKubernetesAPIVersions(cmd.RequestedResources)
+	if !depOk {
+		critical = true
+	}
+	violations = append(violations, depViolations...)
+
 	if critical {
 		return contracts.AdmissionReport{
 			Admitted:   false,
@@ -1028,6 +1040,11 @@ func ValidateEphemeralDebugContainer(image string, approvedRegistries []string, 
 }
 
 func GenerateJITRoleBindingYAML(grantID, namespace, subjectID, role, approvedBy, reason, expiresAt string) string {
+	subjectKind := "Group"
+	subjectName := subjectID
+	if strings.HasPrefix(subjectID, "group:") {
+		subjectName = strings.TrimPrefix(subjectID, "group:")
+	}
 	return fmt.Sprintf(`apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -1038,13 +1055,27 @@ metadata:
     security.internal.idp/approved-by: "%s"
     security.internal.idp/reason: "%s"
 subjects:
-- kind: User
+- kind: %s
   name: %s
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
   name: %s
-  apiGroup: rbac.authorization.k8s.io`, grantID, namespace, expiresAt, approvedBy, reason, subjectID, role)
+  apiGroup: rbac.authorization.k8s.io`, grantID, namespace, expiresAt, approvedBy, reason, subjectKind, subjectName, role)
+}
+
+func ValidateJITSubjectIdentity(subjectID string) error {
+	trimmed := strings.TrimSpace(subjectID)
+	if trimmed == "" {
+		return errors.NewValidationError("V-28 violation: JIT grant subject must not be empty")
+	}
+	if strings.HasPrefix(trimmed, "user:") || strings.Contains(trimmed, "@") {
+		return errors.NewValidationError("V-28 violation: direct user accounts prohibited; access must be granted strictly via IdP groups (e.g. group:ops-team)")
+	}
+	if !strings.HasPrefix(trimmed, "group:") {
+		return errors.NewValidationError("V-28 violation: subject identity must explicitly specify 'group:' prefix mapped from IdP")
+	}
+	return nil
 }
 
 func ValidateIncidentAndOnCallRules(tier contracts.IncidentTier, pager, runbookURL string) error {
@@ -1233,7 +1264,56 @@ func ValidateDisasterRecoveryConfig(cfg contracts.MultiClusterDRConfig) (bool, [
 	return true, nil
 }
 
+func ValidateCostAndChargebackLabels(cmd contracts.WorkloadProvisionCommand) (bool, []contracts.AdmissionViolation) {
+	violations := make([]contracts.AdmissionViolation, 0)
+	if strings.TrimSpace(cmd.TenantID) == "" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "FIN-001",
+			Message: "chargeback compliance breach: mandatory tenant owner label missing",
+		})
+	}
+	effectiveCostCenter := strings.TrimSpace(cmd.CostCenter)
+	if effectiveCostCenter == "" {
+		effectiveCostCenter = strings.TrimSpace(cmd.TenantID)
+	}
+	if effectiveCostCenter == "" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "FIN-002",
+			Message: "chargeback compliance breach: mandatory cost-center label missing",
+		})
+	}
+	if len(violations) > 0 {
+		return false, violations
+	}
+	return true, nil
+}
 
-
-
-
+func ValidateKubernetesAPIVersions(resources []string) (bool, []contracts.AdmissionViolation) {
+	if len(resources) == 0 {
+		return true, nil
+	}
+	deprecatedAPIs := map[string]string{
+		"extensions/v1beta1":              "removed in v1.16; migrate to apps/v1, networking.k8s.io/v1",
+		"networking.k8s.io/v1beta1":       "removed in v1.22; migrate to networking.k8s.io/v1",
+		"policy/v1beta1/podsecuritypolicy": "removed in v1.25; migrate to Pod Security Standards",
+		"batch/v1beta1":                   "removed in v1.25; migrate to batch/v1",
+		"autoscaling/v2beta1":             "removed in v1.25; migrate to autoscaling/v2",
+		"autoscaling/v2beta2":             "removed in v1.26; migrate to autoscaling/v2",
+	}
+	violations := make([]contracts.AdmissionViolation, 0)
+	for _, res := range resources {
+		resLower := strings.ToLower(strings.TrimSpace(res))
+		for depAPI, migration := range deprecatedAPIs {
+			if strings.Contains(resLower, depAPI) {
+				violations = append(violations, contracts.AdmissionViolation{
+					Rule:    "V-09",
+					Message: fmt.Sprintf("deprecated Kubernetes API '%s' detected (%s)", depAPI, migration),
+				})
+			}
+		}
+	}
+	if len(violations) > 0 {
+		return false, violations
+	}
+	return true, nil
+}

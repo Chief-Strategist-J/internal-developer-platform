@@ -768,3 +768,67 @@ func TestValidateIncidentAndOnCallRules(t *testing.T) {
 		}
 	})
 }
+
+
+func TestValidateCostAndChargebackLabels(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		TenantID: "tenant-payments",
+		CostCenter: "CC-9801",
+	}
+	ok, violations := rules.ValidateCostAndChargebackLabels(cmd)
+	if !ok || len(violations) > 0 {
+		t.Fatalf("expected valid cost center labels to pass, got violations: %+v", violations)
+	}
+
+	cmdNoOwner := contracts.WorkloadProvisionCommand{
+		TenantID: "",
+		CostCenter: "CC-9801",
+	}
+	okNoOwner, violationsNoOwner := rules.ValidateCostAndChargebackLabels(cmdNoOwner)
+	if okNoOwner || len(violationsNoOwner) == 0 {
+		t.Fatalf("expected missing tenant owner to fail")
+	}
+
+	cmdDefaultFallback := contracts.WorkloadProvisionCommand{
+		TenantID: "tenant-payments",
+	}
+	okFallback, _ := rules.ValidateCostAndChargebackLabels(cmdDefaultFallback)
+	if !okFallback {
+		t.Fatalf("expected tenantID fallback to pass")
+	}
+}
+
+func TestValidateKubernetesAPIVersions(t *testing.T) {
+	validResources := []string{
+		"apps/v1/Deployment",
+		"networking.k8s.io/v1/NetworkPolicy",
+		"policy/v1/PodDisruptionBudget",
+	}
+	ok, violations := rules.ValidateKubernetesAPIVersions(validResources)
+	if !ok || len(violations) > 0 {
+		t.Fatalf("expected modern APIs to pass, got violations: %+v", violations)
+	}
+
+	deprecatedResources := []string{
+		"extensions/v1beta1/Ingress",
+		"policy/v1beta1/PodSecurityPolicy",
+	}
+	okDep, violationsDep := rules.ValidateKubernetesAPIVersions(deprecatedResources)
+	if okDep || len(violationsDep) != 2 {
+		t.Fatalf("expected 2 deprecated API violations, got ok=%v, violations: %+v", okDep, violationsDep)
+	}
+}
+
+func TestValidateJITSubjectIdentity(t *testing.T) {
+	if err := rules.ValidateJITSubjectIdentity("group:sre-team"); err != nil {
+		t.Fatalf("expected group subject to pass: %v", err)
+	}
+
+	if err := rules.ValidateJITSubjectIdentity("user:alice@example.com"); err == nil {
+		t.Fatalf("expected user account to be rejected")
+	}
+
+	if err := rules.ValidateJITSubjectIdentity("sre-team"); err == nil {
+		t.Fatalf("expected non-prefixed subject to be rejected")
+	}
+}

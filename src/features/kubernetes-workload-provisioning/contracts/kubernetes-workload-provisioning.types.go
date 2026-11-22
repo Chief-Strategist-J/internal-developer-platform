@@ -239,6 +239,7 @@ type WorkloadProvisionCommand struct {
 	OnCallPager      string              `json:"onCallPager,omitempty"`
 	RunbookURL       string              `json:"runbookUrl,omitempty"`
 	IncidentTier     IncidentTier         `json:"incidentTier,omitempty"`
+	CostCenter       string               `json:"costCenter,omitempty"`
 	RequestedResources []string           `json:"requestedResources,omitempty"`
 	DisasterRecovery MultiClusterDRConfig `json:"disasterRecovery,omitempty"`
 }

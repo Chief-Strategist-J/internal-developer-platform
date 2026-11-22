@@ -897,6 +897,37 @@ components:
             $ref: '#/components/schemas/EgressRule'
         auditLogging:
           $ref: '#/components/schemas/AuditLoggingConfig'
+        onCallPager:
+          type: string
+        runbookUrl:
+          type: string
+        incidentTier:
+          type: string
+          enum: [TIER_0, TIER_1, TIER_2, TIER_3]
+        costCenter:
+          type: string
+        requestedResources:
+          type: array
+          items:
+            type: string
+        disasterRecovery:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            primaryCluster:
+              type: string
+            standbyCluster:
+              type: string
+            standbyRegion:
+              type: string
+            topology:
+              type: string
+              enum: [ACTIVE_PASSIVE, ACTIVE_ACTIVE]
+            datasetFencingEnabled:
+              type: boolean
+            activeWriterCluster:
+              type: string
     WorkloadProvisionRecord:
       type: object
       additionalProperties: false
