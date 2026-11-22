@@ -9,6 +9,7 @@ import (
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/infra/clients/backup"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/gateway"
 	"internal-developer-platform/src/infra/clients/rollouts"
@@ -27,6 +28,7 @@ const (
 	StepSynthesizeMeshRouting    ProvisionStepName = "SYNTHESIZE_MESH_ROUTING"
 	StepSynthesizeCloudResources ProvisionStepName = "SYNTHESIZE_CLOUD_RESOURCES"
 	StepSynthesizeGatewayRouting ProvisionStepName = "SYNTHESIZE_GATEWAY_ROUTING"
+	StepSynthesizeBackupPlan     ProvisionStepName = "SYNTHESIZE_BACKUP_PLAN"
 
 	SpanWorkloadDAGExecute    = "kubernetes.workload.dag.execute"
 	SpanStepValidateSpec     = "kubernetes.workload.dag.step.validate_spec"
@@ -37,6 +39,7 @@ const (
 	SpanStepSynthesizeMesh    = "kubernetes.workload.dag.step.synthesize_mesh"
 	SpanStepSynthesizeCloud   = "kubernetes.workload.dag.step.synthesize_cloud"
 	SpanStepSynthesizeGateway = "kubernetes.workload.dag.step.synthesize_gateway"
+	SpanStepSynthesizeBackup  = "kubernetes.workload.dag.step.synthesize_backup"
 
 	AttrWorkloadID           = "workload.id"
 	AttrDAGName              = "dag.name"
@@ -83,6 +86,8 @@ type SynthesizedCanaryBundle struct {
 	HTTPRouteYAML               string
 	BackendPolicyYAML           string
 	SecurityPolicyYAML          string
+	BackupPlanYAML              string
+	RestorePlanYAML             string
 }
 
 func buildRolloutConfig(cmd contracts.WorkloadProvisionCommand) rollouts.RolloutManifestConfig {
@@ -285,6 +290,50 @@ func stepSynthesizeGateway(ctx context.Context, cmd contracts.WorkloadProvisionC
 	}, attribute.String(AttrStepName, string(StepSynthesizeGatewayRouting)))
 }
 
+func stepSynthesizeBackup(ctx context.Context, cmd contracts.WorkloadProvisionCommand, bundle *SynthesizedCanaryBundle) (ProvisionStep, error) {
+	if !cmd.BackupPlan.Enabled {
+		return ProvisionStep{Name: StepSynthesizeBackupPlan, Passed: true}, nil
+	}
+
+	return observability.RunTraced(ctx, SpanStepSynthesizeBackup, func(ctx context.Context) (ProvisionStep, error) {
+		bpYAML, err := backup.GenerateBackupPlanYAML(backup.BackupPlanConfig{
+			Name:              cmd.WorkloadName,
+			Namespace:         cmd.Namespace,
+			Cluster:           cmd.BackupPlan.Cluster,
+			Location:          cmd.BackupPlan.Location,
+			CronSchedule:      cmd.BackupPlan.CronSchedule,
+			RetentionDays:     cmd.BackupPlan.RetentionDays,
+			LockedRetention:   cmd.BackupPlan.LockedRetention,
+			IncludeSecrets:    cmd.BackupPlan.IncludeSecrets,
+			IncludeVolumeData: cmd.BackupPlan.IncludeVolumeData,
+			TargetNamespaces:  []string{cmd.Namespace},
+			EncryptionKeyKMS:  cmd.BackupPlan.EncryptionKeyKMS,
+		})
+		if err != nil {
+			return ProvisionStep{}, err
+		}
+
+		bundle.BackupPlanYAML = bpYAML
+
+		if cmd.RestorePlan.Enabled {
+			rpYAML, rpErr := backup.GenerateRestorePlanYAML(backup.RestorePlanConfig{
+				Name:               cmd.WorkloadName,
+				Namespace:          cmd.Namespace,
+				TargetCluster:      cmd.RestorePlan.TargetCluster,
+				SourceBackupPlan:   cmd.RestorePlan.SourceBackupPlan,
+				ConflictPolicy:     cmd.RestorePlan.ConflictPolicy,
+				SelectedNamespaces: []string{cmd.Namespace},
+			})
+			if rpErr != nil {
+				return ProvisionStep{}, rpErr
+			}
+			bundle.RestorePlanYAML = rpYAML
+		}
+
+		return ProvisionStep{Name: StepSynthesizeBackupPlan, Passed: true}, nil
+	}, attribute.String(AttrStepName, string(StepSynthesizeBackupPlan)))
+}
+
 func buildDAGSteps(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, bundle *SynthesizedCanaryBundle) []func() (ProvisionStep, error) {
 	rolloutCfg := buildRolloutConfig(cmd)
 	return []func() (ProvisionStep, error){
@@ -296,12 +345,13 @@ func buildDAGSteps(ctx context.Context, cmd contracts.WorkloadProvisionCommand, 
 		func() (ProvisionStep, error) { return stepSynthesizeMesh(ctx, rolloutCfg, bundle) },
 		func() (ProvisionStep, error) { return stepSynthesizeCloud(ctx, cmd, bundle) },
 		func() (ProvisionStep, error) { return stepSynthesizeGateway(ctx, cmd, bundle) },
+		func() (ProvisionStep, error) { return stepSynthesizeBackup(ctx, cmd, bundle) },
 	}
 }
 
 func ExecuteProvisionDAG(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) (ProvisionExecution, *SynthesizedCanaryBundle, error) {
 	bundle := &SynthesizedCanaryBundle{}
-	steps := make([]ProvisionStep, 0, 8)
+	steps := make([]ProvisionStep, 0, 9)
 	err := observability.WithSpan(ctx, SpanWorkloadDAGExecute, func(ctx context.Context) error {
 		for _, stepFunc := range buildDAGSteps(ctx, cmd, mutations, bundle) {
 			st, stepErr := stepFunc()
