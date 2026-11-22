@@ -293,6 +293,7 @@ func mergeCanaryBundle(bundle *contracts.ManifestBundle, canaryBundle *workflows
 	bundle.DatabaseYAML = canaryBundle.DatabaseYAML
 	bundle.HTTPRouteYAML = canaryBundle.HTTPRouteYAML
 	bundle.BackendPolicyYAML = canaryBundle.BackendPolicyYAML
+	bundle.SecurityPolicyYAML = canaryBundle.SecurityPolicyYAML
 	return *bundle
 }
 

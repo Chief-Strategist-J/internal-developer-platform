@@ -256,7 +256,7 @@ func buildCloudManifests(cmd contracts.WorkloadProvisionCommand) (string, string
 	return wi, sql
 }
 
-func buildGatewayManifests(cmd contracts.WorkloadProvisionCommand) (string, string) {
+func buildGatewayManifests(cmd contracts.WorkloadProvisionCommand) (string, string, string) {
 	rg := gateway.NewHTTPRouteGenerator()
 	rt, _ := rg.GenerateHTTPRouteYAML(gateway.HTTPRouteConfig{
 		Name: cmd.WorkloadName, Namespace: cmd.Namespace, Hostnames: []string{fmt.Sprintf("%s.%s.example.com", cmd.WorkloadName, cmd.TenantID)}, ServiceName: cmd.WorkloadName, ServicePort: 8080,
@@ -265,7 +265,29 @@ func buildGatewayManifests(cmd contracts.WorkloadProvisionCommand) (string, stri
 	bp, _ := ag.GenerateGCPBackendPolicyYAML(gateway.GCPBackendPolicyConfig{
 		Name: fmt.Sprintf("%s-backend-policy", cmd.WorkloadName), Namespace: cmd.Namespace, TargetServiceName: cmd.WorkloadName, SecurityPolicyName: "platform-edge-security-policy", TimeoutSec: 30, LoggingEnabled: true,
 	})
-	return rt, bp
+	sp, _ := ag.GenerateComputeSecurityPolicyYAML(gateway.ComputeSecurityPolicyConfig{
+		Name:        "platform-edge-security-policy",
+		Namespace:   cmd.Namespace,
+		ProjectID:   cmd.TenantID,
+		Description: "Enterprise Cloud Armor Edge Security Policy with rate limiting and WAF rules",
+		Rules: []gateway.CloudArmorRule{
+			{
+				Priority:    1000,
+				Action:      gateway.ActionAllow,
+				Description: "Default allow ingress traffic",
+				SrcIPRanges: []string{gateway.MatchAnySrcIP},
+			},
+			{
+				Priority:             2000,
+				Action:               gateway.ActionRateBasedBan,
+				Description:          "Anti-DDoS and brute-force rate limit",
+				SrcIPRanges:          []string{gateway.MatchAnySrcIP},
+				RateLimitThreshold:   1000,
+				RateLimitIntervalSec: 60,
+			},
+		},
+	})
+	return rt, bp, sp
 }
 
 func buildCertificateYAML(cmd contracts.WorkloadProvisionCommand) string {
@@ -321,7 +343,7 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 	return observability.RunTraced(ctx, "k8s.manifest.generate_bundle", func(ctx context.Context) (*contracts.ManifestBundle, error) {
 		vsYAML, drYAML := buildMeshManifests(cmd)
 		wiYAML, sqlYAML := buildCloudManifests(cmd)
-		rtYAML, bpYAML := buildGatewayManifests(cmd)
+		rtYAML, bpYAML, spYAML := buildGatewayManifests(cmd)
 		rolloutCfg := rules.EvaluateDefaultRolloutConfig(cmd)
 		var pdbYAML string
 		if mutations.PDBRequired {
@@ -344,6 +366,7 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 			DatabaseYAML:            sqlYAML,
 			HTTPRouteYAML:           rtYAML,
 			BackendPolicyYAML:       bpYAML,
+			SecurityPolicyYAML:      spYAML,
 			CertificateYAML:         buildCertificateYAML(cmd),
 			SecretYAML:              buildSecretYAML(cmd),
 			PeerAuthenticationYAML:  rules.GeneratePeerAuthenticationYAML(cmd.Namespace, cmd.WorkloadName, cmd.MeshSecurity.MtlsMode),
