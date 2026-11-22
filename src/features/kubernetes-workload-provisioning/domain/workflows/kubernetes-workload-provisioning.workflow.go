@@ -253,8 +253,34 @@ func stepSynthesizeGateway(ctx context.Context, cmd contracts.WorkloadProvisionC
 		if err != nil {
 			return ProvisionStep{}, err
 		}
+		secPolicyYAML, err := armorGen.GenerateComputeSecurityPolicyYAML(gateway.ComputeSecurityPolicyConfig{
+			Name:        DefaultArmorPolicyName,
+			Namespace:   cmd.Namespace,
+			ProjectID:   cmd.TenantID,
+			Description: "Enterprise Cloud Armor Edge Security Policy with rate limiting and WAF rules",
+			Rules: []gateway.CloudArmorRule{
+				{
+					Priority:    1000,
+					Action:      gateway.ActionAllow,
+					Description: "Default allow ingress traffic",
+					SrcIPRanges: []string{gateway.MatchAnySrcIP},
+				},
+				{
+					Priority:             2000,
+					Action:               gateway.ActionRateBasedBan,
+					Description:          "Anti-DDoS and brute-force rate limit",
+					SrcIPRanges:          []string{gateway.MatchAnySrcIP},
+					RateLimitThreshold:   1000,
+					RateLimitIntervalSec: 60,
+				},
+			},
+		})
+		if err != nil {
+			return ProvisionStep{}, err
+		}
 		bundle.HTTPRouteYAML = routeYAML
 		bundle.BackendPolicyYAML = backendYAML
+		bundle.SecurityPolicyYAML = secPolicyYAML
 		return ProvisionStep{Name: StepSynthesizeGatewayRouting, Passed: true}, nil
 	}, attribute.String(AttrStepName, string(StepSynthesizeGatewayRouting)))
 }
