@@ -19,6 +19,8 @@ const (
 	StatusObservedReady WorkloadStatus = "OBSERVED_READY"
 	StatusDegraded      WorkloadStatus = "DEGRADED"
 	StatusRejected      WorkloadStatus = "REJECTED"
+	StatusDecommissioning WorkloadStatus = "DECOMMISSIONING"
+	StatusDecommissioned  WorkloadStatus = "DECOMMISSIONED"
 )
 
 type DeploymentStrategy string
@@ -147,6 +149,42 @@ type RestorePlanConfig struct {
 	TargetCluster    string `json:"targetCluster"`
 	SourceBackupPlan string `json:"sourceBackupPlan"`
 	ConflictPolicy   string `json:"conflictPolicy,omitempty"`
+}
+
+type DecommissionDecision struct {
+	ApprovedBy       string    `json:"approvedBy"`
+	Reason           string    `json:"reason"`
+	RetentionDays    int       `json:"retentionDays"`
+	LockBackups      bool      `json:"lockBackups"`
+	DecisionRecorded bool      `json:"decisionRecorded"`
+	RecordedAt       time.Time `json:"recordedAt"`
+}
+
+type WorkloadDecommissionCommand struct {
+	TenantID     string               `json:"tenantId"`
+	Namespace    string               `json:"namespace"`
+	WorkloadName string               `json:"workloadName"`
+	Decision     DecommissionDecision `json:"decision"`
+}
+
+type DecommissionExecutionStep string
+
+const (
+	StepDecommissionDrainTraffic      DecommissionExecutionStep = "DRAIN_TRAFFIC"
+	StepDecommissionRemoveWorkload    DecommissionExecutionStep = "REMOVE_WORKLOAD"
+	StepDecommissionRemoveBindings    DecommissionExecutionStep = "REMOVE_BINDINGS"
+	StepDecommissionReleaseStorage    DecommissionExecutionStep = "RELEASE_STORAGE"
+	StepDecommissionDeprovisionIdentity DecommissionExecutionStep = "DEPROVISION_IDENTITY"
+	StepDecommissionRemoveDNS         DecommissionExecutionStep = "REMOVE_DNS"
+	StepDecommissionRecordAudit       DecommissionExecutionStep = "RECORD_AUDIT"
+)
+
+type DecommissionExecutionResult struct {
+	WorkloadName string                      `json:"workloadName"`
+	Namespace    string                      `json:"namespace"`
+	Status       WorkloadStatus              `json:"status"`
+	StepsExecuted []DecommissionExecutionStep `json:"stepsExecuted"`
+	AuditRecordID string                     `json:"auditRecordId"`
 }
 
 type WorkloadProvisionCommand struct {

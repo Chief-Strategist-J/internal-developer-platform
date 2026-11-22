@@ -17,6 +17,8 @@ const (
 	EventReplicasReady WorkloadEvent = "REPLICAS_READY"
 	EventDegrade       WorkloadEvent = "DEGRADE"
 	EventReject        WorkloadEvent = "REJECT"
+	EventDecommission  WorkloadEvent = "DECOMMISSION"
+	EventCompleteDecommission WorkloadEvent = "COMPLETE_DECOMMISSION"
 )
 
 func TransitionWorkloadState(current contracts.WorkloadStatus, event WorkloadEvent) (contracts.WorkloadStatus, error) {
@@ -61,6 +63,8 @@ func TransitionWorkloadState(current contracts.WorkloadStatus, event WorkloadEve
 			return contracts.StatusObservedReady, nil
 		case EventDegrade:
 			return contracts.StatusDegraded, nil
+		case EventDecommission:
+			return contracts.StatusDecommissioning, nil
 		case EventReject:
 			return contracts.StatusRejected, nil
 		}
@@ -68,6 +72,8 @@ func TransitionWorkloadState(current contracts.WorkloadStatus, event WorkloadEve
 		switch event {
 		case EventDegrade:
 			return contracts.StatusDegraded, nil
+		case EventDecommission:
+			return contracts.StatusDecommissioning, nil
 		case EventReject:
 			return contracts.StatusRejected, nil
 		}
@@ -75,8 +81,17 @@ func TransitionWorkloadState(current contracts.WorkloadStatus, event WorkloadEve
 		switch event {
 		case EventReplicasReady:
 			return contracts.StatusObservedReady, nil
+		case EventDecommission:
+			return contracts.StatusDecommissioning, nil
 		case EventReject:
 			return contracts.StatusRejected, nil
+		}
+	case contracts.StatusDecommissioning:
+		switch event {
+		case EventCompleteDecommission:
+			return contracts.StatusDecommissioned, nil
+		case EventReject:
+			return contracts.StatusDegraded, nil
 		}
 	}
 	return current, errors.NewConflictError(fmt.Sprintf("illegal workload transition from %s via %s", current, event))
