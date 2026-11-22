@@ -720,4 +720,19 @@ func TestValidateIncidentAndOnCallRules(t *testing.T) {
 			t.Fatal("expected error for unlocked backups, got nil")
 		}
 	})
+
+	t.Run("tenant crd and cluster-scoped admission guard passes for standard resources", func(t *testing.T) {
+		ok, violations := rules.ValidateTenantCRDAndClusterScope([]string{"Deployment", "Service", "ConfigMap", "Role"})
+		if !ok || len(violations) > 0 {
+			t.Fatalf("expected standard resources to pass, got violations: %v", violations)
+		}
+	})
+
+	t.Run("tenant crd and cluster-scoped admission guard rejects CRD and ClusterRole", func(t *testing.T) {
+		disallowed := []string{"CustomResourceDefinition", "ClusterRole", "ValidatingWebhookConfiguration", "StorageClass"}
+		ok, violations := rules.ValidateTenantCRDAndClusterScope(disallowed)
+		if ok || len(violations) != len(disallowed) {
+			t.Fatalf("expected all disallowed resources rejected, got ok=%v, violations=%d", ok, len(violations))
+		}
+	})
 }
