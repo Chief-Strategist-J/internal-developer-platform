@@ -294,6 +294,8 @@ func mergeCanaryBundle(bundle *contracts.ManifestBundle, canaryBundle *workflows
 	bundle.HTTPRouteYAML = canaryBundle.HTTPRouteYAML
 	bundle.BackendPolicyYAML = canaryBundle.BackendPolicyYAML
 	bundle.SecurityPolicyYAML = canaryBundle.SecurityPolicyYAML
+	bundle.BackupPlanYAML = canaryBundle.BackupPlanYAML
+	bundle.RestorePlanYAML = canaryBundle.RestorePlanYAML
 	return *bundle
 }
 
@@ -334,6 +336,9 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 			return nil, err
 		}
 		if err := rules.ValidateSpecApproval(cmd); err != nil {
+			return nil, err
+		}
+		if err := rules.ValidateBackupPlanRules(cmd); err != nil {
 			return nil, err
 		}
 		if replay, err := s.checkIdempotencyReplay(ctx, cmd); replay != nil || err != nil {

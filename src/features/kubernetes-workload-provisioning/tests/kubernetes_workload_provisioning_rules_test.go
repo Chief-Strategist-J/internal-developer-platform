@@ -571,4 +571,80 @@ func TestValidateIncidentAndOnCallRules(t *testing.T) {
 			t.Fatal("expected error for invalid runbook url, got nil")
 		}
 	})
+
+	t.Run("backup plan valid configuration", func(t *testing.T) {
+		cmd := contracts.WorkloadProvisionCommand{
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			BackupPlan: contracts.BackupPlanConfig{
+				Enabled:           true,
+				Cluster:           "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod",
+				Location:          "us-central1",
+				RetentionDays:     30,
+				LockedRetention:   true,
+				IncludeSecrets:    true,
+				IncludeVolumeData: true,
+			},
+		}
+		if err := rules.ValidateBackupPlanRules(cmd); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("backup plan retention below 30 days fails", func(t *testing.T) {
+		cmd := contracts.WorkloadProvisionCommand{
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			BackupPlan: contracts.BackupPlanConfig{
+				Enabled:           true,
+				Cluster:           "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod",
+				Location:          "us-central1",
+				RetentionDays:     15,
+				LockedRetention:   true,
+				IncludeSecrets:    true,
+				IncludeVolumeData: true,
+			},
+		}
+		if err := rules.ValidateBackupPlanRules(cmd); err == nil {
+			t.Fatal("expected error for retention < 30 days, got nil")
+		}
+	})
+
+	t.Run("backup plan unlocked retention fails", func(t *testing.T) {
+		cmd := contracts.WorkloadProvisionCommand{
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			BackupPlan: contracts.BackupPlanConfig{
+				Enabled:           true,
+				Cluster:           "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod",
+				Location:          "us-central1",
+				RetentionDays:     30,
+				LockedRetention:   false,
+				IncludeSecrets:    true,
+				IncludeVolumeData: true,
+			},
+		}
+		if err := rules.ValidateBackupPlanRules(cmd); err == nil {
+			t.Fatal("expected error for unlocked retention, got nil")
+		}
+	})
+
+	t.Run("backup plan missing secrets or volume data fails", func(t *testing.T) {
+		cmd := contracts.WorkloadProvisionCommand{
+			Namespace:    "payments-prod",
+			WorkloadName: "payment-api",
+			BackupPlan: contracts.BackupPlanConfig{
+				Enabled:           true,
+				Cluster:           "projects/gov-idp-prod/locations/us-central1/clusters/gke-prod",
+				Location:          "us-central1",
+				RetentionDays:     30,
+				LockedRetention:   true,
+				IncludeSecrets:    false,
+				IncludeVolumeData: true,
+			},
+		}
+		if err := rules.ValidateBackupPlanRules(cmd); err == nil {
+			t.Fatal("expected error for missing secrets, got nil")
+		}
+	})
 }
