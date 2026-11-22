@@ -168,3 +168,175 @@ func TestImageSecurityService_AssessImageAdmissionIntegration(t *testing.T) {
 		t.Fatalf("expected clean image to be admitted, got rejected: %s", verdict.BlockReason)
 	}
 }
+
+func TestClassifyVulnerabilityPriority_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		item     contracts.VulnerabilityItem
+		exposure contracts.WorkloadExposure
+		expected contracts.PriorityClass
+	}{
+		{
+			name: "backdoor is prio 0",
+			item: contracts.VulnerabilityItem{
+				CVEID:      "MALICIOUS-PACKAGE-001",
+				IsBackdoor: true,
+			},
+			expected: contracts.PriorityPrio0,
+		},
+		{
+			name: "active in the wild is prio 0",
+			item: contracts.VulnerabilityItem{
+				CVEID:        "CVE-2026-114938",
+				Exploitation: contracts.ExploitActiveInTheWild,
+				Severity:     contracts.SeverityCritical,
+			},
+			expected: contracts.PriorityPrio0,
+		},
+		{
+			name: "public poc with fix is prio 1",
+			item: contracts.VulnerabilityItem{
+				CVEID:        "CVE-2026-123007",
+				Exploitation: contracts.ExploitPublicPOC,
+				FixedVersion: "1.31.9",
+				Severity:     contracts.SeverityHigh,
+			},
+			expected: contracts.PriorityPrio1,
+		},
+		{
+			name: "high cve with fix no exploit is prio 2",
+			item: contracts.VulnerabilityItem{
+				CVEID:        "CVE-2025-9999",
+				FixedVersion: "2.0.0",
+				Severity:     contracts.SeverityHigh,
+			},
+			expected: contracts.PriorityPrio2,
+		},
+		{
+			name: "medium cve is prio 3",
+			item: contracts.VulnerabilityItem{
+				CVEID:    "CVE-2025-1111",
+				Severity: contracts.SeverityMedium,
+			},
+			expected: contracts.PriorityPrio3,
+		},
+		{
+			name: "unenriched cve is prio u",
+			item: contracts.VulnerabilityItem{
+				CVEID: "CVE-2026-UNKNOWN",
+			},
+			expected: contracts.PriorityPrioU,
+		},
+	}
+
+	for _, tc := range tests {
+		actual := rules.ClassifyVulnerabilityPriority(tc.item, tc.exposure)
+		if actual != tc.expected {
+			t.Fatalf("scenario '%s': expected %s, got %s", tc.name, tc.expected, actual)
+		}
+	}
+}
+
+func TestValidatePodSlotsAdmission_DSLOT(t *testing.T) {
+	slots := []contracts.PodSlotImageRef{
+		{
+			Slot:        contracts.SlotPrimaryContainer,
+			ImageName:   "app",
+			ImageDigest: "repo/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			Attested:    true,
+		},
+		{
+			Slot:        contracts.SlotInitContainer,
+			ImageName:   "migrator",
+			ImageDigest: "repo/migrator@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+			Attested:    false,
+		},
+	}
+
+	ok, violations := rules.ValidatePodSlotsAdmission(slots, true)
+	if ok || len(violations) != 1 {
+		t.Fatalf("expected unattested initContainer rejected in prod, got ok=%v, violations=%v", ok, violations)
+	}
+
+	unpinnedSlots := []contracts.PodSlotImageRef{
+		{
+			Slot:        contracts.SlotImageVolume,
+			ImageName:   "config-vol",
+			ImageDigest: "repo/config:latest",
+			Attested:    true,
+		},
+	}
+	okUnpinned, vUnpinned := rules.ValidatePodSlotsAdmission(unpinnedSlots, false)
+	if okUnpinned || len(vUnpinned) != 1 {
+		t.Fatalf("expected unpinned image volume rejected, got ok=%v, violations=%v", okUnpinned, vUnpinned)
+	}
+}
+
+func TestValidateImageProvenance_B01_B02(t *testing.T) {
+	trustedBuilders := []string{"cloud-build"}
+	allowlist := []string{"github.com/my-org/core-api"}
+
+	provValid := &contracts.ProvenanceAttestation{
+		BuilderID:         "cloud-build",
+		SourceRepo:        "github.com/my-org/core-api",
+		CommitSHA:         "abcdef123456",
+		IsTriggerBuild:    true,
+		IsBranchProtected: true,
+		IsSignedCommit:    true,
+	}
+	if ok, msg := rules.ValidateImageProvenance(provValid, trustedBuilders, allowlist); !ok {
+		t.Fatalf("expected valid provenance to pass, got: %s", msg)
+	}
+
+	provManual := &contracts.ProvenanceAttestation{
+		BuilderID:      "cloud-build",
+		SourceRepo:     "github.com/my-org/core-api",
+		IsTriggerBuild: false,
+	}
+	if ok, _ := rules.ValidateImageProvenance(provManual, trustedBuilders, allowlist); ok {
+		t.Fatal("expected manual build to fail B01")
+	}
+
+	provLookalike := &contracts.ProvenanceAttestation{
+		BuilderID:         "cloud-build",
+		SourceRepo:        "github.com/attacker-org/core-api",
+		IsTriggerBuild:    true,
+		IsBranchProtected: true,
+		IsSignedCommit:    true,
+	}
+	if ok, _ := rules.ValidateImageProvenance(provLookalike, trustedBuilders, allowlist); ok {
+		t.Fatal("expected lookalike repo to fail B02")
+	}
+}
+
+func TestValidateDigestVEX_D05(t *testing.T) {
+	now := time.Now().UTC()
+	digest := "sha256:target-digest-123"
+
+	vexImageLevel := []contracts.VEXStatement{
+		{
+			VEXID:        "vex-01",
+			CVEID:        "CVE-2026-9999",
+			TargetDigest: "",
+			Status:       "not_affected",
+			ExpiresAt:    now.Add(24 * time.Hour),
+		},
+	}
+	if ok, _ := rules.ValidateDigestVEX(vexImageLevel, digest, "CVE-2026-9999", now); ok {
+		t.Fatal("expected image-level VEX to be rejected under D05")
+	}
+
+	vexValid := []contracts.VEXStatement{
+		{
+			VEXID:        "vex-02",
+			CVEID:        "CVE-2026-9999",
+			TargetDigest: digest,
+			Status:       "not_affected",
+			ExpiresAt:    now.Add(24 * time.Hour),
+		},
+	}
+	if ok, msg := rules.ValidateDigestVEX(vexValid, digest, "CVE-2026-9999", now); !ok {
+		t.Fatalf("expected valid digest-level VEX to pass, got: %s", msg)
+	}
+}
+
