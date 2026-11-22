@@ -153,6 +153,7 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 	var rec contracts.WorkloadProvisionRecord
 	var strategy string
 	var status string
+	var tier string
 	err := s.Scan(
 		&rec.ID, &rec.PublicID, &rec.TenantID, &rec.Source, &rec.ExternalID, &rec.CorrelationID,
 		&rec.SpecHash, &rec.ApprovedSpecHash, &rec.ApproverRole,
@@ -160,6 +161,7 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 		&rec.ServiceID, &rec.Namespace, &rec.WorkloadName, &rec.CPURequest, &rec.CPULimit,
 		&rec.MemoryRequest, &rec.MemoryLimit, &rec.Replicas, &strategy, &status,
 		&rec.EnableDataAccessLogs, &rec.AuditDestinationBucket, &rec.AuditRetentionDays, &rec.AuditLockedRetention,
+		&rec.OnCallPager, &rec.RunbookURL, &tier,
 		&rec.IdempotencyKey, &rec.Version, &rec.CreatedAt, &rec.UpdatedAt,
 	)
 	if err != nil {
@@ -167,6 +169,7 @@ func scanWorkloadRecord(s rowScanner) (*contracts.WorkloadProvisionRecord, error
 	}
 	rec.Strategy = contracts.DeploymentStrategy(strategy)
 	rec.Status = contracts.WorkloadStatus(status)
+	rec.IncidentTier = contracts.IncidentTier(tier)
 	return &rec, nil
 }
 
@@ -178,6 +181,10 @@ func resolveImagePullPolicy(policy string) string {
 }
 
 func resolveRecordFields(record contracts.WorkloadProvisionRecord) []interface{} {
+	tier := string(record.IncidentTier)
+	if tier == "" {
+		tier = string(contracts.IncidentTier2)
+	}
 	return []interface{}{
 		record.ID, resolvePublicID(record.PublicID, record.ID), record.TenantID,
 		resolveSource(record.Source), resolveExternalID(record.ExternalID, record.ID),
@@ -187,6 +194,7 @@ func resolveRecordFields(record contracts.WorkloadProvisionRecord) []interface{}
 		record.MemoryRequest, record.MemoryLimit, record.Replicas, resolveStrategy(record.Strategy),
 		string(record.Status),
 		record.EnableDataAccessLogs, record.AuditDestinationBucket, record.AuditRetentionDays, record.AuditLockedRetention,
+		record.OnCallPager, record.RunbookURL, tier,
 		record.IdempotencyKey, record.Version, record.CreatedAt, record.UpdatedAt,
 	}
 }

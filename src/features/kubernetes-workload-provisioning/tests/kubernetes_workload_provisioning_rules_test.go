@@ -535,3 +535,40 @@ func TestGenerateJITRoleBindingYAML(t *testing.T) {
 
 
 
+
+func TestValidateIncidentAndOnCallRules(t *testing.T) {
+	t.Run("valid tier-2 with no pager and no runbook", func(t *testing.T) {
+		err := rules.ValidateIncidentAndOnCallRules(contracts.IncidentTier2, "", "")
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("valid tier-0 with pager and valid runbook", func(t *testing.T) {
+		err := rules.ValidateIncidentAndOnCallRules(contracts.IncidentTier0, "pagerduty:platform-team", "https://runbooks.internal/platform-api")
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("tier-0 missing pager fails", func(t *testing.T) {
+		err := rules.ValidateIncidentAndOnCallRules(contracts.IncidentTier0, "", "https://runbooks.internal/platform-api")
+		if err == nil {
+			t.Fatal("expected error for tier-0 without pager, got nil")
+		}
+	})
+
+	t.Run("no runbook no page violation", func(t *testing.T) {
+		err := rules.ValidateIncidentAndOnCallRules(contracts.IncidentTier2, "opsgenie:payments", "")
+		if err == nil {
+			t.Fatal("expected error for pager without runbook, got nil")
+		}
+	})
+
+	t.Run("invalid runbook url protocol", func(t *testing.T) {
+		err := rules.ValidateIncidentAndOnCallRules(contracts.IncidentTier1, "pagerduty:core", "ftp://runbooks.internal")
+		if err == nil {
+			t.Fatal("expected error for invalid runbook url, got nil")
+		}
+	})
+}

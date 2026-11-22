@@ -1035,6 +1035,32 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io`, grantID, namespace, expiresAt, approvedBy, reason, subjectID, role)
 }
 
+func ValidateIncidentAndOnCallRules(tier contracts.IncidentTier, pager, runbookURL string) error {
+	normalizedTier := tier
+	if normalizedTier == "" {
+		normalizedTier = contracts.IncidentTier2
+	}
+	switch normalizedTier {
+	case contracts.IncidentTier0, contracts.IncidentTier1, contracts.IncidentTier2, contracts.IncidentTier3:
+	default:
+		return errors.NewValidationError(fmt.Sprintf("invalid incident tier: %s", tier))
+	}
+
+	if pager != "" && runbookURL == "" {
+		return errors.NewValidationError("V-27 violation: 'no runbook no page' rule breached - on-call pager requires a valid runbookUrl")
+	}
+
+	if (normalizedTier == contracts.IncidentTier0 || normalizedTier == contracts.IncidentTier1) && pager == "" {
+		return errors.NewValidationError("V-27 violation: tier-0 and tier-1 workloads require 24/7 on-call paging target")
+	}
+
+	if runbookURL != "" && !strings.HasPrefix(runbookURL, "http://") && !strings.HasPrefix(runbookURL, "https://") {
+		return errors.NewValidationError("V-27 violation: runbookUrl must be a valid http or https url")
+	}
+
+	return nil
+}
+
 
 
 

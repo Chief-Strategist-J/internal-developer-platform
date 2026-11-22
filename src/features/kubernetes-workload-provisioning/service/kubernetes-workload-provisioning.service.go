@@ -216,6 +216,10 @@ func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.
 	}
 	specHash := contracts.ComputeWorkloadSpecHash(cmd)
 	approvedHash, approverRole := resolveApprovalBinding(cmd, specHash)
+	tier := cmd.IncidentTier
+	if tier == "" {
+		tier = contracts.IncidentTier2
+	}
 	return contracts.WorkloadProvisionRecord{
 		ID:                      cmd.ID,
 		PublicID:                derivePublicID(cmd.PublicID, cmd.ID),
@@ -242,6 +246,9 @@ func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.
 		AuditDestinationBucket: cmd.AuditLogging.DestinationBucket,
 		AuditRetentionDays:     cmd.AuditLogging.RetentionDays,
 		AuditLockedRetention:   cmd.AuditLogging.LockedRetention,
+		OnCallPager:            cmd.OnCallPager,
+		RunbookURL:             cmd.RunbookURL,
+		IncidentTier:           tier,
 		IdempotencyKey:          cmd.IdempotencyKey,
 		Version:                 1,
 		CreatedAt:               time.Now().UTC(),

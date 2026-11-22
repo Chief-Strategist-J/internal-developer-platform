@@ -10,8 +10,9 @@ const (
 			cpu_request, cpu_limit, memory_request, memory_limit,
 			replicas, strategy, status,
 			enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
+			on_call_pager, runbook_url, incident_tier,
 			idempotency_key, version, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
 	`
 
 	FLOW_SELECT_WORKLOAD_BY_ID = `
@@ -22,6 +23,7 @@ const (
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status,
 		       enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
+		       on_call_pager, runbook_url, incident_tier,
 		       idempotency_key, version, created_at, updated_at
 		FROM workload_provisions
 		WHERE tenant_id = $1 AND id = $2
@@ -35,6 +37,7 @@ const (
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status,
 		       enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
+		       on_call_pager, runbook_url, incident_tier,
 		       idempotency_key, version, created_at, updated_at
 		FROM workload_provisions
 		WHERE tenant_id = $1 AND idempotency_key = $2
@@ -48,6 +51,7 @@ const (
 		       cpu_request, cpu_limit, memory_request, memory_limit,
 		       replicas, strategy, status,
 		       enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
+		       on_call_pager, runbook_url, incident_tier,
 		       idempotency_key, version, created_at, updated_at
 		FROM workload_provisions
 		WHERE tenant_id = $1
