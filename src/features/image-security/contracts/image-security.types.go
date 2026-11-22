@@ -23,6 +23,69 @@ const (
 	ScanStatusException  ScanStatus = "EXCEPTION_ACTIVE"
 )
 
+type PriorityClass string
+
+const (
+	PriorityPrio0 PriorityClass = "PRIO_0"
+	PriorityPrio1 PriorityClass = "PRIO_1"
+	PriorityPrio2 PriorityClass = "PRIO_2"
+	PriorityPrio3 PriorityClass = "PRIO_3"
+	PriorityPrioU PriorityClass = "PRIO_U"
+)
+
+type ExploitationEvidence string
+
+const (
+	ExploitActiveInTheWild ExploitationEvidence = "ACTIVE_IN_THE_WILD"
+	ExploitPublicPOC       ExploitationEvidence = "PUBLIC_POC"
+	ExploitReportedVendor  ExploitationEvidence = "REPORTED_VENDOR"
+	ExploitNone            ExploitationEvidence = "NONE"
+)
+
+type WorkloadExposure string
+
+const (
+	ExposureInternetFacing WorkloadExposure = "INTERNET_FACING"
+	ExposureInternalOnly   WorkloadExposure = "INTERNAL_ONLY"
+	ExposurePrivileged     WorkloadExposure = "PRIVILEGED"
+)
+
+type PodContainerSlot string
+
+const (
+	SlotPrimaryContainer PodContainerSlot = "CONTAINER"
+	SlotInitContainer    PodContainerSlot = "INIT_CONTAINER"
+	SlotNativeSidecar    PodContainerSlot = "NATIVE_SIDECAR"
+	SlotImageVolume      PodContainerSlot = "IMAGE_VOLUME"
+	SlotEphemeralDebug   PodContainerSlot = "EPHEMERAL_DEBUG"
+)
+
+type PodSlotImageRef struct {
+	Slot        PodContainerSlot `json:"slot"`
+	ImageName   string           `json:"imageName"`
+	ImageDigest string           `json:"imageDigest"`
+	Attested    bool             `json:"attested"`
+}
+
+type ProvenanceAttestation struct {
+	BuilderID         string `json:"builderId"`
+	SourceRepo        string `json:"sourceRepo"`
+	CommitSHA         string `json:"commitSha"`
+	IsTriggerBuild    bool   `json:"isTriggerBuild"`
+	IsBranchProtected bool   `json:"isBranchProtected"`
+	IsSignedCommit    bool   `json:"isSignedCommit"`
+}
+
+type VEXStatement struct {
+	VEXID         string    `json:"vexId"`
+	CVEID         string    `json:"cveId"`
+	TargetDigest  string    `json:"targetDigest"`
+	Status        string    `json:"status"`
+	Justification string    `json:"justification"`
+	ApprovedBy    string    `json:"approvedBy"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+}
+
 type VulnerabilityItem struct {
 	CVEID         string                `json:"cveId"`
 	PackageName   string                `json:"packageName"`
@@ -32,6 +95,9 @@ type VulnerabilityItem struct {
 	CVSSScore     float64               `json:"cvssScore"`
 	PublishedDate time.Time             `json:"publishedDate"`
 	HasFix        bool                  `json:"hasFix"`
+	Exploitation  ExploitationEvidence  `json:"exploitation,omitempty"`
+	IsBackdoor    bool                  `json:"isBackdoor,omitempty"`
+	Priority      PriorityClass         `json:"priority,omitempty"`
 }
 
 type EmbeddedSecretFinding struct {
@@ -67,15 +133,25 @@ type ImageScanCommand struct {
 	SecretsFound    []EmbeddedSecretFinding   `json:"secretsFound,omitempty"`
 	SBOM            *SBOMAttestation          `json:"sbom,omitempty"`
 	ActiveWaiver    *SecurityExceptionWaiver  `json:"activeWaiver,omitempty"`
+	PodSlots        []PodSlotImageRef         `json:"podSlots,omitempty"`
+	Provenance      *ProvenanceAttestation    `json:"provenance,omitempty"`
+	VEXStatements   []VEXStatement            `json:"vexStatements,omitempty"`
+	Exposure        WorkloadExposure          `json:"exposure,omitempty"`
 }
 
 type ImageAdmissionVerdict struct {
-	Admitted         bool       `json:"admitted"`
-	ScanStatus       ScanStatus `json:"scanStatus"`
-	BlockReason      string     `json:"blockReason,omitempty"`
-	CriticalCVECount int        `json:"criticalCveCount"`
-	HighCVECount     int        `json:"highCveCount"`
-	SecretsCount     int        `json:"secretsCount"`
-	HasValidSBOM     bool       `json:"hasValidSbom"`
-	WaiverApplied    bool       `json:"waiverApplied"`
+	Admitted         bool          `json:"admitted"`
+	ScanStatus       ScanStatus    `json:"scanStatus"`
+	BlockReason      string        `json:"blockReason,omitempty"`
+	CriticalCVECount int           `json:"criticalCveCount"`
+	HighCVECount     int           `json:"highCveCount"`
+	SecretsCount     int           `json:"secretsCount"`
+	HasValidSBOM     bool          `json:"hasValidSbom"`
+	WaiverApplied    bool          `json:"waiverApplied"`
+	HighestPriority  PriorityClass `json:"highestPriority,omitempty"`
+	SlotViolations   []string      `json:"slotViolations,omitempty"`
+	Prio0Count       int           `json:"prio0Count"`
+	Prio1Count       int           `json:"prio1Count"`
+	Prio2Count       int           `json:"prio2Count"`
+	PrioUCount       int           `json:"prioUCount"`
 }
