@@ -10,6 +10,7 @@ import (
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/infra/clients/backup"
 	"internal-developer-platform/src/infra/clients/certificates"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/gateway"
@@ -349,6 +350,32 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 		if mutations.PDBRequired {
 			pdbYAML = buildPDBYAML(cmd.WorkloadName, cmd.Namespace, mutations.MinAvailable)
 		}
+		var backupPlanYAML, restorePlanYAML string
+		if cmd.BackupPlan.Enabled {
+			backupPlanYAML, _ = backup.GenerateBackupPlanYAML(backup.BackupPlanConfig{
+				Name:              cmd.WorkloadName,
+				Namespace:         cmd.Namespace,
+				Cluster:           cmd.BackupPlan.Cluster,
+				Location:          cmd.BackupPlan.Location,
+				CronSchedule:      cmd.BackupPlan.CronSchedule,
+				RetentionDays:     cmd.BackupPlan.RetentionDays,
+				LockedRetention:   cmd.BackupPlan.LockedRetention,
+				IncludeSecrets:    cmd.BackupPlan.IncludeSecrets,
+				IncludeVolumeData: cmd.BackupPlan.IncludeVolumeData,
+				TargetNamespaces:  []string{cmd.Namespace},
+				EncryptionKeyKMS:  cmd.BackupPlan.EncryptionKeyKMS,
+			})
+			if cmd.RestorePlan.Enabled {
+				restorePlanYAML, _ = backup.GenerateRestorePlanYAML(backup.RestorePlanConfig{
+					Name:               cmd.WorkloadName,
+					Namespace:          cmd.Namespace,
+					TargetCluster:      cmd.RestorePlan.TargetCluster,
+					SourceBackupPlan:   cmd.RestorePlan.SourceBackupPlan,
+					ConflictPolicy:     cmd.RestorePlan.ConflictPolicy,
+					SelectedNamespaces: []string{cmd.Namespace},
+				})
+			}
+		}
 		return &contracts.ManifestBundle{
 			NamespaceYAML:           buildNamespaceYAML(cmd.Namespace, mutations.NamespaceLabels),
 			ResourceQuotaYAML:       buildResourceQuotaYAML(cmd.Namespace, mutations.ResourceQuota),
@@ -373,6 +400,8 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 			ServiceEntryYAML:        rules.GenerateServiceEntryYAML(cmd),
 			LogSinkYAML:             rules.GenerateLogSinkYAML(cmd),
 			LoggingBucketYAML:       rules.GenerateLoggingBucketYAML(cmd),
+			BackupPlanYAML:          backupPlanYAML,
+			RestorePlanYAML:         restorePlanYAML,
 		}, nil
 	}, attribute.String("workload.name", cmd.WorkloadName), attribute.String("namespace", cmd.Namespace))
 }
