@@ -5,3 +5,4 @@
 -- reversible:     YES
 
 DROP TABLE IF EXISTS access_grants CASCADE;
+
