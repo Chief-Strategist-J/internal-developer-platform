@@ -1,7 +1,9 @@
 package contracts
 
 import (
+	"fmt"
 	"regexp"
+	"strings"
 
 	"internal-developer-platform/src/shared/errors"
 )
@@ -56,6 +58,31 @@ func ValidateWorkloadCommand(cmd WorkloadProvisionCommand) error {
 	}
 	if len(cmd.BreakglassJustification) > 1024 {
 		return errors.NewValidationError("breakglassJustification must not exceed 1024 characters")
+	}
+	if err := ValidateOnCallAndRunbook(cmd.IncidentTier, cmd.OnCallPager, cmd.RunbookURL); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ValidateOnCallAndRunbook(tier IncidentTier, pager, runbookURL string) error {
+	normalizedTier := tier
+	if normalizedTier == "" {
+		normalizedTier = IncidentTier2
+	}
+	switch normalizedTier {
+	case IncidentTier0, IncidentTier1, IncidentTier2, IncidentTier3:
+	default:
+		return errors.NewValidationError(fmt.Sprintf("invalid incident tier: %s", tier))
+	}
+	if pager != "" && runbookURL == "" {
+		return errors.NewValidationError("V-27 violation: 'no runbook no page' rule breached - on-call pager requires a valid runbookUrl")
+	}
+	if (normalizedTier == IncidentTier0 || normalizedTier == IncidentTier1) && pager == "" {
+		return errors.NewValidationError("V-27 violation: tier-0 and tier-1 workloads require 24/7 on-call paging target")
+	}
+	if runbookURL != "" && !strings.HasPrefix(runbookURL, "http://") && !strings.HasPrefix(runbookURL, "https://") {
+		return errors.NewValidationError("V-27 violation: runbookUrl must be a valid http or https url")
 	}
 	return nil
 }

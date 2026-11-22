@@ -31,3 +31,4 @@ CREATE TABLE IF NOT EXISTS access_grants (
 CREATE INDEX IF NOT EXISTS idx_access_grants_tenant_subject ON access_grants (tenant_id, subject_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_access_grants_idempotency ON access_grants (tenant_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_access_grants_expires ON access_grants (expires_at);
+

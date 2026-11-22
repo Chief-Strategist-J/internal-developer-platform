@@ -29,6 +29,26 @@ const (
 	StrategyCanary        DeploymentStrategy = "Canary"
 )
 
+type IncidentTier string
+
+const (
+	IncidentTier0 IncidentTier = "TIER_0"
+	IncidentTier1 IncidentTier = "TIER_1"
+	IncidentTier2 IncidentTier = "TIER_2"
+	IncidentTier3 IncidentTier = "TIER_3"
+)
+
+type IncidentTimelineEvent struct {
+	ID          string                 `json:"id"`
+	TenantID    string                 `json:"tenantId"`
+	WorkloadID  string                 `json:"workloadId"`
+	EventType   string                 `json:"eventType"`
+	Description string                 `json:"description"`
+	Actor       string                 `json:"actor"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt   time.Time              `json:"createdAt"`
+}
+
 type CanaryStep struct {
 	SetWeight            int `json:"setWeight"`
 	PauseDurationSeconds int `json:"pauseDurationSeconds,omitempty"`
@@ -140,6 +160,9 @@ type WorkloadProvisionCommand struct {
 	UnsupportedMeshResources []string    `json:"unsupportedMeshResources,omitempty"`
 	EgressRules      []EgressRule        `json:"egressRules,omitempty"`
 	AuditLogging     AuditLoggingConfig  `json:"auditLogging,omitempty"`
+	OnCallPager      string              `json:"onCallPager,omitempty"`
+	RunbookURL       string              `json:"runbookUrl,omitempty"`
+	IncidentTier     IncidentTier        `json:"incidentTier,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
@@ -168,6 +191,9 @@ type WorkloadProvisionRecord struct {
 	AuditDestinationBucket string       `json:"auditDestinationBucket"`
 	AuditRetentionDays     int          `json:"auditRetentionDays"`
 	AuditLockedRetention   bool         `json:"auditLockedRetention"`
+	OnCallPager      string             `json:"onCallPager"`
+	RunbookURL       string             `json:"runbookUrl"`
+	IncidentTier     IncidentTier       `json:"incidentTier"`
 	IdempotencyKey   string             `json:"idempotencyKey"`
 	Version          int64              `json:"version"`
 	CreatedAt        time.Time          `json:"createdAt"`
