@@ -311,6 +311,12 @@ func ValidateAdmission(cmd contracts.WorkloadProvisionCommand, mutations Workloa
 	}
 	violations = append(violations, tenantCRDViolations...)
 
+	drOk, drViolations := ValidateDisasterRecoveryConfig(cmd.DisasterRecovery)
+	if !drOk {
+		critical = true
+	}
+	violations = append(violations, drViolations...)
+
 	audOk, audViolations := ValidateAuditLogging(cmd.Namespace, mutations.AuditLogging)
 	if !audOk {
 		critical = true
@@ -1156,6 +1162,67 @@ func ValidateTenantCRDAndClusterScope(resources []string) (bool, []contracts.Adm
 			violations = append(violations, contracts.AdmissionViolation{
 				Rule:    "V-05",
 				Message: fmt.Sprintf("disallowed cluster-scoped or CRD resource '%s': %s", res, msg),
+			})
+		}
+	}
+
+	if len(violations) > 0 {
+		return false, violations
+	}
+	return true, nil
+}
+
+func ValidateDisasterRecoveryConfig(cfg contracts.MultiClusterDRConfig) (bool, []contracts.AdmissionViolation) {
+	if !cfg.Enabled {
+		return true, nil
+	}
+
+	violations := make([]contracts.AdmissionViolation, 0)
+	if strings.TrimSpace(cfg.PrimaryCluster) == "" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "V-33",
+			Message: "DR configuration requires a valid primaryCluster resource path",
+		})
+	}
+	if strings.TrimSpace(cfg.StandbyCluster) == "" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "V-33",
+			Message: "DR configuration requires a valid standbyCluster resource path",
+		})
+	}
+	if cfg.PrimaryCluster != "" && cfg.PrimaryCluster == cfg.StandbyCluster {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "V-33",
+			Message: "DR standby cluster must reside in a distinct failure domain from primary cluster",
+		})
+	}
+	if strings.TrimSpace(cfg.StandbyRegion) == "" {
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "V-33",
+			Message: "DR configuration requires a distinct standbyRegion",
+		})
+	}
+
+	switch cfg.Topology {
+	case contracts.TopologyActivePassive, contracts.TopologyActiveActive:
+	default:
+		violations = append(violations, contracts.AdmissionViolation{
+			Rule:    "V-33",
+			Message: fmt.Sprintf("invalid DR topology '%s'; must be ACTIVE_PASSIVE or ACTIVE_ACTIVE", cfg.Topology),
+		})
+	}
+
+	if cfg.Topology == contracts.TopologyActivePassive {
+		if !cfg.DatasetFencingEnabled {
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "V-33",
+				Message: "split-brain prevention: ACTIVE_PASSIVE DR topology requires dataset fencing enabled",
+			})
+		}
+		if strings.TrimSpace(cfg.ActiveWriterCluster) == "" {
+			violations = append(violations, contracts.AdmissionViolation{
+				Rule:    "V-33",
+				Message: "fencing rule breach: ACTIVE_PASSIVE DR topology requires exactly one activeWriterCluster",
 			})
 		}
 	}

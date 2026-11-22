@@ -187,6 +187,23 @@ type DecommissionExecutionResult struct {
 	AuditRecordID string                     `json:"auditRecordId"`
 }
 
+type DisasterRecoveryTopology string
+
+const (
+	TopologyActivePassive DisasterRecoveryTopology = "ACTIVE_PASSIVE"
+	TopologyActiveActive  DisasterRecoveryTopology = "ACTIVE_ACTIVE"
+)
+
+type MultiClusterDRConfig struct {
+	Enabled               bool                     `json:"enabled"`
+	Topology              DisasterRecoveryTopology `json:"topology"`
+	PrimaryCluster        string                   `json:"primaryCluster"`
+	StandbyCluster        string                   `json:"standbyCluster"`
+	StandbyRegion         string                   `json:"standbyRegion"`
+	DatasetFencingEnabled bool                     `json:"datasetFencingEnabled"`
+	ActiveWriterCluster   string                   `json:"activeWriterCluster"`
+}
+
 type WorkloadProvisionCommand struct {
 	ID               string             `json:"id"`
 	PublicID         string             `json:"publicId,omitempty"`
@@ -221,8 +238,9 @@ type WorkloadProvisionCommand struct {
 	RestorePlan      RestorePlanConfig   `json:"restorePlan,omitempty"`
 	OnCallPager      string              `json:"onCallPager,omitempty"`
 	RunbookURL       string              `json:"runbookUrl,omitempty"`
-	IncidentTier     IncidentTier        `json:"incidentTier,omitempty"`
-	RequestedResources []string          `json:"requestedResources,omitempty"`
+	IncidentTier     IncidentTier         `json:"incidentTier,omitempty"`
+	RequestedResources []string           `json:"requestedResources,omitempty"`
+	DisasterRecovery MultiClusterDRConfig `json:"disasterRecovery,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
