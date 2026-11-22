@@ -107,7 +107,7 @@ func buildResourceMetadata(cmd contracts.WorkloadProvisionCommand) cloudresource
 	return cloudresource.ResourceMetadata{
 		RequestID:   cmd.ID,
 		Owner:       cmd.TenantID,
-		CostCenter:  cmd.TenantID,
+		CostCenter:  effectiveCostCenter(cmd),
 		WorkloadID:  cmd.WorkloadName,
 		Environment: DefaultEnvironment,
 	}
@@ -366,4 +366,10 @@ func ExecuteProvisionDAG(ctx context.Context, cmd contracts.WorkloadProvisionCom
 		return ProvisionExecution{Steps: steps}, nil, err
 	}
 	return ProvisionExecution{Steps: steps}, bundle, nil
+}
+func effectiveCostCenter(cmd contracts.WorkloadProvisionCommand) string {
+	if cmd.CostCenter != "" {
+		return cmd.CostCenter
+	}
+	return cmd.TenantID
 }

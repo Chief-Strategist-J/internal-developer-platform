@@ -182,3 +182,58 @@ echo ""
 echo "================================================================================"
 echo "          ALL REAL HTTP CURL API TESTS PASSED AGAINST RUNNING SERVER            "
 echo "================================================================================"
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 8] POST /api/v1/workloads -> Provision Workload with Distributed Traces"
+echo "--------------------------------------------------------------------------------"
+WKLD_ID="wkld-e2e-$(date +%s)"
+TRACE_ID="4bf92f3577b34da6a3ce929d0e0e4736"
+SPAN_ID="00f067aa0ba902b7"
+TRACEPARENT="00-${TRACE_ID}-${SPAN_ID}-01"
+
+WORKLOAD_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads" \
+  -H "Authorization: Bearer ${DEV_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team" \
+  -H "traceparent: ${TRACEPARENT}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"${WKLD_ID}\",
+    \"tenantId\": \"fintech-team\",
+    \"serviceId\": \"fintech-ledger-api\",
+    \"namespace\": \"fintech-prod\",
+    \"workloadName\": \"ledger-worker\",
+    \"image\": \"gcr.io/fintech-team/worker@sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",
+    \"cpuRequest\": \"250m\",
+    \"cpuLimit\": \"500m\",
+    \"memoryRequest\": \"256Mi\",
+    \"memoryLimit\": \"512Mi\",
+    \"replicas\": 2,
+    \"idempotencyKey\": \"idem-${WKLD_ID}\",
+    \"costCenter\": \"CC-FINTECH-01\"
+  }")
+
+echo "${WORKLOAD_RESP}"
+if echo "${WORKLOAD_RESP}" | grep -q "201 Created"; then
+    echo -e "\033[1;32m[PASS]\033[0m /api/v1/workloads successfully provisioned workload"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created for workload provision"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 9] GET /api/v1/workloads/${WKLD_ID} -> Retrieve Workload State"
+echo "--------------------------------------------------------------------------------"
+GET_WKLD_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/${WKLD_ID}" \
+  -H "Authorization: Bearer ${DEV_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team" \
+  -H "traceparent: ${TRACEPARENT}")
+
+echo "${GET_WKLD_RESP}"
+if echo "${GET_WKLD_RESP}" | grep -q "200 OK" && echo "${GET_WKLD_RESP}" | grep -q "${WKLD_ID}"; then
+    echo -e "\033[1;32m[PASS]\033[0m /api/v1/workloads/${WKLD_ID} returned correct workload state"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for workload query"
+    exit 1
+fi

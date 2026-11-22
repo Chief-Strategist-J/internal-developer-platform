@@ -59,6 +59,9 @@ func ValidateWorkloadCommand(cmd WorkloadProvisionCommand) error {
 	if len(cmd.BreakglassJustification) > 1024 {
 		return errors.NewValidationError("breakglassJustification must not exceed 1024 characters")
 	}
+	if cmd.CostCenter != "" && !rxWorkloadID.MatchString(cmd.CostCenter) {
+		return errors.NewValidationError("costCenter must match alphanumeric identifier format")
+	}
 	if err := ValidateOnCallAndRunbook(cmd.IncidentTier, cmd.OnCallPager, cmd.RunbookURL); err != nil {
 		return err
 	}
