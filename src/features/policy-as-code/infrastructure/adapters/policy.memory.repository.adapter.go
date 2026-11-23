@@ -19,6 +19,7 @@ type MemoryPolicyRepositoryAdapter struct {
 	byExtID      map[string]string
 	exceptions   map[string]contracts.PolicyExceptionRecord
 	excByPublic  map[string]string
+	violations   map[string]contracts.PolicyViolationRecord
 	validFSMFrom map[contracts.PolicyLifecycleState]map[contracts.PolicyLifecycleState]bool
 }
 
@@ -56,6 +57,7 @@ func NewMemoryPolicyRepositoryAdapter() *MemoryPolicyRepositoryAdapter {
 		byExtID:      make(map[string]string),
 		exceptions:   make(map[string]contracts.PolicyExceptionRecord),
 		excByPublic:  make(map[string]string),
+		violations:   make(map[string]contracts.PolicyViolationRecord),
 		validFSMFrom: fsm,
 	}
 }
@@ -359,5 +361,62 @@ func (a *MemoryPolicyRepositoryAdapter) UpdateExceptionStatus(ctx context.Contex
 	existing.Version = existing.Version + 1
 	existing.UpdatedAt = time.Now().UTC()
 	a.exceptions[key] = existing
+	return nil
+}
+
+func (a *MemoryPolicyRepositoryAdapter) SaveViolation(ctx context.Context, v contracts.PolicyViolationRecord) error {
+	if err := v.Validate(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	key := v.TenantID + ":" + v.ID
+	a.violations[key] = v
+	return nil
+}
+
+func (a *MemoryPolicyRepositoryAdapter) ListActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) ([]contracts.PolicyViolationRecord, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var result []contracts.PolicyViolationRecord
+	for _, v := range a.violations {
+		if (v.TenantID == tenantID) && (v.PolicyID == policyID) && (v.Status == contracts.ViolationStatusActive) {
+			result = append(result, v)
+		}
+	}
+	return result, nil
+}
+
+func (a *MemoryPolicyRepositoryAdapter) CountActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) (int, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	count := 0
+	for _, v := range a.violations {
+		if (v.TenantID == tenantID) && (v.PolicyID == policyID) && (v.Status == contracts.ViolationStatusActive) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (a *MemoryPolicyRepositoryAdapter) ResolveViolation(ctx context.Context, tenantID string, violationID string, expectedVersion int64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	key := tenantID + ":" + violationID
+	v, exists := a.violations[key]
+	if !exists {
+		return errors.NewNotFoundError("violation not found")
+	}
+	if v.Version != expectedVersion {
+		return errors.NewConflictError("violation version conflict")
+	}
+	v.Status = contracts.ViolationStatusResolved
+	v.Version++
+	v.UpdatedAt = time.Now().UTC()
+	a.violations[key] = v
 	return nil
 }

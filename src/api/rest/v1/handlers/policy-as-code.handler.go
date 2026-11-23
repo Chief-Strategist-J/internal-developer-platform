@@ -226,6 +226,108 @@ func (h *PolicyAsCodeHandler) EvaluateAdmission(w http.ResponseWriter, r *http.R
 	})
 }
 
+type ResolveViolationRequest struct {
+	Version int64 `json:"version"`
+}
+
+func (h *PolicyAsCodeHandler) ListViolations(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.list_violations", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId is required")
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		policyID, err := extractPolicySubID(r.URL.Path, "violations")
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		violations, err := h.service.ListActiveViolations(ctx, tenantID, policyID)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, violations, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) ResolveViolation(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.resolve_violation", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId is required")
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		policyID, violationID, err := extractPolicyViolationResolveIDs(r.URL.Path)
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		var req ResolveViolationRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		err = h.service.ResolveViolation(ctx, tenantID, violationID, req.Version)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, map[string]string{
+			"policyId":    policyID,
+			"violationId": violationID,
+			"status":      "RESOLVED",
+		}, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) ExecuteAuditScan(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.execute_audit_scan", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		var input workflows.AuditScanInput
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		if (input.TenantID == "") && (meta.TenantID != "") {
+			input.TenantID = meta.TenantID
+		}
+
+		report, err := h.service.ExecuteAuditScan(ctx, input)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, report, meta)
+		return nil
+	})
+}
+
 func (h *PolicyAsCodeHandler) handleError(w http.ResponseWriter, meta IngressMetadata, err error) {
 	var appErr *appErrors.ApplicationError
 	if errors.As(err, &appErr) {
@@ -298,4 +400,21 @@ func extractPolicySubID(urlPath string, expectedSub string) (string, error) {
 		return "", errors.New("invalid policy id in path")
 	}
 	return id, nil
+}
+
+func extractPolicyViolationResolveIDs(urlPath string) (string, string, error) {
+	trimmed := strings.Trim(urlPath, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 7 {
+		return "", "", errors.New("invalid violation resolve path")
+	}
+	if parts[len(parts)-1] != "resolve" || parts[len(parts)-3] != "violations" {
+		return "", "", errors.New("invalid violation resolve path")
+	}
+	policyID := parts[len(parts)-4]
+	violationID := parts[len(parts)-2]
+	if policyID == "" || violationID == "" {
+		return "", "", errors.New("missing policy or violation id in path")
+	}
+	return policyID, violationID, nil
 }
