@@ -411,3 +411,84 @@ func TestPolicyAsCodeService_AdmissionEvaluation_AdHocPolicy_SkipsUnregisteredVi
 	}
 }
 
+func TestPolicyAsCodeService_ExpandedRuleCatalogEvaluations(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+	svc := service.NewPolicyAsCodeService(repo)
+
+	tenantID := "tenant-expanded"
+	now := time.Now().UTC()
+
+	catalogPolicies := []contracts.PolicyRecord{
+		{
+			ID: "pol-hostpath", TenantID: tenantID, ExternalID: "POD-03", Name: "No hostPath",
+			RuleExpression: "hostPath == false", LifecycleState: contracts.LifecycleDeny,
+		},
+		{
+			ID: "pol-seccomp", TenantID: tenantID, ExternalID: "POD-07", Name: "Seccomp profile",
+			RuleExpression: "seccompProfile", LifecycleState: contracts.LifecycleDeny,
+		},
+		{
+			ID: "pol-mtls", TenantID: tenantID, ExternalID: "NET-02", Name: "mTLS STRICT",
+			RuleExpression: "mTLS == STRICT", LifecycleState: contracts.LifecycleDeny,
+		},
+		{
+			ID: "pol-scope", TenantID: tenantID, ExternalID: "TEN-02", Name: "No cluster-scoped kinds",
+			RuleExpression: "cluster_scoped == false", LifecycleState: contracts.LifecycleDeny,
+		},
+	}
+
+	testCases := []struct {
+		name         string
+		resourceJSON string
+		expectedViol int
+	}{
+		{
+			name:         "hostPath violation",
+			resourceJSON: `{"hostPath":"/var/run/docker.sock"}`,
+			expectedViol: 1,
+		},
+		{
+			name:         "seccomp unconfined violation",
+			resourceJSON: `{"seccompProfile":{"type":"Unconfined"}}`,
+			expectedViol: 1,
+		},
+		{
+			name:         "permissive mtls violation",
+			resourceJSON: `{"mtls":"PERMISSIVE"}`,
+			expectedViol: 1,
+		},
+		{
+			name:         "cluster-scoped kind violation",
+			resourceJSON: `{"kind":"ClusterRole"}`,
+			expectedViol: 1,
+		},
+		{
+			name:         "fully compliant spec",
+			resourceJSON: `{"kind":"Deployment","seccompProfile":{"type":"RuntimeDefault"}}`,
+			expectedViol: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		evalInput := workflows.AdmissionEvaluationInput{
+			TenantID:     tenantID,
+			Namespace:    "app-ns",
+			WorkloadID:   "app-workload",
+			CallerRole:   "Developer",
+			ResourceJSON: tc.resourceJSON,
+			Policies:     catalogPolicies,
+			Timestamp:    now,
+		}
+
+		verdict, err := svc.EvaluateAdmission(ctx, evalInput)
+		if err != nil {
+			t.Fatalf("[%s] unexpected evaluation error: %v", tc.name, err)
+		}
+		if len(verdict.Violations) != tc.expectedViol {
+			t.Fatalf("[%s] expected %d violations, got %d", tc.name, tc.expectedViol, len(verdict.Violations))
+		}
+	}
+}
+
+
