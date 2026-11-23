@@ -15,21 +15,29 @@ import (
 	workloadAdapters "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
+	policyAdapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
+	policyPorts "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
+	policyService "internal-developer-platform/src/features/policy-as-code/service"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 	"internal-developer-platform/src/infra/chassis"
+	"internal-developer-platform/src/infra/clients/cloudresource"
+	"internal-developer-platform/src/infra/clients/cluster"
+	"internal-developer-platform/src/infra/clients/resilience"
 )
 
 type AppServices struct {
-	RBACRouter     *routers.RBACRouter
-	CatalogRouter  *routers.ServiceCatalogRouter
-	GitOpsRouter   *routers.GitOpsReconciliationRouter
-	WorkloadRouter *routers.KubernetesWorkloadRouter
-	RegimeRouter   *routers.PlatformRegimeRouter
-	HealthRouter   *routers.HealthCheckRouter
+	RBACRouter      *routers.RBACRouter
+	CatalogRouter   *routers.ServiceCatalogRouter
+	GitOpsRouter    *routers.GitOpsReconciliationRouter
+	WorkloadRouter  *routers.KubernetesWorkloadRouter
+	RegimeRouter    *routers.PlatformRegimeRouter
+	HealthRouter    *routers.HealthCheckRouter
+	OfferingsRouter *routers.OfferingsRouter
+	PolicyRouter    *routers.PolicyAsCodeRouter
 }
 
 func main() {
@@ -145,13 +153,34 @@ func describeService() chassis.ServiceSpec {
 
 			workloadSvc.WithRegimeRepository(regimeRepo)
 
+			resConfig := resilience.DefaultResilienceConfig()
+			clusterClient := cluster.NewGKEClusterClient(resConfig)
+			clusterHandler := handlers.NewClusterHandler(clusterClient)
+
+			cloudResourceClient := cloudresource.NewCloudResourceClient(resConfig)
+			cloudResourceHandler := handlers.NewCloudResourceHandler(cloudResourceClient)
+
+			offeringsRouter := routers.NewOfferingsRouter(clusterHandler, cloudResourceHandler, rbacMW)
+
+			var policyRepo policyPorts.PolicyRepositoryPort
+			if deps.DB != nil {
+				policyRepo = policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
+			} else {
+				policyRepo = policyAdapters.NewMemoryPolicyRepositoryAdapter()
+			}
+			policySvc := policyService.NewPolicyAsCodeService(policyRepo)
+			policyHandler := handlers.NewPolicyAsCodeHandler(policySvc)
+			policyRouter := routers.NewPolicyAsCodeRouter(policyHandler, rbacMW)
+
 			return &AppServices{
-				RBACRouter:     rbacRouter,
-				CatalogRouter:  catalogRouter,
-				GitOpsRouter:   gitopsRouter,
-				WorkloadRouter: workloadRouter,
-				RegimeRouter:   regimeRouter,
-				HealthRouter:   healthRouter,
+				RBACRouter:      rbacRouter,
+				CatalogRouter:   catalogRouter,
+				GitOpsRouter:    gitopsRouter,
+				WorkloadRouter:  workloadRouter,
+				RegimeRouter:    regimeRouter,
+				HealthRouter:    healthRouter,
+				OfferingsRouter: offeringsRouter,
+				PolicyRouter:    policyRouter,
 			}, nil
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
@@ -161,6 +190,8 @@ func describeService() chassis.ServiceSpec {
 			appServices.GitOpsRouter.RegisterRoutes(mux)
 			appServices.WorkloadRouter.RegisterRoutes(mux)
 			appServices.RegimeRouter.RegisterRoutes(mux)
+			appServices.OfferingsRouter.RegisterRoutes(mux)
+			appServices.PolicyRouter.RegisterRoutes(mux)
 			appServices.HealthRouter.RegisterPublicRoutes(mux)
 		},
 

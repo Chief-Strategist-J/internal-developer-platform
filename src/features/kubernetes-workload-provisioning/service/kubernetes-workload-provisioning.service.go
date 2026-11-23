@@ -580,3 +580,24 @@ func (s *WorkloadProvisioningService) DecommissionWorkload(ctx context.Context, 
 		}, nil
 	}, attribute.String("tenant.id", cmd.TenantID), attribute.String("workload.name", cmd.WorkloadName))
 }
+
+func (s *WorkloadProvisioningService) RecordIncidentTimelineEvent(ctx context.Context, event contracts.IncidentTimelineEvent) error {
+	return observability.WithSpan(ctx, "workload.service.record_timeline", func(ctx context.Context) error {
+		if event.ID == "" {
+			event.ID = fmt.Sprintf("inc-%s", uuid.New().String())
+		}
+		if event.TenantID == "" || event.WorkloadID == "" || event.EventType == "" {
+			return errors.NewValidationError("tenantId, workloadId, and eventType are required")
+		}
+		return s.store.RecordTimelineEvent(ctx, event)
+	}, attribute.String("tenant.id", event.TenantID), attribute.String("workload.id", event.WorkloadID), attribute.String("event.type", event.EventType))
+}
+
+func (s *WorkloadProvisioningService) ListIncidentTimelineEvents(ctx context.Context, tenantID string, workloadID string, limit int, offset int) ([]contracts.IncidentTimelineEvent, error) {
+	return observability.RunTraced(ctx, "workload.service.list_timeline", func(ctx context.Context) ([]contracts.IncidentTimelineEvent, error) {
+		if tenantID == "" || workloadID == "" {
+			return nil, errors.NewValidationError("tenantId and workloadId are required")
+		}
+		return s.store.ListTimelineEvents(ctx, tenantID, workloadID, limit, offset)
+	}, attribute.String("tenant.id", tenantID), attribute.String("workload.id", workloadID))
+}

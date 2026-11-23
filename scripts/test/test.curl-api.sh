@@ -394,4 +394,174 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 16] POST /api/v1/clusters -> Hardened GKE Baseline Provisioning"
+echo "--------------------------------------------------------------------------------"
+CLUSTER_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/clusters" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clusterId": "gke-fedramp-prod-01",
+    "projectId": "gov-cloud-production",
+    "location": "us-central1",
+    "releaseChannel": "REGULAR",
+    "workloadPool": "gov-cloud-production.svc.id.goog",
+    "privateCluster": {
+      "enablePrivateNodes": true,
+      "enablePrivateEndpoint": true,
+      "masterIpv4CidrBlock": "172.16.0.0/28"
+    },
+    "shieldedNodes": {
+      "enabled": true,
+      "secureBoot": true,
+      "integrityMonitoring": true
+    },
+    "databaseEncryption": {
+      "state": "ENCRYPTED",
+      "keyName": "projects/gov-cloud-kms/locations/us-central1/keyRings/gke/cryptoKeys/k8s-sec"
+    },
+    "binaryAuthorization": {
+      "evaluationMode": "PROJECT_SINGLETON_POLICY_ENFORCE"
+    },
+    "backupAgentEnabled": true,
+    "cloudServiceMeshMode": "MANAGED",
+    "dataAccessLogsActive": true
+  }')
+
+echo "${CLUSTER_RESP}"
+if echo "${CLUSTER_RESP}" | grep -q "201 Created" && echo "${CLUSTER_RESP}" | grep -q "READY"; then
+    echo -e "\033[1;32m[PASS]\033[0m Hardened GKE baseline cluster provisioned and validated"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created and READY status"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 17] POST /api/v1/cloud-resources -> Cloud Resource Workload Identity"
+echo "--------------------------------------------------------------------------------"
+CR_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "gov-cloud-production",
+    "ksa_name": "orders-sa",
+    "namespace": "orders-prod",
+    "gsa_email": "orders-app@gov-cloud-production.iam.gserviceaccount.com",
+    "role_bindings": ["roles/storage.objectViewer"],
+    "metadata": {
+      "request_id": "req-cr-1024",
+      "owner": "platform-team@gov.io",
+      "cost_center": "CC-1024",
+      "workload_id": "orders-backend",
+      "environment": "production"
+    }
+  }')
+
+echo "${CR_RESP}"
+if echo "${CR_RESP}" | grep -q "201 Created" && echo "${CR_RESP}" | grep -q "roles/iam.workloadIdentityUser"; then
+    echo -e "\033[1;32m[PASS]\033[0m Cloud Resource API provisioned Workload Identity manifest"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created with Workload Identity role"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 18] POST /api/v1/workloads/timeline -> Incident Timeline Event"
+echo "--------------------------------------------------------------------------------"
+TIMELINE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/timeline" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenantId": "fintech-team",
+    "workloadId": "fintech-ledger-api",
+    "eventType": "CANARY_ANALYSIS_ABORTED",
+    "description": "Canary error rate exceeded 0.05% threshold, automated rollback triggered",
+    "actor": "argo-rollouts-controller",
+    "metadata": {
+      "errorRate": "0.12%",
+      "threshold": "0.05%",
+      "strategy": "Canary"
+    }
+  }')
+
+echo "${TIMELINE_RESP}"
+if echo "${TIMELINE_RESP}" | grep -q "201 Created" && echo "${TIMELINE_RESP}" | grep -q "CANARY_ANALYSIS_ABORTED"; then
+    echo -e "\033[1;32m[PASS]\033[0m Incident timeline event persisted"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created for incident timeline event"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 19] POST /api/v1/policies -> Create Policy-as-Code Rule"
+echo "--------------------------------------------------------------------------------"
+POL_TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+POL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${POL_TENANT}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"tenantId\": \"${POL_TENANT}\",
+    \"externalId\": \"SEC-01\",
+    \"name\": \"Restricted Pod Security Baseline\",
+    \"description\": \"Disallow privileged containers across tenant clusters\",
+    \"severity\": \"CRITICAL\",
+    \"enforcementPoint\": \"CEL\",
+    \"ruleExpression\": \"privileged == false\",
+    \"exceptable\": true,
+    \"detectionPair\": \"DET-01\",
+    \"source\": \"API\"
+  }")
+
+echo "${POL_RESP}"
+if echo "${POL_RESP}" | grep -q "201 Created" && echo "${POL_RESP}" | grep -q "Restricted Pod Security Baseline"; then
+    echo -e "\033[1;32m[PASS]\033[0m Policy-as-Code API created policy rule"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created for policy creation"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 20] POST /api/v1/policies/admission/evaluate -> Evaluate Admission"
+echo "--------------------------------------------------------------------------------"
+EVAL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies/admission/evaluate" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${POL_TENANT}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"tenantId\": \"${POL_TENANT}\",
+    \"namespace\": \"fintech-prod\",
+    \"workloadId\": \"ledger-worker\",
+    \"callerRole\": \"Developer\",
+    \"resourceJson\": \"{\\\"privileged\\\":true}\",
+    \"policies\": [
+      {
+        \"id\": \"${POL_TENANT}\",
+        \"externalId\": \"SEC-01\",
+        \"severity\": \"CRITICAL\",
+        \"enforcementPoint\": \"CEL\",
+        \"lifecycleState\": \"DENY\",
+        \"ruleExpression\": \"privileged == false\",
+        \"exceptable\": false,
+        \"description\": \"Privileged containers strictly forbidden in prod\"
+      }
+    ]
+  }")
+
+echo "${EVAL_RESP}"
+if echo "${EVAL_RESP}" | grep -q "403 Forbidden" && echo "${EVAL_RESP}" | grep -q "allowed\":false"; then
+    echo -e "\033[1;32m[PASS]\033[0m Policy-as-Code admission review denied privileged workload with HTTP 403"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 403 Forbidden for DENY policy violation"
+    exit 1
+fi
+
+
+
 
