@@ -82,10 +82,17 @@ func describeService() chassis.ServiceSpec {
 			var workloadStore kubernetesworkloadprovisioning.StorePort
 
 			if deps.DB != nil {
+				rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
+				rbacSvc.SetGrantRepository(rbacPostgres)
+				rbacSvc.SetUserBindingRepository(rbacPostgres)
 				catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
 				gitopsStore = gitopsreconciliation.NewPostgresStore(deps.DB)
 				workloadStore = workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
 			} else {
+				rbacMemGrants := rbacAdapters.NewMemoryAccessGrantAdapter()
+				rbacMemBindings := rbacAdapters.NewMemoryUserBindingAdapter()
+				rbacSvc.SetGrantRepository(rbacMemGrants)
+				rbacSvc.SetUserBindingRepository(rbacMemBindings)
 				catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
 				gitopsStore = gitopsreconciliation.NewMemoryStore()
 				workloadStore = workloadAdapters.NewMemoryWorkloadRepositoryAdapter()

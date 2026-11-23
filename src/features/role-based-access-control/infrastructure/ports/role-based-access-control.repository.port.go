@@ -22,3 +22,9 @@ type AccessGrantRepositoryPort interface {
 	RevokeGrant(ctx context.Context, tenantID string, id string) error
 	ListActiveGrants(ctx context.Context, tenantID string, subjectID string) ([]rbacContracts.AccessGrantRecord, error)
 }
+
+type UserBindingRepositoryPort interface {
+	BindUserRole(ctx context.Context, binding rbacContracts.UserBindingRecord) error
+	UnbindUserRole(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error
+	GetUserRoles(ctx context.Context, tenantID string, subjectID string) ([]rbacContracts.RoleName, error)
+}

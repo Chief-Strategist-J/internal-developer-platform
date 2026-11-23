@@ -74,3 +74,28 @@ type RevokeGrantRequest struct {
 	TenantID string `json:"tenantId"`
 	Reason   string `json:"reason,omitempty"`
 }
+
+type UserBindingRecord struct {
+	SubjectID string    `json:"subjectId"`
+	TenantID  string    `json:"tenantId"`
+	RoleName  RoleName  `json:"roleName"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type BindUserRoleRequest struct {
+	SubjectID string   `json:"subjectId"`
+	TenantID  string   `json:"tenantId"`
+	RoleName  RoleName `json:"roleName"`
+}
+
+type UnbindUserRoleRequest struct {
+	SubjectID string   `json:"subjectId"`
+	TenantID  string   `json:"tenantId"`
+	RoleName  RoleName `json:"roleName"`
+}
+
+type UserBindingsResponse struct {
+	SubjectID string     `json:"subjectId"`
+	TenantID  string     `json:"tenantId"`
+	Roles     []RoleName `json:"roles"`
+}

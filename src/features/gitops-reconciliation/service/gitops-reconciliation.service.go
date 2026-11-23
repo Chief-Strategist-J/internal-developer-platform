@@ -250,15 +250,19 @@ func (s *GitOpsReconciliationService) executeStatefulRollback(
 }
 
 func (s *GitOpsReconciliationService) GetReconciliation(ctx context.Context, tenantID string, id string) (*contracts.ReconciliationRecord, error) {
-	if tenantID == "" || id == "" {
-		return nil, errors.NewValidationError("tenantId and id are required")
-	}
-	return s.store.GetByID(ctx, tenantID, id)
+	return observability.RunTraced(ctx, "gitops.service.get_reconciliation", func(ctx context.Context) (*contracts.ReconciliationRecord, error) {
+		if tenantID == "" || id == "" {
+			return nil, errors.NewValidationError("tenantId and id are required")
+		}
+		return s.store.GetByID(ctx, tenantID, id)
+	}, attribute.String("tenant.id", tenantID), attribute.String("reconciliation.id", id))
 }
 
 func (s *GitOpsReconciliationService) ListReconciliations(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.ReconciliationRecord, error) {
-	if filter.TenantID == "" {
-		return nil, errors.NewValidationError("tenantId is required")
-	}
-	return s.store.List(ctx, filter)
+	return observability.RunTraced(ctx, "gitops.service.list_reconciliations", func(ctx context.Context) ([]contracts.ReconciliationRecord, error) {
+		if filter.TenantID == "" {
+			return nil, errors.NewValidationError("tenantId is required")
+		}
+		return s.store.List(ctx, filter)
+	}, attribute.String("tenant.id", filter.TenantID))
 }
