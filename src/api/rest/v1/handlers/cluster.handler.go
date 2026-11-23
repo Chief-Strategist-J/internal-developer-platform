@@ -105,3 +105,34 @@ func (h *ClusterHandler) GetCluster(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 }
+
+func (h *ClusterHandler) ValidatePosture(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "cluster.handler.validate_posture", func(ctx context.Context) error {
+		start := time.Now()
+		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+		clusterID := r.URL.Query().Get("clusterId")
+
+		report, err := h.client.ValidatePosture(ctx, clusterID)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(types.ApiResponse{
+				Success:    false,
+				StatusCode: http.StatusNotFound,
+				Error:      &types.ResponseError{Code: constants.ErrCodeNotFound, Message: err.Error()},
+			})
+			return err
+		}
+
+		w.WriteHeader(http.StatusOK)
+		return json.NewEncoder(w).Encode(types.ApiResponse{
+			Success:    true,
+			StatusCode: http.StatusOK,
+			Data:       report,
+			Meta: types.ResponseMeta{
+				Timestamp:       time.Now().UTC().Format(time.RFC3339),
+				ExecutionTimeMs: time.Since(start).Milliseconds(),
+				APIVersion:      "v1",
+			},
+		})
+	})
+}
