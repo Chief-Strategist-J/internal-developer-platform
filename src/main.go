@@ -12,6 +12,8 @@ import (
 	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
 	healthService "internal-developer-platform/src/features/health-checks/service"
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	platformregime "internal-developer-platform/src/features/platform-regime"
+	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
@@ -25,8 +27,10 @@ type AppServices struct {
 	CatalogRouter  *routers.ServiceCatalogRouter
 	GitOpsRouter   *routers.GitOpsReconciliationRouter
 	WorkloadRouter *routers.KubernetesWorkloadRouter
+	RegimeRouter   *routers.PlatformRegimeRouter
 	HealthRouter   *routers.HealthCheckRouter
 }
+
 
 func main() {
 	os.Exit(chassis.Run(describeService(), os.Args[1:], os.Environ()))
@@ -105,11 +109,41 @@ func describeService() chassis.ServiceSpec {
 			healthHandler := handlers.NewHealthCheckHandler(healthSvc)
 			healthRouter := routers.NewHealthCheckRouter(healthHandler)
 
+			regimeBaseline := regimeContracts.PlatformRegimePolicyRecord{
+				ID:                   "baseline-default",
+				Jurisdiction:         "US_FEDRAMP_MODERATE",
+				AuditRetentionDays:   365,
+				DataResidencyRegions: []string{"us-central1", "us-east4"},
+				KMSKeyCustodyMode:    regimeContracts.KMSCustodyCMEK,
+				RTOMinutesTier0:      15,
+				RPOMinutesTier0:      0,
+				RTOMinutesTier1:      60,
+				RPOMinutesTier1:      15,
+				ClusterMode:          regimeContracts.ClusterModeGKEStandard,
+				PrimaryRegionCount:   2,
+				StandbyRegionCount:   1,
+				TenantIsolationMode:  regimeContracts.TenancyModeInternalOnly,
+				Status:               regimeContracts.RegimeStatusActive,
+			}
+
+			var regimeRepo platformregime.PlatformRegimeRepositoryPort
+			if deps.DB != nil {
+				regimeRepo = platformregime.NewPostgresRepository(deps.DB)
+			} else {
+				regimeRepo = platformregime.NewMemoryRepository()
+			}
+			regimeSvc := platformregime.NewService(regimeRepo, regimeBaseline)
+			regimeHandler := handlers.NewPlatformRegimeHandler(regimeSvc)
+			regimeRouter := routers.NewPlatformRegimeRouter(regimeHandler, rbacMW)
+
+			workloadSvc.WithRegimeRepository(regimeRepo)
+
 			return &AppServices{
 				RBACRouter:     rbacRouter,
 				CatalogRouter:  catalogRouter,
 				GitOpsRouter:   gitopsRouter,
 				WorkloadRouter: workloadRouter,
+				RegimeRouter:   regimeRouter,
 				HealthRouter:   healthRouter,
 			}, nil
 		},
@@ -119,8 +153,10 @@ func describeService() chassis.ServiceSpec {
 			appServices.CatalogRouter.RegisterRoutes(mux)
 			appServices.GitOpsRouter.RegisterRoutes(mux)
 			appServices.WorkloadRouter.RegisterRoutes(mux)
+			appServices.RegimeRouter.RegisterRoutes(mux)
 			appServices.HealthRouter.RegisterPublicRoutes(mux)
 		},
+
 		RegisterAdminRoutes: func(mux *http.ServeMux, services interface{}) {
 			appServices := services.(*AppServices)
 			appServices.HealthRouter.RegisterAdminRoutes(mux)

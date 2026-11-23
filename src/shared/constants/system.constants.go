@@ -34,7 +34,10 @@ const (
 	EndpointServices              = "/api/v1/services"
 	EndpointWorkloads             = "/api/v1/workloads"
 	EndpointWorkloadsPrefix       = "/api/v1/workloads/"
+	EndpointRegimes               = "/api/v1/regimes"
+	EndpointRegimesActive         = "/api/v1/regimes/active"
 )
+
 
 const (
 	ErrCodeValidationFailed   = "VALIDATION_FAILED"

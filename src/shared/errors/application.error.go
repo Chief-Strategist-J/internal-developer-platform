@@ -82,3 +82,17 @@ func NewDeadlineExceededError(message string) *ApplicationError {
 		Retryable:     false,
 	}
 }
+
+func NewInternalError(message string, cause ...error) *ApplicationError {
+	errMsg := message
+	if len(cause) > 0 && cause[0] != nil {
+		errMsg = message + ": " + cause[0].Error()
+	}
+	return &ApplicationError{
+		StatusCode:    500,
+		CanonicalCode: "INTERNAL_ERROR",
+		Message:       errMsg,
+		Retryable:     false,
+	}
+}
+
