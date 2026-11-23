@@ -87,6 +87,8 @@ func describeService() chassis.ServiceSpec {
 			var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
 			var gitopsStore gitopsreconciliation.StorePort
 			var workloadStore kubernetesworkloadprovisioning.StorePort
+			var regimeRepo platformregime.PlatformRegimeRepositoryPort
+			var policyRepo policyPorts.PolicyRepositoryPort
 
 			if deps.DB != nil {
 				rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
@@ -95,6 +97,8 @@ func describeService() chassis.ServiceSpec {
 				catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
 				gitopsStore = gitopsreconciliation.NewPostgresStore(deps.DB)
 				workloadStore = workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
+				regimeRepo = platformregime.NewPostgresRepository(deps.DB)
+				policyRepo = policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
 			} else {
 				rbacMemGrants := rbacAdapters.NewMemoryAccessGrantAdapter()
 				rbacMemBindings := rbacAdapters.NewMemoryUserBindingAdapter()
@@ -103,6 +107,8 @@ func describeService() chassis.ServiceSpec {
 				catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
 				gitopsStore = gitopsreconciliation.NewMemoryStore()
 				workloadStore = workloadAdapters.NewMemoryWorkloadRepositoryAdapter()
+				regimeRepo = platformregime.NewMemoryRepository()
+				policyRepo = policyAdapters.NewMemoryPolicyRepositoryAdapter()
 			}
 
 			catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
@@ -141,12 +147,6 @@ func describeService() chassis.ServiceSpec {
 				Status:               regimeContracts.RegimeStatusActive,
 			}
 
-			var regimeRepo platformregime.PlatformRegimeRepositoryPort
-			if deps.DB != nil {
-				regimeRepo = platformregime.NewPostgresRepository(deps.DB)
-			} else {
-				regimeRepo = platformregime.NewMemoryRepository()
-			}
 			regimeSvc := platformregime.NewService(regimeRepo, regimeBaseline)
 			regimeHandler := handlers.NewPlatformRegimeHandler(regimeSvc)
 			regimeRouter := routers.NewPlatformRegimeRouter(regimeHandler, rbacMW)
@@ -162,12 +162,6 @@ func describeService() chassis.ServiceSpec {
 
 			offeringsRouter := routers.NewOfferingsRouter(clusterHandler, cloudResourceHandler, rbacMW)
 
-			var policyRepo policyPorts.PolicyRepositoryPort
-			if deps.DB != nil {
-				policyRepo = policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
-			} else {
-				policyRepo = policyAdapters.NewMemoryPolicyRepositoryAdapter()
-			}
 			policySvc := policyService.NewPolicyAsCodeService(policyRepo)
 			policyHandler := handlers.NewPolicyAsCodeHandler(policySvc)
 			policyRouter := routers.NewPolicyAsCodeRouter(policyHandler, rbacMW)
