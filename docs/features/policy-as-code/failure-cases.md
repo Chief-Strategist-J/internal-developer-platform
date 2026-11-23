@@ -72,3 +72,4 @@ When admission webhook pods are degraded and cluster operations are frozen:
    - Re-enable webhook configuration via Argo CD sync.
    - Execute continuous audit scan (`/api/v1/policies/audit-scan`) to verify all resources deployed during the bypass window.
    - Log breakglass window duration and affected resources for auditor evidence trace.
+
