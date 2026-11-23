@@ -93,6 +93,12 @@ SET status = $1, version = version + 1, updated_at = $2
 WHERE tenant_id = $3 AND id = $4 AND version = $5 AND deleted_at IS NULL
 `
 
+	FLOW_RECONCILE_EXPIRED_EXCEPTIONS = `
+UPDATE policy_exceptions
+SET status = 'EXPIRED', version = version + 1, updated_at = $1
+WHERE tenant_id = $2 AND status = 'ACTIVE' AND expires_at <= $3 AND deleted_at IS NULL
+`
+
 	FLOW_VERIFY_STATE_TRANSITION = `
 SELECT 1 FROM policy_state_transitions
 WHERE from_status = $1 AND to_status = $2

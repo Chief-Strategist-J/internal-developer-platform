@@ -279,3 +279,82 @@ func TestContinuousAuditScanWorkflow(t *testing.T) {
 	}
 }
 
+func TestExceptionReconcileExpiredExceptions_Integration(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+	svc := service.NewPolicyAsCodeService(repo)
+
+	tenantID := "tenant-reconcile-test"
+	now := time.Now().UTC()
+
+	pol := contracts.PolicyRecord{
+		ID:               "pol-reconcile-01",
+		PublicID:         "pol_rec_01",
+		TenantID:         tenantID,
+		ExternalID:       "POD-11",
+		Name:             "Read Only Root Filesystem Enforcer",
+		Description:      "Containers must use read-only root filesystems",
+		EnforcementPoint: contracts.EnforcementPointCEL,
+		Severity:         contracts.SeverityCritical,
+		RuleExpression:   "readOnlyRootFilesystem == true",
+		Exceptable:       true,
+		DetectionPair:    "PC audit",
+		LifecycleState:   contracts.LifecycleDeny,
+		Source:           contracts.PolicySourceAPI,
+		Version:          1,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	_, err := svc.CreatePolicy(ctx, pol)
+	if err != nil {
+		t.Fatalf("failed to create policy: %v", err)
+	}
+
+	excReq := contracts.PolicyExceptionRecord{
+		ID:            "exc-reconcile-01",
+		PublicID:      "exc_rec_01",
+		TenantID:      tenantID,
+		PolicyID:      pol.ID,
+		WorkloadID:    "w-expired-pod",
+		Namespace:     "prod-reconcile",
+		ApproverID:    "sec-lead",
+		Justification: "Temporary bypass that has expired",
+		Status:        contracts.ExceptionStatusActive,
+		ExpiresAt:     now.Add(-10 * time.Minute),
+		CorrelationID: "corr-1",
+		Version:       1,
+		CreatedAt:     now.Add(-20 * time.Minute),
+		UpdatedAt:     now.Add(-20 * time.Minute),
+	}
+
+	if err := repo.SaveException(ctx, excReq); err != nil {
+		t.Fatalf("failed to insert expired exception: %v", err)
+	}
+
+	reconciled, err := svc.ReconcileExpiredExceptions(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("failed to reconcile expired exceptions: %v", err)
+	}
+	if reconciled != 1 {
+		t.Fatalf("expected 1 exception reconciled, got: %d", reconciled)
+	}
+
+	evalInput := workflows.AdmissionEvaluationInput{
+		TenantID:     tenantID,
+		Namespace:    "prod-reconcile",
+		WorkloadID:   "w-expired-pod",
+		CallerRole:   "Developer",
+		ResourceJSON: `{"readOnlyRootFilesystem":false}`,
+		Timestamp:    now,
+	}
+
+	verdict, err := svc.EvaluateAdmission(ctx, evalInput)
+	if err != nil {
+		t.Fatalf("evaluation returned unexpected error: %v", err)
+	}
+	if verdict.Allowed {
+		t.Fatalf("expected admission to be REJECTED because exception has expired")
+	}
+}
+

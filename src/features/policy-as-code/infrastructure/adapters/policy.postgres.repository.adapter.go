@@ -28,6 +28,7 @@ const (
 	SpanGetExceptionByID               = "db.policy_exception.get_by_id"
 	SpanGetActiveExceptionsForWorkload = "db.policy_exception.get_active_for_workload"
 	SpanUpdateExceptionStatus          = "db.policy_exception.update_status"
+	SpanReconcileExpiredExceptions     = "db.policy_exception.reconcile_expired"
 
 	AttrTenantID   = "db.tenant_id"
 	AttrPolicyID   = "db.policy_id"
@@ -507,6 +508,33 @@ func (a *PostgresPolicyRepositoryAdapter) UpdateExceptionStatus(ctx context.Cont
 		return conflictErr
 	}
 	return nil
+}
+
+func (a *PostgresPolicyRepositoryAdapter) ReconcileExpiredExceptions(ctx context.Context, tenantID string, now time.Time) (int, error) {
+	ctx, span := observability.GetTracer().StartSpan(ctx, SpanReconcileExpiredExceptions,
+		attribute.String(AttrTenantID, tenantID),
+	)
+	defer span.End()
+
+	if strings.TrimSpace(tenantID) == "" {
+		err := errors.NewValidationError(ErrEmptyTenantIDMsg)
+		observability.RecordError(span, err)
+		return 0, err
+	}
+
+	res, err := a.db.ExecContext(ctx, queries.FLOW_RECONCILE_EXPIRED_EXCEPTIONS, now, tenantID, now)
+	if err != nil {
+		observability.RecordError(span, err)
+		return 0, err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		observability.RecordError(span, err)
+		return 0, err
+	}
+
+	return int(rowsAffected), nil
 }
 
 type rowScanner interface {
