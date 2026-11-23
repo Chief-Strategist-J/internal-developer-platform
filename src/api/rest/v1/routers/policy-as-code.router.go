@@ -38,6 +38,7 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 	subresourceHandler := r.buildSubresourceHandler()
 	admissionHandler := r.buildAdmissionHandler()
 	auditScanHandler := r.buildAuditScanHandler()
+	reconcileHandler := r.buildReconcileExceptionsHandler()
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointPoliciesEvaluate, r.rbacMiddle.RequirePermission(
@@ -49,6 +50,11 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionWrite,
 			auditScanHandler,
+		))
+		mux.HandleFunc(constants.EndpointPoliciesReconcileExceptions, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionWrite,
+			reconcileHandler,
 		))
 		mux.HandleFunc(constants.EndpointPolicies, r.rbacMiddle.RequirePermission(
 			rbacContracts.ResourceInfrastructure,
@@ -65,6 +71,7 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc(constants.EndpointPoliciesEvaluate, admissionHandler)
 	mux.HandleFunc(constants.EndpointPoliciesAuditScan, auditScanHandler)
+	mux.HandleFunc(constants.EndpointPoliciesReconcileExceptions, reconcileHandler)
 	mux.HandleFunc(constants.EndpointPolicies, collectionHandler)
 	mux.HandleFunc(constants.EndpointPoliciesPrefix, subresourceHandler)
 }
@@ -91,6 +98,10 @@ func (r *PolicyAsCodeRouter) buildSubresourceHandler() http.HandlerFunc {
 		}
 		if strings.HasSuffix(path, "/exceptions") && (req.Method == http.MethodPost) {
 			r.handler.RequestException(w, req)
+			return
+		}
+		if (strings.HasSuffix(path, "/exceptions/reconcile") || strings.HasSuffix(path, "/exceptions-reconcile")) && (req.Method == http.MethodPost) {
+			r.handler.ReconcileExceptions(w, req)
 			return
 		}
 		if strings.HasSuffix(path, "/violations") && (req.Method == http.MethodGet) {
@@ -123,6 +134,16 @@ func (r *PolicyAsCodeRouter) buildAuditScanHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
 			r.handler.ExecuteAuditScan(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (r *PolicyAsCodeRouter) buildReconcileExceptionsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.ReconcileExceptions(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)

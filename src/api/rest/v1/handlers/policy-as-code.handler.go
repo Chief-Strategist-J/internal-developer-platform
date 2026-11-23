@@ -328,6 +328,34 @@ func (h *PolicyAsCodeHandler) ExecuteAuditScan(w http.ResponseWriter, r *http.Re
 	})
 }
 
+type ReconcileExceptionsResponse struct {
+	ReconciledCount int `json:"reconciledCount"`
+}
+
+func (h *PolicyAsCodeHandler) ReconcileExceptions(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.reconcile_exceptions", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId is required")
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		count, err := h.service.ReconcileExpiredExceptions(ctx, tenantID)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, ReconcileExceptionsResponse{ReconciledCount: count}, meta)
+		return nil
+	})
+}
+
 func (h *PolicyAsCodeHandler) handleError(w http.ResponseWriter, meta IngressMetadata, err error) {
 	var appErr *appErrors.ApplicationError
 	if errors.As(err, &appErr) {

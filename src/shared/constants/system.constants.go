@@ -45,8 +45,9 @@ const (
 	EndpointTimelinePrefix        = "/api/v1/workloads/timeline"
 	EndpointPolicies              = "/api/v1/policies"
 	EndpointPoliciesPrefix        = "/api/v1/policies/"
-	EndpointPoliciesEvaluate      = "/api/v1/policies/admission/evaluate"
-	EndpointPoliciesAuditScan     = "/api/v1/policies/audit-scan"
+	EndpointPoliciesEvaluate            = "/api/v1/policies/admission/evaluate"
+	EndpointPoliciesAuditScan           = "/api/v1/policies/audit-scan"
+	EndpointPoliciesReconcileExceptions = "/api/v1/policies/exceptions/reconcile"
 )
 
 const (
