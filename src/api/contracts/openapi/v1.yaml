@@ -472,7 +472,80 @@ paths:
       responses:
         '200':
           description: Ready
+  /api/v1/regimes:
+    post:
+      summary: Register and activate platform regime policy (B-1 to B-4)
+      operationId: registerRegimePolicy
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRegimePolicyRequest'
+      responses:
+        '201':
+          description: Regime policy successfully registered and activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegimePolicyResponseWrapper'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/regimes/active:
+    get:
+      summary: Get active platform regime policy for tenant
+      operationId: getActiveRegimePolicy
+      parameters:
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active regime policy returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegimePolicyResponseWrapper'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
+
   schemas:
     Permission:
       type: object
@@ -1375,3 +1448,155 @@ components:
             $ref: '#/components/schemas/AccessGrantRecord'
         meta:
           $ref: '#/components/schemas/ResponseMeta'
+    CreateRegimePolicyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - jurisdiction
+        - auditRetentionDays
+        - dataResidencyRegions
+        - kmsKeyCustodyMode
+        - rtoMinutesTier0
+        - rpoMinutesTier0
+        - rtoMinutesTier1
+        - rpoMinutesTier1
+        - clusterMode
+        - primaryRegionCount
+        - standbyRegionCount
+        - tenantIsolationMode
+      properties:
+        tenantId:
+          type: string
+        source:
+          type: string
+        externalId:
+          type: string
+        correlationId:
+          type: string
+        jurisdiction:
+          type: string
+        auditRetentionDays:
+          type: integer
+          minimum: 30
+        dataResidencyRegions:
+          type: array
+          items:
+            type: string
+        kmsKeyCustodyMode:
+          type: string
+          enum: [CMEK, EKM, DOD_KMS]
+        rtoMinutesTier0:
+          type: integer
+          minimum: 1
+        rpoMinutesTier0:
+          type: integer
+          minimum: 0
+        rtoMinutesTier1:
+          type: integer
+          minimum: 1
+        rpoMinutesTier1:
+          type: integer
+          minimum: 0
+        clusterMode:
+          type: string
+          enum: [GKE_STANDARD, GKE_AUTOPILOT]
+        primaryRegionCount:
+          type: integer
+          minimum: 1
+        standbyRegionCount:
+          type: integer
+          minimum: 1
+        tenantIsolationMode:
+          type: string
+          enum: [INTERNAL_ONLY, SHARED_EXTERNAL]
+    PlatformRegimePolicyRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - publicId
+        - tenantId
+        - jurisdiction
+        - auditRetentionDays
+        - dataResidencyRegions
+        - kmsKeyCustodyMode
+        - rtoMinutesTier0
+        - rpoMinutesTier0
+        - rtoMinutesTier1
+        - rpoMinutesTier1
+        - clusterMode
+        - primaryRegionCount
+        - standbyRegionCount
+        - tenantIsolationMode
+        - status
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        publicId:
+          type: string
+        tenantId:
+          type: string
+        source:
+          type: string
+        externalId:
+          type: string
+        correlationId:
+          type: string
+        jurisdiction:
+          type: string
+        auditRetentionDays:
+          type: integer
+        dataResidencyRegions:
+          type: array
+          items:
+            type: string
+        kmsKeyCustodyMode:
+          type: string
+        rtoMinutesTier0:
+          type: integer
+        rpoMinutesTier0:
+          type: integer
+        rtoMinutesTier1:
+          type: integer
+        rpoMinutesTier1:
+          type: integer
+        clusterMode:
+          type: string
+        primaryRegionCount:
+          type: integer
+        standbyRegionCount:
+          type: integer
+        tenantIsolationMode:
+          type: string
+        status:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RegimePolicyResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/PlatformRegimePolicyRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+

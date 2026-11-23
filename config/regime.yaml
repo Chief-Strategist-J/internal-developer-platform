@@ -1,0 +1,15 @@
+regime:
+  jurisdiction: "US_FEDRAMP_HIGH"
+  audit_retention_days: 365
+  data_residency_regions:
+    - "us-central1"
+    - "us-east4"
+  kms_key_custody_mode: "CMEK"
+  rto_minutes_tier0: 15
+  rpo_minutes_tier0: 5
+  rto_minutes_tier1: 60
+  rpo_minutes_tier1: 15
+  cluster_mode: "GKE_STANDARD"
+  primary_region_count: 1
+  standby_region_count: 1
+  tenant_isolation_mode: "INTERNAL_ONLY"
