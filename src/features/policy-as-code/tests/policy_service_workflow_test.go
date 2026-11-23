@@ -358,3 +358,56 @@ func TestExceptionReconcileExpiredExceptions_Integration(t *testing.T) {
 	}
 }
 
+func TestPolicyAsCodeService_AdmissionEvaluation_AdHocPolicy_SkipsUnregisteredViolationPersistence(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+	svc := service.NewPolicyAsCodeService(repo)
+
+	tenantID := "tenant-adhoc"
+	now := time.Now().UTC()
+
+	adHocPolicy := contracts.PolicyRecord{
+		ID:               "adhoc-pol-01",
+		TenantID:         tenantID,
+		Name:             "AdHoc Disallow Privileged",
+		Description:      "Adhoc rule not persisted to database",
+		ExternalID:       "SEC-ADHOC-01",
+		EnforcementPoint: contracts.EnforcementPointCEL,
+		Severity:         contracts.SeverityCritical,
+		RuleExpression:   "privileged == false",
+		Exceptable:       false,
+		DetectionPair:    "det-adhoc-01",
+		LifecycleState:   contracts.LifecycleDeny,
+		Source:           contracts.PolicySourceAPI,
+	}
+
+	evalInput := workflows.AdmissionEvaluationInput{
+		TenantID:     tenantID,
+		Namespace:    "fintech-prod",
+		WorkloadID:   "ledger-worker",
+		CallerRole:   "Developer",
+		ResourceJSON: `{"privileged":true}`,
+		Policies:     []contracts.PolicyRecord{adHocPolicy},
+		Timestamp:    now,
+	}
+
+	verdict, err := svc.EvaluateAdmission(ctx, evalInput)
+	if err != nil {
+		t.Fatalf("unexpected error evaluating ad-hoc policy: %v", err)
+	}
+	if verdict.Allowed {
+		t.Fatalf("expected admission to be REJECTED for privileged container")
+	}
+	if len(verdict.Violations) != 1 {
+		t.Fatalf("expected 1 violation in verdict, got: %d", len(verdict.Violations))
+	}
+
+	viols, err := repo.ListActiveViolationsByPolicy(ctx, tenantID, adHocPolicy.ID)
+	if err != nil {
+		t.Fatalf("unexpected error querying violations: %v", err)
+	}
+	if len(viols) != 0 {
+		t.Fatalf("expected 0 violations persisted for unregistered policy, got: %d", len(viols))
+	}
+}
+
