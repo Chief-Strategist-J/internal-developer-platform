@@ -15,6 +15,8 @@ import (
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
 	pacports "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
+	regimerules "internal-developer-platform/src/features/platform-regime/domain/rules"
+	regimeports "internal-developer-platform/src/features/platform-regime/infrastructure/ports"
 	"internal-developer-platform/src/infra/clients/kms"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
@@ -29,6 +31,7 @@ type WorkloadProvisioningService struct {
 	store          ports.WorkloadStorePort
 	k8sClient      ports.K8sClientPort
 	policyRepo     pacports.PolicyRepositoryPort
+	regimeRepo     regimeports.PlatformRegimeRepositoryPort
 	gitopsDelivery ports.GitOpsDeliveryPort
 	kmsEngine      *kms.EnvelopeEncryptionEngine
 }
@@ -44,6 +47,12 @@ func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient por
 		policyRepo: pr,
 	}
 }
+
+func (s *WorkloadProvisioningService) WithRegimeRepository(regimeRepo regimeports.PlatformRegimeRepositoryPort) *WorkloadProvisioningService {
+	s.regimeRepo = regimeRepo
+	return s
+}
+
 
 func (s *WorkloadProvisioningService) WithKMSEngine(kmsEngine *kms.EnvelopeEncryptionEngine) *WorkloadProvisioningService {
 	s.kmsEngine = kmsEngine
@@ -352,11 +361,30 @@ func (s *WorkloadProvisioningService) ProvisionWorkload(ctx context.Context, cmd
 		if err != nil {
 			return nil, err
 		}
+		if err := s.validatePlatformRegime(ctx, cmd); err != nil {
+			return nil, err
+		}
 		if err := s.encryptWorkloadSecrets(ctx, &cmd); err != nil {
 			return nil, err
 		}
+
 		return s.executePipeline(ctx, cmd, mutations, report)
 	}, attribute.String("tenant.id", cmd.TenantID), attribute.String("workload.name", cmd.WorkloadName))
+}
+
+func (s *WorkloadProvisioningService) validatePlatformRegime(ctx context.Context, cmd contracts.WorkloadProvisionCommand) error {
+	if s.regimeRepo == nil {
+		return nil
+	}
+	regime, err := s.regimeRepo.GetActive(ctx, cmd.TenantID)
+	if err != nil || regime == nil {
+		return nil
+	}
+	ok, violations := regimerules.ValidateWorkloadAgainstRegime(cmd, *regime)
+	if !ok && len(violations) > 0 {
+		return errors.NewValidationError(fmt.Sprintf("platform regime policy violation: %s (%s)", violations[0].Message, violations[0].Rule))
+	}
+	return nil
 }
 
 func (s *WorkloadProvisioningService) encryptWorkloadSecrets(ctx context.Context, cmd *contracts.WorkloadProvisionCommand) error {
