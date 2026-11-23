@@ -161,3 +161,97 @@ func TestPolicyHttpAdmissionEvaluation(t *testing.T) {
 		t.Errorf("expected success: true in envelope for valid evaluation verdict")
 	}
 }
+
+func TestPolicyHttpViolationsAndAuditScan(t *testing.T) {
+	handler := setupTestPolicyHandler()
+	tenantID := "tenant-scan-01"
+
+	policyPayload := contracts.PolicyRecord{
+		ID:               "pol-scan-01",
+		TenantID:         tenantID,
+		ExternalID:       "SEC-SCAN-01",
+		Name:             "Audit Scan Policy",
+		Description:      "Detect privileged containers in audit scan",
+		Severity:         contracts.SeverityCritical,
+		EnforcementPoint: contracts.EnforcementPointCEL,
+		LifecycleState:   contracts.LifecycleDeny,
+		RuleExpression:   "privileged == false",
+		Exceptable:       true,
+		DetectionPair:    "DET-SCAN-01",
+		Source:           contracts.PolicySourceAPI,
+	}
+
+	pBody, _ := json.Marshal(policyPayload)
+	pReq := httptest.NewRequest(http.MethodPost, "/api/v1/policies", bytes.NewReader(pBody))
+	pReq.Header.Set("Content-Type", "application/json")
+	pRec := httptest.NewRecorder()
+	handler.CreatePolicy(pRec, pReq)
+	if pRec.Code != http.StatusCreated {
+		t.Fatalf("failed to create policy: %d", pRec.Code)
+	}
+
+	auditInput := workflows.AuditScanInput{
+		TenantID: tenantID,
+		Workloads: []workflows.WorkloadManifest{
+			{
+				Namespace:    "orders-prod",
+				WorkloadID:   "w-orders-api",
+				ResourceJSON: `{"privileged":true}`,
+			},
+		},
+		Policies:  []contracts.PolicyRecord{policyPayload},
+		Timestamp: time.Now().UTC(),
+	}
+
+	scanBody, _ := json.Marshal(auditInput)
+	scanReq := httptest.NewRequest(http.MethodPost, "/api/v1/policies/audit-scan", bytes.NewReader(scanBody))
+	scanReq.Header.Set("Content-Type", "application/json")
+	scanRec := httptest.NewRecorder()
+	handler.ExecuteAuditScan(scanRec, scanReq)
+
+	if scanRec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for audit scan, got: %d", scanRec.Code)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/policies/pol-scan-01/violations?tenantId="+tenantID, nil)
+	listRec := httptest.NewRecorder()
+	handler.ListViolations(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for list violations, got: %d", listRec.Code)
+	}
+
+	var listResp struct {
+		Success bool                              `json:"success"`
+		Data    []contracts.PolicyViolationRecord `json:"data"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&listResp); err != nil {
+		t.Fatalf("failed to decode list violations response: %v", err)
+	}
+	if len(listResp.Data) != 1 {
+		t.Fatalf("expected 1 violation in list, got: %d", len(listResp.Data))
+	}
+
+	viol := listResp.Data[0]
+	resolvePayload := ResolveViolationRequest{Version: viol.Version}
+	rBody, _ := json.Marshal(resolvePayload)
+	resolveReq := httptest.NewRequest(http.MethodPost, "/api/v1/policies/pol-scan-01/violations/"+viol.ID+"/resolve?tenantId="+tenantID, bytes.NewReader(rBody))
+	resolveReq.Header.Set("Content-Type", "application/json")
+	resolveRec := httptest.NewRecorder()
+	handler.ResolveViolation(resolveRec, resolveReq)
+
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for resolve violation, got: %d. Body: %s", resolveRec.Code, resolveRec.Body.String())
+	}
+
+	afterRec := httptest.NewRecorder()
+	handler.ListViolations(afterRec, listReq)
+	var afterResp struct {
+		Success bool                              `json:"success"`
+		Data    []contracts.PolicyViolationRecord `json:"data"`
+	}
+	_ = json.NewDecoder(afterRec.Body).Decode(&afterResp)
+	if len(afterResp.Data) != 0 {
+		t.Fatalf("expected 0 active violations after resolution, got: %d", len(afterResp.Data))
+	}
+}

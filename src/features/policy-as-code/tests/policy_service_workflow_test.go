@@ -115,3 +115,167 @@ func TestPolicyAsCodeService_CompleteLifecycleAndAdmission(t *testing.T) {
 	}
 }
 
+func TestPolicyViolationPersistenceAndFSMGuard(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+	svc := service.NewPolicyAsCodeService(repo)
+
+	tenantID := "tenant-fsm-test"
+	p := contracts.PolicyRecord{
+		ID:               "pol-fsm-guard-01",
+		PublicID:         "pol_guard_01",
+		TenantID:         tenantID,
+		ExternalID:       "POD-01",
+		Name:             "No Privileged Containers",
+		Description:      "Containers must not run in privileged mode",
+		EnforcementPoint: contracts.EnforcementPointCEL,
+		Severity:         contracts.SeverityCritical,
+		RuleExpression:   "privileged == false",
+		Exceptable:       false,
+		DetectionPair:    "PC audit",
+		LifecycleState:   contracts.LifecycleDraft,
+		Source:           contracts.PolicySourceAPI,
+	}
+
+	created, err := svc.CreatePolicy(ctx, p)
+	if err != nil {
+		t.Fatalf("failed to create policy: %v", err)
+	}
+
+	pol, err := svc.TransitionPolicyLifecycle(ctx, tenantID, created.ID, machines.EventPromoteToCIOnly, 0)
+	if err != nil {
+		t.Fatalf("failed transition to CI_ONLY: %v", err)
+	}
+
+	pol, err = svc.TransitionPolicyLifecycle(ctx, tenantID, pol.ID, machines.EventPromoteToAudit, 0)
+	if err != nil {
+		t.Fatalf("failed transition to AUDIT: %v", err)
+	}
+
+	pol, err = svc.TransitionPolicyLifecycle(ctx, tenantID, pol.ID, machines.EventPromoteToWarn, 0)
+	if err != nil {
+		t.Fatalf("failed transition to WARN: %v", err)
+	}
+
+	evalInput := workflows.AdmissionEvaluationInput{
+		TenantID:     tenantID,
+		Namespace:    "orders-prod",
+		WorkloadID:   "orders-worker",
+		CallerRole:   "Developer",
+		ResourceJSON: `{"privileged":true}`,
+		Policies:     []contracts.PolicyRecord{*pol},
+		Timestamp:    time.Now().UTC(),
+	}
+
+	verdict, err := svc.EvaluateAdmission(ctx, evalInput)
+	if err != nil {
+		t.Fatalf("evaluation returned unexpected error: %v", err)
+	}
+	if len(verdict.Warnings) == 0 {
+		t.Fatalf("expected warning for WARN policy violation")
+	}
+
+	vCount, err := svc.CountActiveViolations(ctx, tenantID, pol.ID)
+	if err != nil {
+		t.Fatalf("failed to count violations: %v", err)
+	}
+	if vCount != 1 {
+		t.Fatalf("expected 1 active violation in db, got: %d", vCount)
+	}
+
+	_, err = svc.TransitionPolicyLifecycle(ctx, tenantID, pol.ID, machines.EventPromoteToDeny, 0)
+	if err == nil {
+		t.Fatalf("expected promotion to DENY to fail when active violations exist in db")
+	}
+
+	viols, err := svc.ListActiveViolations(ctx, tenantID, pol.ID)
+	if err != nil {
+		t.Fatalf("failed to list active violations: %v", err)
+	}
+	if len(viols) != 1 {
+		t.Fatalf("expected 1 violation record, got: %d", len(viols))
+	}
+
+	err = svc.ResolveViolation(ctx, tenantID, viols[0].ID, viols[0].Version)
+	if err != nil {
+		t.Fatalf("failed to resolve violation: %v", err)
+	}
+
+	pol, err = svc.TransitionPolicyLifecycle(ctx, tenantID, pol.ID, machines.EventPromoteToDeny, 0)
+	if err != nil {
+		t.Fatalf("expected promotion to DENY to succeed after resolution, got: %v", err)
+	}
+	if pol.LifecycleState != contracts.LifecycleDeny {
+		t.Fatalf("expected state DENY, got: %s", pol.LifecycleState)
+	}
+}
+
+func TestContinuousAuditScanWorkflow(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+	svc := service.NewPolicyAsCodeService(repo)
+
+	tenantID := "tenant-audit-test"
+	pol := contracts.PolicyRecord{
+		ID:               "pol-audit-scan-01",
+		PublicID:         "pol_as_01",
+		TenantID:         tenantID,
+		ExternalID:       "SEC-AUDIT-01",
+		Name:             "Audit Scan Non-root Rule",
+		Description:      "Enforce non-root execution",
+		EnforcementPoint: contracts.EnforcementPointCEL,
+		Severity:         contracts.SeverityCritical,
+		RuleExpression:   "runAsNonRoot == true",
+		Exceptable:       true,
+		DetectionPair:    "DET-AUDIT-01",
+		LifecycleState:   contracts.LifecycleDeny,
+		Source:           contracts.PolicySourceAPI,
+	}
+
+	_, err := svc.CreatePolicy(ctx, pol)
+	if err != nil {
+		t.Fatalf("failed to create policy: %v", err)
+	}
+
+	input := workflows.AuditScanInput{
+		TenantID: tenantID,
+		Workloads: []workflows.WorkloadManifest{
+			{
+				Namespace:    "finance-prod",
+				WorkloadID:   "w-ledger-api",
+				ResourceJSON: `{"runAsNonRoot":false}`,
+			},
+			{
+				Namespace:    "finance-prod",
+				WorkloadID:   "w-compliant-worker",
+				ResourceJSON: `{"runAsNonRoot":true}`,
+			},
+		},
+		Policies:  []contracts.PolicyRecord{pol},
+		Timestamp: time.Now().UTC(),
+	}
+
+	report, err := svc.ExecuteAuditScan(ctx, input)
+	if err != nil {
+		t.Fatalf("audit scan returned error: %v", err)
+	}
+
+	if report.TotalWorkloadsScanned != 2 {
+		t.Fatalf("expected 2 workloads scanned, got: %d", report.TotalWorkloadsScanned)
+	}
+	if len(report.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got: %d", len(report.Findings))
+	}
+	if report.Findings[0].WorkloadID != "w-ledger-api" {
+		t.Fatalf("expected finding on w-ledger-api, got: %s", report.Findings[0].WorkloadID)
+	}
+
+	activeCount, err := svc.CountActiveViolations(ctx, tenantID, pol.ID)
+	if err != nil {
+		t.Fatalf("failed to count violations: %v", err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("expected 1 active violation in db after scan, got: %d", activeCount)
+	}
+}
+

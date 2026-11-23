@@ -2,15 +2,17 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: POLICY-AS-CODE DOMAIN SERVICE
 
 1. Architecture Role:
-   - Step 06 Service Orchestrator: Coordinates policy definitions, lifecycle FSM transitions, and admission evaluation.
+   - Step 06 Service Orchestrator: Coordinates policy definitions, lifecycle FSM transitions, admission evaluation, and continuous inventory audit scans.
    - Enforces OpenTelemetry child spans for all domain workflows (Tier-3 spans under "policy.service.*").
    - Interacts strictly with outbound abstract port ports.PolicyRepositoryPort.
+   - Storage-enforced invariant: Promotion to DENY validates active violations from database before transition.
    - Zero inline comments inside method bodies; strictly typed domain returns.
 */
 package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,6 +107,13 @@ func (s *PolicyAsCodeService) TransitionPolicyLifecycle(
 			return nil, err
 		}
 
+		if event == machines.EventPromoteToDeny && s.repo != nil {
+			runningViolations, err := s.repo.CountActiveViolationsByPolicy(ctx, tenantID, policyID)
+			if err == nil && runningViolations > 0 {
+				activeViolations = runningViolations
+			}
+		}
+
 		nextState, err := machines.TransitionPolicyLifecycle(current.LifecycleState, event, activeViolations)
 		if err != nil {
 			return nil, err
@@ -183,7 +192,117 @@ func (s *PolicyAsCodeService) EvaluateAdmission(ctx context.Context, input workf
 		}
 
 		verdict := workflows.ExecuteAdmissionEvaluation(input)
+
+		if (s.repo != nil) && (len(verdict.Violations) > 0) {
+			for _, v := range verdict.Violations {
+				_ = s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
+					ID:               uuid.New().String(),
+					PublicID:         "viol_" + uuid.New().String()[:12],
+					TenantID:         input.TenantID,
+					PolicyID:         v.PolicyID,
+					Source:           "ADMISSION",
+					ExternalID:       fmt.Sprintf("%s:%s", v.ExternalID, input.WorkloadID),
+					CorrelationID:    uuid.New().String(),
+					WorkloadID:       input.WorkloadID,
+					Namespace:        input.Namespace,
+					Severity:         v.Severity,
+					EnforcementPoint: v.Enforcement,
+					Status:           contracts.ViolationStatusActive,
+					Message:          v.Message,
+					DetectionPair:    v.DetectionPair,
+					Version:          1,
+					CreatedAt:        input.Timestamp,
+					UpdatedAt:        input.Timestamp,
+				})
+			}
+		}
+
 		return verdict, nil
 	}, attribute.String("tenant.id", input.TenantID), attribute.String("workload.id", input.WorkloadID), attribute.String("namespace", input.Namespace))
 }
 
+func (s *PolicyAsCodeService) ListActiveViolations(ctx context.Context, tenantID, policyID string) ([]contracts.PolicyViolationRecord, error) {
+	return observability.RunTraced(ctx, "policy.service.list_active_violations", func(ctx context.Context) ([]contracts.PolicyViolationRecord, error) {
+		if tenantID == "" || policyID == "" {
+			return nil, errors.NewValidationError("tenantId and policyId are required")
+		}
+		return s.repo.ListActiveViolationsByPolicy(ctx, tenantID, policyID)
+	}, attribute.String("tenant.id", tenantID), attribute.String("policy.id", policyID))
+}
+
+func (s *PolicyAsCodeService) CountActiveViolations(ctx context.Context, tenantID, policyID string) (int, error) {
+	return observability.RunTraced(ctx, "policy.service.count_active_violations", func(ctx context.Context) (int, error) {
+		if tenantID == "" || policyID == "" {
+			return 0, errors.NewValidationError("tenantId and policyId are required")
+		}
+		return s.repo.CountActiveViolationsByPolicy(ctx, tenantID, policyID)
+	}, attribute.String("tenant.id", tenantID), attribute.String("policy.id", policyID))
+}
+
+func (s *PolicyAsCodeService) ResolveViolation(ctx context.Context, tenantID, violationID string, version int64) error {
+	_, err := observability.RunTraced(ctx, "policy.service.resolve_violation", func(ctx context.Context) (any, error) {
+		if tenantID == "" || violationID == "" {
+			return nil, errors.NewValidationError("tenantId and violationId are required")
+		}
+		return nil, s.repo.ResolveViolation(ctx, tenantID, violationID, version)
+	}, attribute.String("tenant.id", tenantID), attribute.String("violation.id", violationID))
+	return err
+}
+
+func (s *PolicyAsCodeService) ExecuteAuditScan(ctx context.Context, input workflows.AuditScanInput) (*workflows.AuditScanReport, error) {
+	return observability.RunTraced(ctx, "policy.service.execute_audit_scan", func(ctx context.Context) (*workflows.AuditScanReport, error) {
+		if input.TenantID == "" {
+			return nil, errors.NewValidationError("tenantId is required")
+		}
+
+		if len(input.Policies) == 0 && s.repo != nil {
+			policies, err := s.repo.ListActiveCELPolicies(ctx, input.TenantID)
+			if err == nil {
+				input.Policies = policies
+			}
+		}
+
+		if len(input.Exceptions) == 0 && s.repo != nil {
+			for _, w := range input.Workloads {
+				if w.WorkloadID != "" {
+					excs, err := s.repo.GetActiveExceptionsForWorkload(ctx, input.TenantID, w.Namespace, w.WorkloadID)
+					if err == nil {
+						input.Exceptions = append(input.Exceptions, excs...)
+					}
+				}
+			}
+		}
+
+		if input.Timestamp.IsZero() {
+			input.Timestamp = time.Now().UTC()
+		}
+
+		report := workflows.ExecuteAuditScan(input)
+
+		if s.repo != nil && len(report.Findings) > 0 {
+			for _, f := range report.Findings {
+				_ = s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
+					ID:               uuid.New().String(),
+					PublicID:         "viol_" + uuid.New().String()[:12],
+					TenantID:         input.TenantID,
+					PolicyID:         f.PolicyID,
+					Source:           "AUDIT_SCAN",
+					ExternalID:       fmt.Sprintf("%s:%s", f.ExternalID, f.WorkloadID),
+					CorrelationID:    uuid.New().String(),
+					WorkloadID:       f.WorkloadID,
+					Namespace:        f.Namespace,
+					Severity:         f.Severity,
+					EnforcementPoint: f.Enforcement,
+					Status:           contracts.ViolationStatusActive,
+					Message:          f.Message,
+					DetectionPair:    f.DetectionPair,
+					Version:          1,
+					CreatedAt:        input.Timestamp,
+					UpdatedAt:        input.Timestamp,
+				})
+			}
+		}
+
+		return &report, nil
+	}, attribute.String("tenant.id", input.TenantID), attribute.Int("workloads.count", len(input.Workloads)))
+}
