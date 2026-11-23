@@ -29,12 +29,20 @@ const (
 	SpanGetActiveExceptionsForWorkload = "db.policy_exception.get_active_for_workload"
 	SpanUpdateExceptionStatus          = "db.policy_exception.update_status"
 	SpanReconcileExpiredExceptions     = "db.policy_exception.reconcile_expired"
+	SpanSaveViolation                  = "db.policy_violation.save"
+	SpanListActiveViolationsByPolicy   = "db.policy_violation.list_active_by_policy"
+	SpanCountActiveViolationsByPolicy  = "db.policy_violation.count_active_by_policy"
+	SpanResolveViolation               = "db.policy_violation.resolve"
 
-	AttrTenantID   = "db.tenant_id"
-	AttrPolicyID   = "db.policy_id"
-	AttrPublicID   = "db.public_id"
-	AttrWorkloadID = "db.workload_id"
-	AttrNamespace  = "db.namespace"
+	AttrTenantID         = "db.tenant_id"
+	AttrPolicyID         = "db.policy_id"
+	AttrPublicID         = "db.public_id"
+	AttrWorkloadID       = "db.workload_id"
+	AttrNamespace        = "db.namespace"
+	AttrViolationID      = "db.violation_id"
+	AttrSeverity         = "db.severity"
+	AttrEnforcementPoint = "db.enforcement_point"
+	AttrSource           = "db.source"
 
 	ErrPolicyNotFoundMsg         = "policy not found"
 	ErrExceptionNotFoundMsg      = "policy exception not found"
@@ -613,9 +621,15 @@ func scanExceptionRecord(scanner rowScanner) (*contracts.PolicyExceptionRecord, 
 }
 
 func (a *PostgresPolicyRepositoryAdapter) SaveViolation(ctx context.Context, v contracts.PolicyViolationRecord) error {
-	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.save_violation",
+	ctx, span := observability.GetTracer().StartSpan(ctx, SpanSaveViolation,
 		attribute.String(AttrTenantID, v.TenantID),
 		attribute.String(AttrPolicyID, v.PolicyID),
+		attribute.String(AttrPublicID, v.PublicID),
+		attribute.String(AttrWorkloadID, v.WorkloadID),
+		attribute.String(AttrNamespace, v.Namespace),
+		attribute.String(AttrSeverity, string(v.Severity)),
+		attribute.String(AttrEnforcementPoint, string(v.EnforcementPoint)),
+		attribute.String(AttrSource, v.Source),
 	)
 	defer span.End()
 
@@ -653,7 +667,7 @@ func (a *PostgresPolicyRepositoryAdapter) SaveViolation(ctx context.Context, v c
 }
 
 func (a *PostgresPolicyRepositoryAdapter) ListActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) ([]contracts.PolicyViolationRecord, error) {
-	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.list_active_violations",
+	ctx, span := observability.GetTracer().StartSpan(ctx, SpanListActiveViolationsByPolicy,
 		attribute.String(AttrTenantID, tenantID),
 		attribute.String(AttrPolicyID, policyID),
 	)
@@ -684,7 +698,7 @@ func (a *PostgresPolicyRepositoryAdapter) ListActiveViolationsByPolicy(ctx conte
 }
 
 func (a *PostgresPolicyRepositoryAdapter) CountActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) (int, error) {
-	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.count_active_violations",
+	ctx, span := observability.GetTracer().StartSpan(ctx, SpanCountActiveViolationsByPolicy,
 		attribute.String(AttrTenantID, tenantID),
 		attribute.String(AttrPolicyID, policyID),
 	)
@@ -700,9 +714,9 @@ func (a *PostgresPolicyRepositoryAdapter) CountActiveViolationsByPolicy(ctx cont
 }
 
 func (a *PostgresPolicyRepositoryAdapter) ResolveViolation(ctx context.Context, tenantID string, violationID string, expectedVersion int64) error {
-	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.resolve_violation",
+	ctx, span := observability.GetTracer().StartSpan(ctx, SpanResolveViolation,
 		attribute.String(AttrTenantID, tenantID),
-		attribute.String("db.violation_id", violationID),
+		attribute.String(AttrViolationID, violationID),
 	)
 	defer span.End()
 

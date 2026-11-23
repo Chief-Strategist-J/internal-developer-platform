@@ -199,7 +199,7 @@ func (s *PolicyAsCodeService) EvaluateAdmission(ctx context.Context, input workf
 
 		if (s.repo != nil) && (len(verdict.Violations) > 0) {
 			for _, v := range verdict.Violations {
-				_ = s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
+				if err := s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
 					ID:               uuid.New().String(),
 					PublicID:         "viol_" + uuid.New().String()[:12],
 					TenantID:         input.TenantID,
@@ -217,7 +217,9 @@ func (s *PolicyAsCodeService) EvaluateAdmission(ctx context.Context, input workf
 					Version:          1,
 					CreatedAt:        input.Timestamp,
 					UpdatedAt:        input.Timestamp,
-				})
+				}); err != nil {
+					observability.RecordError(observability.CurrentSpan(ctx), err)
+				}
 			}
 		}
 
@@ -289,7 +291,7 @@ func (s *PolicyAsCodeService) ExecuteAuditScan(ctx context.Context, input workfl
 
 		if s.repo != nil && len(report.Findings) > 0 {
 			for _, f := range report.Findings {
-				_ = s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
+				if err := s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
 					ID:               uuid.New().String(),
 					PublicID:         "viol_" + uuid.New().String()[:12],
 					TenantID:         input.TenantID,
@@ -307,7 +309,9 @@ func (s *PolicyAsCodeService) ExecuteAuditScan(ctx context.Context, input workfl
 					Version:          1,
 					CreatedAt:        input.Timestamp,
 					UpdatedAt:        input.Timestamp,
-				})
+				}); err != nil {
+					observability.RecordError(observability.CurrentSpan(ctx), err)
+				}
 			}
 		}
 
