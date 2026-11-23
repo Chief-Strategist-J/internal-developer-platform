@@ -4,18 +4,21 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME REST HANDLER
 1. Ingress Flow Execution:
    - Ingests W3C traceparent, correlation, causation, and tenant headers.
    - Decodes closed-schema JSON payload for POST /api/v1/regimes.
+   - Enforces Tier-2 handler spans ("platform_regime.handler.*") wrapping all endpoint executions.
    - Dispatches to PlatformRegimeService under child span.
    - Returns typed ApiResponse envelopes with no comments inside function bodies.
 */
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	"internal-developer-platform/src/features/platform-regime/contracts"
+	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"
 )
@@ -29,40 +32,47 @@ func NewPlatformRegimeHandler(s *platformregime.PlatformRegimeService) *Platform
 }
 
 func (h *PlatformRegimeHandler) RegisterRegimePolicy(w http.ResponseWriter, r *http.Request) {
-	meta := extractIngressMetadata(r)
-	cmd, err := decodeRegimePayload(r, meta)
-	if err != nil {
-		h.handleError(w, meta, err)
-		return
-	}
+	_ = observability.WithSpan(r.Context(), "platform_regime.handler.register_policy", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		cmd, err := decodeRegimePayload(r, meta)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
 
-	record, err := h.service.RegisterRegimePolicy(r.Context(), cmd)
-	if err != nil {
-		h.handleError(w, meta, err)
-		return
-	}
+		record, err := h.service.RegisterRegimePolicy(ctx, cmd)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
 
-	h.writeSuccessResponse(w, http.StatusCreated, record, meta)
+		h.writeSuccessResponse(w, http.StatusCreated, record, meta)
+		return nil
+	})
 }
 
 func (h *PlatformRegimeHandler) GetActiveRegimePolicy(w http.ResponseWriter, r *http.Request) {
-	meta := extractIngressMetadata(r)
-	tenantID := r.URL.Query().Get("tenantId")
-	if tenantID == "" {
-		tenantID = meta.TenantID
-	}
-	if tenantID == "" {
-		h.handleError(w, meta, appErrors.NewValidationError("tenantId query parameter or header is required"))
-		return
-	}
+	_ = observability.WithSpan(r.Context(), "platform_regime.handler.get_active_policy", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId query parameter or header is required")
+			h.handleError(w, meta, err)
+			return err
+		}
 
-	record, err := h.service.GetActiveRegimePolicy(r.Context(), tenantID)
-	if err != nil {
-		h.handleError(w, meta, err)
-		return
-	}
+		record, err := h.service.GetActiveRegimePolicy(ctx, tenantID)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
 
-	h.writeSuccessResponse(w, http.StatusOK, record, meta)
+		h.writeSuccessResponse(w, http.StatusOK, record, meta)
+		return nil
+	})
 }
 
 func (h *PlatformRegimeHandler) handleError(w http.ResponseWriter, meta IngressMetadata, err error) {

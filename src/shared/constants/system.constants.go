@@ -36,6 +36,8 @@ const (
 	EndpointWorkloadsPrefix       = "/api/v1/workloads/"
 	EndpointRegimes               = "/api/v1/regimes"
 	EndpointRegimesActive         = "/api/v1/regimes/active"
+	EndpointAuthBindings          = "/api/v1/auth/bindings"
+	EndpointAuthBindingsPrefix    = "/api/v1/auth/bindings/"
 )
 
 

@@ -1,3 +1,12 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC REDIS REVOCATION ADAPTER
+
+1. Architecture Role:
+   - Outbound infrastructure adapter implementing RevocationRepositoryPort.
+   - Communicates with Redis over raw TCP using RESP-compatible query builders.
+   - Enforces Tier-4 infrastructure spans for all revocation checks and writes.
+   - Zero inline comments inside method bodies.
+*/
 package adapters
 
 import (
@@ -10,6 +19,7 @@ import (
 	"time"
 
 	rbacQueries "internal-developer-platform/src/features/role-based-access-control/infrastructure/queries"
+	"internal-developer-platform/src/infra/observability"
 )
 
 type RedisRevocationAdapter struct {
@@ -57,53 +67,59 @@ func (a *RedisRevocationAdapter) sendCommand(cmd string) (string, error) {
 }
 
 func (a *RedisRevocationAdapter) IsRevoked(ctx context.Context, subjectID string, jti string) (bool, error) {
-	if subjectID != "" {
-		cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationSubKey(subjectID))
-		resp, err := a.sendCommand(cmd)
-		if err == nil && resp == rbacQueries.ExistsPositiveResult {
-			return true, nil
+	return observability.RunTraced(ctx, "redis.revocation.is_revoked", func(ctx context.Context) (bool, error) {
+		if subjectID != "" {
+			cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationSubKey(subjectID))
+			resp, err := a.sendCommand(cmd)
+			if err == nil && resp == rbacQueries.ExistsPositiveResult {
+				return true, nil
+			}
 		}
-	}
 
-	if jti != "" {
-		cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationJTIKey(jti))
-		resp, err := a.sendCommand(cmd)
-		if err == nil && resp == rbacQueries.ExistsPositiveResult {
-			return true, nil
+		if jti != "" {
+			cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationJTIKey(jti))
+			resp, err := a.sendCommand(cmd)
+			if err == nil && resp == rbacQueries.ExistsPositiveResult {
+				return true, nil
+			}
 		}
-	}
 
-	return false, nil
+		return false, nil
+	})
 }
 
 func (a *RedisRevocationAdapter) RevokeSubject(ctx context.Context, subjectID string) error {
-	cmd := rbacQueries.BuildSetexCommand(
-		rbacQueries.BuildRevocationSubKey(subjectID),
-		rbacQueries.DefaultTTLSeconds,
-		rbacQueries.RevokedSentinelValue,
-	)
-	resp, err := a.sendCommand(cmd)
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
-		return fmt.Errorf("unexpected redis response: %s", resp)
-	}
-	return nil
+	return observability.WithSpan(ctx, "redis.revocation.revoke_subject", func(ctx context.Context) error {
+		cmd := rbacQueries.BuildSetexCommand(
+			rbacQueries.BuildRevocationSubKey(subjectID),
+			rbacQueries.DefaultTTLSeconds,
+			rbacQueries.RevokedSentinelValue,
+		)
+		resp, err := a.sendCommand(cmd)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
+			return fmt.Errorf("unexpected redis response: %s", resp)
+		}
+		return nil
+	})
 }
 
 func (a *RedisRevocationAdapter) RevokeJTI(ctx context.Context, jti string) error {
-	cmd := rbacQueries.BuildSetexCommand(
-		rbacQueries.BuildRevocationJTIKey(jti),
-		rbacQueries.DefaultTTLSeconds,
-		rbacQueries.RevokedSentinelValue,
-	)
-	resp, err := a.sendCommand(cmd)
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
-		return fmt.Errorf("unexpected redis response: %s", resp)
-	}
-	return nil
+	return observability.WithSpan(ctx, "redis.revocation.revoke_jti", func(ctx context.Context) error {
+		cmd := rbacQueries.BuildSetexCommand(
+			rbacQueries.BuildRevocationJTIKey(jti),
+			rbacQueries.DefaultTTLSeconds,
+			rbacQueries.RevokedSentinelValue,
+		)
+		resp, err := a.sendCommand(cmd)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
+			return fmt.Errorf("unexpected redis response: %s", resp)
+		}
+		return nil
+	})
 }

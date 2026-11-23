@@ -4,6 +4,7 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS HANDLER
 1. Ingress Flow Execution:
    - Ingests W3C trace context, correlation, causation, and audit headers from HTTP transport.
    - Decodes closed-schema JSON payload with strict disallowance of unknown fields.
+   - Enforces Tier-2 handler spans ("kubernetes_workload.handler.*") wrapping all endpoint executions.
    - Enriches command context with tenant ID and idempotency key from headers when omitted in payload.
    - Dispatches validated command to Domain Service.
    - Wraps result or typed application errors in RFC-compliant ApiResponse envelopes.
@@ -20,6 +21,7 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS HANDLER
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,6 +30,7 @@ import (
 
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
+	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"
 	"internal-developer-platform/src/shared/types"
@@ -56,43 +59,49 @@ func NewKubernetesWorkloadHandler(s *kubernetesworkloadprovisioning.Service) *Ku
 }
 
 func (h *KubernetesWorkloadHandler) ProvisionWorkload(w http.ResponseWriter, r *http.Request) {
-	meta := extractIngressMetadata(r)
-	cmd, err := decodeProvisionPayload(r, meta)
-	if err != nil {
-		detail := types.ResponseErrorDetail{
-			Field: "body",
-			Issue: err.Error(),
-			Rule:  "closed_schema_json",
+	_ = observability.WithSpan(r.Context(), "kubernetes_workload.handler.provision", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		cmd, err := decodeProvisionPayload(r, meta)
+		if err != nil {
+			detail := types.ResponseErrorDetail{
+				Field: "body",
+				Issue: err.Error(),
+				Rule:  "closed_schema_json",
+			}
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", meta, detail)
+			return err
 		}
-		h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", meta, detail)
-		return
-	}
-	result, err := h.service.ProvisionWorkload(r.Context(), cmd)
-	if err != nil {
-		h.handleServiceError(w, err, meta)
-		return
-	}
-	h.writeSuccessResponse(w, http.StatusCreated, result, meta)
+		result, err := h.service.ProvisionWorkload(ctx, cmd)
+		if err != nil {
+			h.handleServiceError(w, err, meta)
+			return err
+		}
+		h.writeSuccessResponse(w, http.StatusCreated, result, meta)
+		return nil
+	})
 }
 
 func (h *KubernetesWorkloadHandler) GetWorkload(w http.ResponseWriter, r *http.Request) {
-	meta := extractIngressMetadata(r)
-	id, err := extractWorkloadID(r.URL.Path)
-	if err != nil {
-		detail := types.ResponseErrorDetail{
-			Field: "id",
-			Issue: err.Error(),
-			Rule:  "path_workload_id",
+	_ = observability.WithSpan(r.Context(), "kubernetes_workload.handler.get", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		id, err := extractWorkloadID(r.URL.Path)
+		if err != nil {
+			detail := types.ResponseErrorDetail{
+				Field: "id",
+				Issue: err.Error(),
+				Rule:  "path_workload_id",
+			}
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta, detail)
+			return err
 		}
-		h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta, detail)
-		return
-	}
-	result, err := h.service.GetWorkload(r.Context(), meta.TenantID, id)
-	if err != nil {
-		h.handleServiceError(w, err, meta)
-		return
-	}
-	h.writeSuccessResponse(w, http.StatusOK, result, meta)
+		result, err := h.service.GetWorkload(ctx, meta.TenantID, id)
+		if err != nil {
+			h.handleServiceError(w, err, meta)
+			return err
+		}
+		h.writeSuccessResponse(w, http.StatusOK, result, meta)
+		return nil
+	})
 }
 
 func (h *KubernetesWorkloadHandler) handleServiceError(w http.ResponseWriter, err error, meta IngressMetadata) {
