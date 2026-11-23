@@ -98,3 +98,15 @@
   4. Wire `PostgresPolicyRepositoryAdapter` into `src/main.go` when PostgreSQL database pool is active.
 - **Consequences**: Enables dynamic declarative policy governance over HTTP with zero inline comments, full ApiResponse envelope compliance, and automated enforcement at the admission gate.
 
+---
+
+## ADR-009: Policy Violations Relational Persistence, Continuous Audit Scanner, and FSM Promotion Guard
+- **Status**: Accepted
+- **Context**: Admission controllers only evaluate resources at deployment time (`CREATE`/`UPDATE`). Running workloads can drift into non-compliance as security baselines evolve. Furthermore, promoting a policy from `WARN` to `DENY` without knowing if active violations exist in the fleet can trigger widespread, unexpected production outages. Additionally, database guidelines (`01-schema-migrations-and-code-guidelines.md` Rule §7) strictly forbid having both a lifecycle status and a `deleted_at` timestamp (competing sources of truth).
+- **Decision**:
+  1. **Relational Schema**: Implement `policy_violations` table with the mandatory 5 identifier roles (`id`, `public_id`, `tenant_id`, `source` + `external_id`, `correlation_id`), optimistic locking (`version`), composite foreign keys (`FOREIGN KEY (tenant_id, policy_id) REFERENCES policies (tenant_id, id) ON DELETE CASCADE`), explicit `{table}_{columns}_{kind}` constraints, and a reference lookup table `policy_violation_status` (`ACTIVE`, `RESOLVED`, `EXEMPTED`). Dual source of truth is eliminated by completely purging `deleted_at`.
+  2. **FSM Promotion Guard**: Update `PolicyAsCodeService.UpdatePolicyLifecycle` to query running violations when transitioning from `WARN` to `DENY`. If active violations exist for the policy, the state transition is rejected with a domain error, preventing breaking production changes.
+  3. **L4 Continuous Audit Scanner**: Implement `ExecuteAuditScan` in `audit-scan.workflow.go` evaluating live manifest snapshots against active platform policies while respecting active, non-expired exception grants. Violations are automatically persisted to PostgreSQL.
+  4. **Ingress Endpoints**: Expose `/api/v1/policies/audit-scan`, `/api/v1/policies/violations`, and `/api/v1/policies/violations/{id}/resolve` in `policy-as-code.router.go`.
+- **Consequences**: Guarantees zero blind spots for long-running non-compliant workloads, enforces safe staged policy rollout without production outages, and maintains 100% compliance with platform database architecture standards.
+
