@@ -108,17 +108,19 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 4] POST /api/v1/services -> Register service with Bearer Token"
 echo "--------------------------------------------------------------------------------"
+SVC_ID="fintech-ledger-api-$(date +%s%N)"
 SERVICE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/services" \
   -H "Authorization: Bearer ${DEV_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
-  -d '{
-    "id": "fintech-ledger-api",
-    "tenantId": "fintech-team",
-    "name": "Fintech Ledger API",
-    "owner": "sarah@fintech.io",
-    "lifecycle": "production"
-  }')
+  -d "{
+    \"id\": \"${SVC_ID}\",
+    \"tenantId\": \"fintech-team\",
+    \"name\": \"Fintech Ledger API\",
+    \"owner\": \"sarah@fintech.io\",
+    \"lifecycle\": \"production\"
+  }")
+
 
 echo "${SERVICE_RESP}"
 if echo "${SERVICE_RESP}" | grep -q "201 Created"; then
