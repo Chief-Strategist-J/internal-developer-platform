@@ -1,3 +1,7 @@
+// Package queries declares named parameterized SQL queries for workload persistence.
+//
+// Architectural Blueprint:
+// - Step 12 Queries: Dedicated FLOW_* SQL constants ensuring zero inline raw SQL in repositories or services.
 package queries
 
 const (

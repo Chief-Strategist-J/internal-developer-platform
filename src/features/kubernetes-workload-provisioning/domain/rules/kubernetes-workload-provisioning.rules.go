@@ -1,3 +1,9 @@
+// Package rules evaluates pure business rules and admission policies as data.
+//
+// Architectural Blueprint:
+// - Step 07 Rules: Business logic decision tables, security mutation defaults, and quota calculations.
+// - Evaluates PodSecurityStandards, resource boundaries, and JIT access constraints.
+// - 100% comment-free function bodies.
 package rules
 
 import (

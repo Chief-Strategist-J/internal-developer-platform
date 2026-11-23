@@ -1,3 +1,9 @@
+// Package machines provides the deterministic state machine for Workload Lifecycles.
+//
+// Architectural Blueprint:
+// - Step 08 Machine: Deterministic state machine managing workload state transitions.
+// - Enforces valid transition paths across PENDING, ADMITTED, ACTIVE, READY, DEGRADED, ROLLED_BACK.
+// - 100% comment-free function bodies.
 package machines
 
 import (

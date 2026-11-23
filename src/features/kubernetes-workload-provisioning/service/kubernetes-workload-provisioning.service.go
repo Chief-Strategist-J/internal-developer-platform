@@ -1,3 +1,10 @@
+// Package service provides the pure domain orchestrator for Kubernetes Workload Provisioning.
+//
+// Architectural Blueprint:
+// - Step 06 Service: Coordinates business rules, state machines, workflows, and abstract ports.
+// - Enforces OpenTelemetry child tracing, tenant isolation, and Inversion of Control.
+// - Depends strictly on abstract outbound ports (WorkloadStorePort, K8sClientPort, GitOpsDeliveryPort, KmsEncryptionPort).
+// - Zero inline comments inside method bodies; execution is traced and returns typed errors.
 package service
 
 import (
@@ -17,7 +24,6 @@ import (
 	pacports "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
 	regimerules "internal-developer-platform/src/features/platform-regime/domain/rules"
 	regimeports "internal-developer-platform/src/features/platform-regime/infrastructure/ports"
-	"internal-developer-platform/src/infra/clients/kms"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -33,7 +39,7 @@ type WorkloadProvisioningService struct {
 	policyRepo     pacports.PolicyRepositoryPort
 	regimeRepo     regimeports.PlatformRegimeRepositoryPort
 	gitopsDelivery ports.GitOpsDeliveryPort
-	kmsEngine      *kms.EnvelopeEncryptionEngine
+	kmsPort        ports.KmsEncryptionPort
 }
 
 func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
@@ -54,8 +60,8 @@ func (s *WorkloadProvisioningService) WithRegimeRepository(regimeRepo regimeport
 }
 
 
-func (s *WorkloadProvisioningService) WithKMSEngine(kmsEngine *kms.EnvelopeEncryptionEngine) *WorkloadProvisioningService {
-	s.kmsEngine = kmsEngine
+func (s *WorkloadProvisioningService) WithKMSPort(kmsPort ports.KmsEncryptionPort) *WorkloadProvisioningService {
+	s.kmsPort = kmsPort
 	return s
 }
 
@@ -396,16 +402,16 @@ func (s *WorkloadProvisioningService) validatePlatformRegime(ctx context.Context
 }
 
 func (s *WorkloadProvisioningService) encryptWorkloadSecrets(ctx context.Context, cmd *contracts.WorkloadProvisionCommand) error {
-	if s.kmsEngine == nil || len(cmd.EncryptedSecrets) == 0 {
+	if s.kmsPort == nil || len(cmd.EncryptedSecrets) == 0 {
 		return nil
 	}
 	encrypted := make(map[string]string)
 	for k, v := range cmd.EncryptedSecrets {
-		env, err := s.kmsEngine.EncryptSecret(ctx, cmd.KMSKeyURI, []byte(v), cmd.TenantID)
+		ciphertext, err := s.kmsPort.EncryptSecret(ctx, cmd.KMSKeyURI, []byte(v), cmd.TenantID)
 		if err != nil {
 			return err
 		}
-		encrypted[k] = env.Ciphertext
+		encrypted[k] = ciphertext
 	}
 	cmd.EncryptedSecrets = encrypted
 	return nil

@@ -1,3 +1,9 @@
+// Package tests provides unit tests for Kubernetes Workload Provisioning business rules.
+//
+// Architectural Blueprint:
+// - Step 14 Rules Test: Exhaustive unit tests for pure domain rules and admission validation.
+// - Tests mutation defaults, security constraints, and boundary validation.
+// - 100% comment-free function bodies.
 package tests
 
 import (
@@ -832,3 +838,56 @@ func TestValidateJITSubjectIdentity(t *testing.T) {
 		t.Fatalf("expected non-prefixed subject to be rejected")
 	}
 }
+
+func TestAdmissionValidationRejectsRoot(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-root-01",
+		TenantID:       "tenant-bad",
+		ServiceID:      "bad-service",
+		Namespace:      "default",
+		WorkloadName:   "root-runner",
+		Image:          "gcr.io/bank/bad:1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-root-01",
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	mutations.SecurityContext.RunAsNonRoot = false
+	mutations.SecurityContext.RunAsUser = 0
+
+	report, err := rules.ValidateAdmission(cmd, mutations)
+	if err == nil {
+		t.Fatalf("expected error validating root workload")
+	}
+	if report.Admitted {
+		t.Errorf("expected Admitted=false for root workload")
+	}
+	if len(report.Violations) == 0 {
+		t.Errorf("expected admission violations reported")
+	}
+}
+
+func TestAdmissionValidationRejectsPrivilegeEscalation(t *testing.T) {
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-priv-01",
+		TenantID:       "tenant-bad",
+		ServiceID:      "bad-service",
+		Namespace:      "default",
+		WorkloadName:   "escalation-runner",
+		Image:          "gcr.io/bank/bad:1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-priv-01",
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	mutations.SecurityContext.AllowPrivilegeEscalation = true
+
+	report, err := rules.ValidateAdmission(cmd, mutations)
+	if err == nil {
+		t.Fatalf("expected error validating privilege escalation workload")
+	}
+	if report.Admitted {
+		t.Errorf("expected Admitted=false for privilege escalation workload")
+	}
+}
+

@@ -1,3 +1,9 @@
+// Package adapters provides outbound infrastructure adapters for Kubernetes Workload Provisioning.
+//
+// Architectural Blueprint:
+// - Step 11 Adapter: Concrete Kubernetes adapter fulfilling K8sClientPort.
+// - Generates manifest bundles, interacts with Kubernetes API clients, and observes pod readiness.
+// - 100% comment-free function bodies.
 package adapters
 
 import (

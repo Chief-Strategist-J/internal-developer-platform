@@ -1,3 +1,9 @@
+// Package workflows orchestrates multi-step DAG decommissioning steps.
+//
+// Architectural Blueprint:
+// - Step 09 Workflow: Manages orderly traffic draining, resource teardown, and audit trails.
+// - Traced end-to-end under root OpenTelemetry spans.
+// - 100% comment-free function bodies.
 package workflows
 
 import (

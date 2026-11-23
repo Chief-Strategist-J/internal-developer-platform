@@ -1,3 +1,9 @@
+// Package contracts provides schema validation and Anti-Corruption Layer (ACL) logic.
+//
+// Architectural Blueprint:
+// - Step 03 Schema: Validates incoming payloads, bounds resource limits, and formats RFC responses.
+// - Ensures clean boundaries between API representation and pure domain types.
+// - 100% comment-free function bodies.
 package contracts
 
 import (

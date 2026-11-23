@@ -1,3 +1,9 @@
+// Package workflows orchestrates multi-step DAG provisioning steps.
+//
+// Architectural Blueprint:
+// - Step 09 Workflow: Synthesizes Kubernetes manifests, service mesh policies, and cloud resources.
+// - Traced end-to-end under root OpenTelemetry spans with step verification.
+// - 100% comment-free function bodies.
 package workflows
 
 import (

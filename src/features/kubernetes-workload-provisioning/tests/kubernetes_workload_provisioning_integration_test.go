@@ -1,3 +1,9 @@
+// Package tests provides infrastructure integration tests for Kubernetes Workload Provisioning.
+//
+// Architectural Blueprint:
+// - Step 14 Integration Test: Verifies concrete outbound infrastructure adapters.
+// - Tests Postgres store, in-memory store, Kubernetes client adapter, GitOps delivery, and KMS encryption.
+// - 100% comment-free function bodies.
 package tests
 
 import (
@@ -18,7 +24,10 @@ import (
 	_ "github.com/lib/pq"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/service"
 	paccontracts "internal-developer-platform/src/features/policy-as-code/contracts"
 	pacadapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
 	"internal-developer-platform/src/infra/clients/gitops"
@@ -84,7 +93,7 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
-	adapter := kubernetesworkloadprovisioning.NewPostgresStore(db)
+	adapter := adapters.NewPostgresWorkloadRepositoryAdapter(db)
 
 	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	tenantID := "tenant-live-pg-" + uniqueSuffix
@@ -199,9 +208,9 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 
 func TestWorkloadProvisioningServiceExecution(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-test-1",
@@ -266,9 +275,9 @@ func TestWorkloadProvisioningServiceExecution(t *testing.T) {
 
 func TestWorkloadProvisioningQuotaExceeded(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-heavy-01",
@@ -297,7 +306,7 @@ func TestWorkloadProvisioningQuotaExceeded(t *testing.T) {
 
 func TestPostgresAdapterValidationGuards(t *testing.T) {
 	ctx := context.Background()
-	adapter := kubernetesworkloadprovisioning.NewPostgresStore(nil)
+	adapter := adapters.NewPostgresWorkloadRepositoryAdapter(nil)
 
 	err := adapter.Save(ctx, contracts.WorkloadProvisionRecord{})
 	if err == nil {
@@ -352,9 +361,9 @@ func TestWorkloadProvisioningServiceWithLiveK8sClient(t *testing.T) {
 		t.Fatalf("failed to seed resource quota in fake k8s client: %v", err)
 	}
 
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sAdapter := kubernetesworkloadprovisioning.NewLiveK8sClient(liveClient)
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sAdapter)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sAdapter := adapters.NewLiveKubernetesClientAdapter(liveClient)
+	svc := service.NewWorkloadProvisioningService(store, k8sAdapter)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-live-1",
@@ -387,10 +396,10 @@ func TestWorkloadProvisioningServiceWithLiveK8sClient(t *testing.T) {
 
 func TestWorkloadProvisioningWithActivePolicyException(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sAdapter := kubernetesworkloadprovisioning.NewK8sClient("https://10.0.0.1:6443")
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sAdapter := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
 	policyRepo := pacadapters.NewMemoryPolicyRepositoryAdapter()
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sAdapter, policyRepo)
+	svc := service.NewWorkloadProvisioningService(store, k8sAdapter, policyRepo)
 
 	now := time.Now().UTC()
 	policy := paccontracts.PolicyRecord{
@@ -461,7 +470,7 @@ func TestWorkloadProvisioningWithActivePolicyException(t *testing.T) {
 }
 
 type delayedK8sPort struct {
-	kubernetesworkloadprovisioning.ClientPort
+	ports.K8sClientPort
 	mu    sync.Mutex
 	ready bool
 }
@@ -480,11 +489,11 @@ func (d *delayedK8sPort) setReady(ready bool) {
 
 func TestWorkloadProvisioningWithGitOpsDelivery(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
 	committer := gitops.NewGitManifestCommitter(nil)
-	gitopsAdapter := kubernetesworkloadprovisioning.NewGitOpsDelivery(committer, "main", "idp-bot", "idp@company.com")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient).WithGitOpsDelivery(gitopsAdapter)
+	gitopsAdapter := adapters.NewGitOpsDeliveryAdapter(committer, "main", "idp-bot", "idp@company.com")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient).WithGitOpsDelivery(gitopsAdapter)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-gitops-01",
@@ -511,10 +520,10 @@ func TestWorkloadProvisioningWithGitOpsDelivery(t *testing.T) {
 
 func TestWorkloadProvisioningAsyncReadinessLifecycle(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	rawK8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	delayedClient := &delayedK8sPort{ClientPort: rawK8sClient, ready: false}
-	svc := kubernetesworkloadprovisioning.NewService(store, delayedClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	rawK8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	delayedClient := &delayedK8sPort{K8sClientPort: rawK8sClient, ready: false}
+	svc := service.NewWorkloadProvisioningService(store, delayedClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-async-01",
@@ -551,10 +560,10 @@ func TestWorkloadProvisioningAsyncReadinessLifecycle(t *testing.T) {
 
 func TestWorkloadProvisioningReadinessTimeoutDegrades(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	rawK8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	neverReadyClient := &delayedK8sPort{ClientPort: rawK8sClient, ready: false}
-	svc := kubernetesworkloadprovisioning.NewService(store, neverReadyClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	rawK8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	neverReadyClient := &delayedK8sPort{K8sClientPort: rawK8sClient, ready: false}
+	svc := service.NewWorkloadProvisioningService(store, neverReadyClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-timeout-01",
@@ -586,9 +595,9 @@ func TestWorkloadProvisioningReadinessTimeoutDegrades(t *testing.T) {
 
 func TestWorkloadProvisioningSpecHashTamperingRejected(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:               "wkld-tamper-01",
@@ -610,9 +619,9 @@ func TestWorkloadProvisioningSpecHashTamperingRejected(t *testing.T) {
 
 func TestWorkloadProvisioningProductionNamespaceApprovalGate(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-prod-gate-01",
@@ -646,9 +655,9 @@ func TestWorkloadProvisioningProductionNamespaceApprovalGate(t *testing.T) {
 
 func TestWorkloadProvisioningProductionBreakglassBypass(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:                      "wkld-brk-01",
@@ -678,11 +687,11 @@ func TestWorkloadProvisioningProductionBreakglassBypass(t *testing.T) {
 
 func TestWorkloadProvisioningRollbackRevertsGitAndDegradesState(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
 	committer := gitops.NewGitManifestCommitter(nil)
-	gitopsAdapter := kubernetesworkloadprovisioning.NewGitOpsDelivery(committer, "main", "idp-bot", "idp@company.com")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient).WithGitOpsDelivery(gitopsAdapter)
+	gitopsAdapter := adapters.NewGitOpsDeliveryAdapter(committer, "main", "idp-bot", "idp@company.com")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient).WithGitOpsDelivery(gitopsAdapter)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-rollback-01",
@@ -711,13 +720,13 @@ func TestWorkloadProvisioningRollbackRevertsGitAndDegradesState(t *testing.T) {
 
 func TestWorkloadProvisioningWithKMSEnvelopeEncryption(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
 	mockKMS := kms.NewMockKMSClient()
 	kmsKeyURI := "projects/platform-security-kms/locations/global/keyRings/ring/cryptoKeys/key"
 	_ = mockKMS.RegisterKey(kmsKeyURI, make([]byte, 32))
 	engine := kms.NewEnvelopeEncryptionEngine(mockKMS)
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient).WithKMSEngine(engine)
+	svc := service.NewWorkloadProvisioningService(store, k8sClient).WithKMSPort(adapters.NewKMSEncryptionAdapter(engine))
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:               "wkld-kms-01",
@@ -752,9 +761,9 @@ func TestWorkloadProvisioningWithKMSEnvelopeEncryption(t *testing.T) {
 
 func TestWorkloadProvisioning_RejectsPermissiveMtlsInProduction(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-mesh-01",
@@ -782,9 +791,9 @@ func TestWorkloadProvisioning_RejectsPermissiveMtlsInProduction(t *testing.T) {
 
 func TestWorkloadProvisioning_AuditLoggingCompliance(t *testing.T) {
 	ctx := context.Background()
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://k8s-api.internal:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://k8s-api.internal:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-audit-01",
@@ -823,7 +832,265 @@ func TestWorkloadProvisioning_AuditLoggingCompliance(t *testing.T) {
 	}
 }
 
+func TestGenerateManifestBundleCompliant(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
 
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-manifest-01",
+		TenantID:       "tenant-payments",
+		ServiceID:      "payment-api",
+		Namespace:      "payments-prod",
+		WorkloadName:   "payment-processor",
+		Image:          "gcr.io/bank/payment:v2.1.0",
+		CPURequest:     "500m",
+		CPULimit:       "2000m",
+		MemoryRequest:  "1Gi",
+		MemoryLimit:    "4Gi",
+		Replicas:       3,
+		IdempotencyKey: "idemp-manifest-01",
+	}
 
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
 
+	if !strings.Contains(bundle.NamespaceYAML, "pod-security.kubernetes.io/enforce: restricted") {
+		t.Errorf("expected restricted pod security enforce label on namespace")
+	}
+	if !strings.Contains(bundle.NamespaceYAML, "istio.io/rev: asm-managed") {
+		t.Errorf("expected asm-managed mesh revision label on namespace")
+	}
 
+	if !strings.Contains(bundle.ResourceQuotaYAML, "kind: ResourceQuota") {
+		t.Errorf("expected ResourceQuota manifest in bundle")
+	}
+	if !strings.Contains(bundle.LimitRangeYAML, "kind: LimitRange") {
+		t.Errorf("expected LimitRange manifest in bundle")
+	}
+	if !strings.Contains(bundle.NetworkPolicyYAML, "kind: NetworkPolicy") {
+		t.Errorf("expected NetworkPolicy manifest in bundle")
+	}
+	if !strings.Contains(bundle.NetworkPolicyYAML, "port: 53") {
+		t.Errorf("expected DNS egress port 53 allowed in default-deny NetworkPolicy")
+	}
+
+	if !strings.Contains(bundle.DeploymentYAML, "runAsNonRoot: true") {
+		t.Errorf("expected runAsNonRoot: true in deployment")
+	}
+	if !strings.Contains(bundle.DeploymentYAML, "runAsUser: 10001") {
+		t.Errorf("expected runAsUser: 10001 in deployment")
+	}
+	if !strings.Contains(bundle.DeploymentYAML, "readOnlyRootFilesystem: true") {
+		t.Errorf("expected readOnlyRootFilesystem: true in deployment")
+	}
+	if !strings.Contains(bundle.DeploymentYAML, "allowPrivilegeEscalation: false") {
+		t.Errorf("expected allowPrivilegeEscalation: false in deployment")
+	}
+	if !strings.Contains(bundle.DeploymentYAML, "path: /readyz") {
+		t.Errorf("expected readiness probe path /readyz in deployment")
+	}
+
+	if bundle.PDBYAML == "" {
+		t.Errorf("expected PDB manifest for replicas=3")
+	}
+	if !strings.Contains(bundle.PDBYAML, "minAvailable: 1") {
+		t.Errorf("expected minAvailable: 1 in PDB")
+	}
+
+	if !strings.Contains(bundle.ArgoCDApplicationYAML, "kind: Application") {
+		t.Errorf("expected Argo CD Application manifest in bundle")
+	}
+	if !strings.Contains(bundle.ArgoCDApplicationYAML, "argoproj.io/v1alpha1") {
+		t.Errorf("expected argoproj.io/v1alpha1 apiVersion in Argo CD manifest")
+	}
+
+	if !strings.Contains(bundle.RolloutYAML, "kind: Rollout") {
+		t.Errorf("expected kind: Rollout in bundle")
+	}
+	if !strings.Contains(bundle.RolloutYAML, "setWeight: 10") {
+		t.Errorf("expected canary steps in rollout")
+	}
+	if !strings.Contains(bundle.AnalysisTemplateYAML, "kind: AnalysisTemplate") {
+		t.Errorf("expected kind: AnalysisTemplate in bundle")
+	}
+	if !strings.Contains(bundle.AnalysisTemplateYAML, "success-rate") {
+		t.Errorf("expected success-rate metric in analysis template")
+	}
+	if !strings.Contains(bundle.AuthorizationPolicyYAML, "kind: AuthorizationPolicy") {
+		t.Errorf("expected kind: AuthorizationPolicy in bundle")
+	}
+	if !strings.Contains(bundle.AuthorizationPolicyYAML, `security.istio.io/mtls: "STRICT"`) {
+		t.Errorf("expected mTLS STRICT in authorization policy")
+	}
+
+	if !strings.Contains(bundle.VirtualServiceYAML, "kind: VirtualService") {
+		t.Errorf("expected kind: VirtualService in bundle")
+	}
+	if !strings.Contains(bundle.DestinationRuleYAML, "kind: DestinationRule") {
+		t.Errorf("expected kind: DestinationRule in bundle")
+	}
+	if !strings.Contains(bundle.WorkloadIdentityYAML, "kind: IAMPolicyMember") {
+		t.Errorf("expected kind: IAMPolicyMember in bundle")
+	}
+	if !strings.Contains(bundle.DatabaseYAML, "kind: SQLDatabase") {
+		t.Errorf("expected kind: SQLDatabase in bundle")
+	}
+}
+
+func TestKubernetesAdapterHealthCheck(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-health-01",
+		TenantID:       "tenant-core",
+		ServiceID:      "core-api",
+		Namespace:      "core-prod",
+		WorkloadName:   "core-worker",
+		Image:          "gcr.io/bank/core:v1.0.0",
+		Replicas:       2,
+		IdempotencyKey: "idemp-health-01",
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	if err := client.ApplyDeployment(ctx, cmd, mutations); err != nil {
+		t.Fatalf("unexpected error applying deployment: %v", err)
+	}
+
+	status, err := client.GetWorkloadHealth(ctx, cmd.Namespace, cmd.WorkloadName)
+	if err != nil {
+		t.Fatalf("unexpected error getting workload health: %v", err)
+	}
+	if status != contracts.StatusActive && status != contracts.StatusObservedReady {
+		t.Errorf("expected status ACTIVE or OBSERVED_READY, got %s", status)
+	}
+
+	applied, err := client.GetAppliedManifests(ctx, cmd.Namespace, cmd.WorkloadName)
+	if err != nil {
+		t.Fatalf("unexpected error getting applied manifests: %v", err)
+	}
+	if applied == nil || applied.DeploymentYAML == "" {
+		t.Errorf("expected non-empty deployment manifest in applied bundle")
+	}
+}
+
+func TestGenerateManifestBundle_CertAndSecretManifests(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:               "wkld-manifest-sec-01",
+		TenantID:         "tenant-payments",
+		ServiceID:        "payment-api",
+		Namespace:        "payments-prod",
+		WorkloadName:     "payment-processor",
+		Image:            "gcr.io/bank/payment@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		CPURequest:       "500m",
+		CPULimit:         "2000m",
+		MemoryRequest:    "1Gi",
+		MemoryLimit:      "4Gi",
+		Replicas:         2,
+		IdempotencyKey:   "idemp-manifest-sec-01",
+		KMSKeyURI:        "projects/platform-security-kms/locations/global/keyRings/ring/cryptoKeys/key",
+		EncryptedSecrets: map[string]string{"DB_PASSWORD": "encrypted-dek-payload"},
+		TLSHosts:         []string{"pay.example.gov"},
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
+	if !strings.Contains(bundle.CertificateYAML, "kind: Certificate") {
+		t.Errorf("expected Certificate manifest in bundle")
+	}
+	if !strings.Contains(bundle.CertificateYAML, "pay.example.gov") {
+		t.Errorf("expected pay.example.gov dns name in Certificate")
+	}
+	if !strings.Contains(bundle.SecretYAML, "kind: Secret") {
+		t.Errorf("expected Secret manifest in bundle")
+	}
+	if !strings.Contains(bundle.SecretYAML, "AES-256-GCM-KMS-ENVELOPE") {
+		t.Errorf("expected KMS envelope algorithm annotation in Secret")
+	}
+}
+
+func TestGenerateManifestBundle_PeerAuthenticationAndServiceEntry(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-manifest-mesh-01",
+		TenantID:       "tenant-payments",
+		ServiceID:      "payment-api",
+		Namespace:      "payments-prod",
+		WorkloadName:   "payment-processor",
+		Image:          "gcr.io/bank/payment@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:       2,
+		IdempotencyKey: "idemp-manifest-mesh-01",
+		MeshSecurity:   contracts.MeshSecurityConfig{MtlsMode: "STRICT"},
+		EgressRules: []contracts.EgressRule{
+			{Host: "api.stripe.com", Port: 443, Protocol: "HTTPS"},
+		},
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
+	if !strings.Contains(bundle.PeerAuthenticationYAML, "kind: PeerAuthentication") {
+		t.Errorf("expected PeerAuthentication manifest in bundle")
+	}
+	if !strings.Contains(bundle.PeerAuthenticationYAML, "mode: STRICT") {
+		t.Errorf("expected mode: STRICT in PeerAuthentication")
+	}
+	if !strings.Contains(bundle.ServiceEntryYAML, "kind: ServiceEntry") {
+		t.Errorf("expected ServiceEntry manifest in bundle")
+	}
+	if !strings.Contains(bundle.ServiceEntryYAML, "api.stripe.com") {
+		t.Errorf("expected api.stripe.com host in ServiceEntry")
+	}
+}
+
+func TestGenerateManifestBundle_AuditLogSinkAndBucket(t *testing.T) {
+	ctx := context.Background()
+	client := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-manifest-audit-01",
+		TenantID:       "tenant-payments",
+		ServiceID:      "payment-api",
+		Namespace:      "payments-prod",
+		WorkloadName:   "payment-processor",
+		Image:          "gcr.io/bank/payment@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		Replicas:       2,
+		IdempotencyKey: "idemp-manifest-audit-01",
+		AuditLogging: contracts.AuditLoggingConfig{
+			EnableDataAccessLogs: true,
+			DestinationBucket:    "payments-audit-sink-bucket",
+			RetentionDays:        400,
+			LockedRetention:      true,
+			OffNodeLogCollection: true,
+			PIIScrubbingEnabled:  true,
+		},
+	}
+
+	mutations := rules.EvaluateWorkloadMutations(cmd)
+	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
+	if err != nil {
+		t.Fatalf("unexpected error generating manifest bundle: %v", err)
+	}
+	if !strings.Contains(bundle.LogSinkYAML, "kind: LoggingLogSink") {
+		t.Errorf("expected LoggingLogSink manifest in bundle")
+	}
+	if !strings.Contains(bundle.LogSinkYAML, "payments-audit-sink-bucket") {
+		t.Errorf("expected destination bucket in LogSink")
+	}
+	if !strings.Contains(bundle.LoggingBucketYAML, "kind: StorageBucket") {
+		t.Errorf("expected StorageBucket manifest in bundle")
+	}
+	if !strings.Contains(bundle.LoggingBucketYAML, "isLocked: true") {
+		t.Errorf("expected isLocked: true in StorageBucket")
+	}
+}

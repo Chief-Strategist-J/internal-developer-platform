@@ -11,16 +11,17 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/service"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/types"
 )
 
 func setupTestHandler() *KubernetesWorkloadHandler {
-	store := kubernetesworkloadprovisioning.NewMemoryStore()
-	k8sClient := kubernetesworkloadprovisioning.NewK8sClient("https://10.0.0.1:6443")
-	svc := kubernetesworkloadprovisioning.NewService(store, k8sClient)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	k8sClient := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
+	svc := service.NewWorkloadProvisioningService(store, k8sClient)
 	return NewKubernetesWorkloadHandler(svc)
 }
 

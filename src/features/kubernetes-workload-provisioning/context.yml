@@ -89,6 +89,35 @@ fields:
     null: no
     default: 'Canary'
     constraint: FK workload_deployment_strategies(code)
+  - name: enable_data_access_logs
+    type: boolean
+    null: no
+    default: false
+  - name: audit_destination_bucket
+    type: text
+    null: no
+    default: ''
+  - name: audit_retention_days
+    type: integer
+    null: no
+    default: 30
+  - name: audit_locked_retention
+    type: boolean
+    null: no
+    default: false
+  - name: on_call_pager
+    type: text
+    null: no
+    default: ''
+  - name: runbook_url
+    type: text
+    null: no
+    default: ''
+  - name: incident_tier
+    type: text
+    null: no
+    default: 'TIER_2'
+    constraint: CHECK (incident_tier IN ('TIER_1', 'TIER_2', 'TIER_3'))
   - name: idempotency_key
     type: text
     null: no
@@ -111,3 +140,21 @@ invariants:
   - immutability enforced on id, public_id, tenant_id, and correlation_id
   - status transitions follow strict FSM rules
   - version increments on every successful mutation
+ports:
+  outbound:
+    - name: WorkloadStorePort
+      role: persistence
+      type: abstract_interface
+      methods: [Save, GetByID, GetByIdempotencyKey, List, Update]
+    - name: K8sClientPort
+      role: cluster_orchestration
+      type: abstract_interface
+      methods: [ApplyDeployment, ApplyPDB, GetWorkloadHealth, GenerateManifestBundle, GetAppliedManifests, GetNamespaceQuota, ObserveWorkloadReadiness]
+    - name: GitOpsDeliveryPort
+      role: gitops_delivery
+      type: abstract_interface
+      methods: [CommitManifestBundle, RevertManifestBundle]
+    - name: KmsEncryptionPort
+      role: security_encryption
+      type: abstract_interface
+      methods: [EncryptSecret]
