@@ -324,6 +324,31 @@
   4. **OpenAPI & REST Ingress**: Expose dedicated endpoints `POST /api/v1/regimes` and `GET /api/v1/regimes/active` with W3C distributed tracing and role-based access control.
 - **Consequences**: Eliminates blockers B-1, B-2, B-3, and B-4 from the provisioning tree; enables multi-regime government multi-tenancy while guaranteeing no tenant can circumvent platform security and compliance baselines.
 
+---
+
+## ADR-031: Cluster API & Cloud Resource Offerings Ingress Architecture
+- **Status**: Accepted
+- **Context**: The Kubernetes Workload Provisioning Business Tree (v4, Section 3) specifies that the platform must expose three distinct offerings behind dedicated APIs: Cluster API, Cloud Resource API, and Workload API. Previously, only the Workload API had exposed HTTP handlers, leaving Cluster and Cloud Resource provisioning uninvokable via REST.
+- **Decision**:
+  1. Implement `ClusterHandler` (`POST /api/v1/clusters`) in `src/api/rest/v1/handlers/cluster.handler.go` utilizing `GKEClusterClient` to synthesize declarative, hardened GKE cluster manifests (Shielded Nodes, Private Nodes/Endpoint, Application-Layer KMS Secrets Encryption, Binary Authorization, Backup for GKE).
+  2. Implement `CloudResourceHandler` (`POST /api/v1/cloud-resources`) in `src/api/rest/v1/handlers/cloudresource.handler.go` utilizing `CloudResourceClient` to generate declarative Google Config Connector Workload Identity bindings (`IAMServiceAccount` and `IAMPolicyMember`) mapped to Kubernetes Service Accounts.
+  3. Register both offering handlers under `OfferingsRouter` in `src/api/rest/v1/routers/offerings.router.go`, protected by RBAC middleware requiring `infrastructure:write` permissions.
+  4. Enforce strict typecasting with zero inline comments in handler bodies, returning standardized `types.ApiResponse` envelopes.
+- **Consequences**: Fulfills the three-offerings architecture mandated by the business tree, providing auditable and declarative generation of cluster and cloud resources directly through the platform REST API.
+
+---
+
+## ADR-032: Relational Incident Timeline Persistence Engine
+- **Status**: Accepted
+- **Context**: Workload lifecycle state transitions, canary rollouts, and incident rollbacks produce critical operational events that must be durably recorded for auditability, post-mortem analysis, and SRE triage. Table `incident_timeline_events` was defined in migration `0012_add_oncall_and_incident_fields.sql`, but lacked application repository ports and REST ingress routes.
+- **Decision**:
+  1. Define `IncidentTimelineEvent` domain entity and extend `WorkloadRepositoryPort` with `RecordTimelineEvent` and `ListTimelineEvents`.
+  2. Implement SQL query statements (`FLOW_INSERT_INCIDENT_TIMELINE_EVENT`, `FLOW_LIST_INCIDENT_TIMELINE_EVENTS`) and PostgreSQL repository adapter methods in `src/features/kubernetes-workload-provisioning/infrastructure/adapters/kubernetes-workload-provisioning.postgres.repository.adapter.go`.
+  3. Implement in-memory fallback adapter in `kubernetes-workload-provisioning.memory.repository.adapter.go` for isolated unit tests.
+  4. Expose REST ingress endpoints `POST /api/v1/workloads/timeline` and `GET /api/v1/workloads/timeline` in `WorkloadProvisioningHandler` and `WorkloadRouter`.
+- **Consequences**: Every operational incident, canary failure, or automated rollback is permanently recorded with actor attribution and metadata in PostgreSQL, providing an immutable audit timeline for incident response.
+
+
 
 
 
