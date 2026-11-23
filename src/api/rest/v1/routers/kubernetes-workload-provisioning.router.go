@@ -39,11 +39,28 @@ func NewKubernetesWorkloadRouter(h *handlers.KubernetesWorkloadHandler, m *middl
 func (r *KubernetesWorkloadRouter) RegisterRoutes(mux *http.ServeMux) {
 	workloadHandler := r.buildWorkloadHandler()
 	singleWorkloadHandler := r.buildSingleWorkloadHandler()
+	timelineHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.Method {
+		case http.MethodPost:
+			r.handler.RecordTimelineEvent(w, req)
+		case http.MethodGet:
+			r.handler.ListTimelineEvents(w, req)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+
 	if r.rbacMiddle != nil {
 		r.registerSecuredRoutes(mux, workloadHandler, singleWorkloadHandler)
+		mux.HandleFunc(constants.EndpointTimelinePrefix, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionRead,
+			timelineHandler,
+		))
 		return
 	}
 	r.registerUnsecuredRoutes(mux, workloadHandler, singleWorkloadHandler)
+	mux.HandleFunc(constants.EndpointTimelinePrefix, timelineHandler)
 }
 
 func (r *KubernetesWorkloadRouter) buildWorkloadHandler() http.HandlerFunc {

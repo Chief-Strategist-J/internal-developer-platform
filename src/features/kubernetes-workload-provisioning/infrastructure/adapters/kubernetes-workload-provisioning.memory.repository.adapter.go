@@ -15,15 +15,17 @@ import (
 )
 
 type MemoryWorkloadRepositoryAdapter struct {
-	mu      sync.RWMutex
-	records map[string]contracts.WorkloadProvisionRecord
-	byKey   map[string]string
+	mu       sync.RWMutex
+	records  map[string]contracts.WorkloadProvisionRecord
+	byKey    map[string]string
+	timeline []contracts.IncidentTimelineEvent
 }
 
 func NewMemoryWorkloadRepositoryAdapter() *MemoryWorkloadRepositoryAdapter {
 	return &MemoryWorkloadRepositoryAdapter{
-		records: make(map[string]contracts.WorkloadProvisionRecord),
-		byKey:   make(map[string]string),
+		records:  make(map[string]contracts.WorkloadProvisionRecord),
+		byKey:    make(map[string]string),
+		timeline: make([]contracts.IncidentTimelineEvent, 0),
 	}
 }
 
@@ -110,4 +112,33 @@ func (a *MemoryWorkloadRepositoryAdapter) Update(ctx context.Context, record con
 
 	a.records[key] = record
 	return nil
+}
+
+func (a *MemoryWorkloadRepositoryAdapter) RecordTimelineEvent(ctx context.Context, event contracts.IncidentTimelineEvent) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.timeline = append(a.timeline, event)
+	return nil
+}
+
+func (a *MemoryWorkloadRepositoryAdapter) ListTimelineEvents(ctx context.Context, tenantID string, workloadID string, limit int, offset int) ([]contracts.IncidentTimelineEvent, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var matched []contracts.IncidentTimelineEvent
+	for i := len(a.timeline) - 1; i >= 0; i-- {
+		ev := a.timeline[i]
+		if ev.TenantID == tenantID && ev.WorkloadID == workloadID {
+			matched = append(matched, ev)
+		}
+	}
+
+	if offset >= len(matched) {
+		return []contracts.IncidentTimelineEvent{}, nil
+	}
+	end := offset + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[offset:end], nil
 }

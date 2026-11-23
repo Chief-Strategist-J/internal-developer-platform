@@ -68,4 +68,18 @@ const (
 		SET status = $1, version = version + 1, updated_at = $2
 		WHERE tenant_id = $3 AND id = $4 AND version = $5
 	`
+
+	FLOW_INSERT_INCIDENT_TIMELINE_EVENT = `
+		INSERT INTO incident_timeline_events (
+			id, tenant_id, workload_id, event_type, description, actor, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+
+	FLOW_LIST_INCIDENT_TIMELINE_EVENTS = `
+		SELECT id, tenant_id, workload_id, event_type, description, actor, metadata, created_at
+		FROM incident_timeline_events
+		WHERE tenant_id = $1 AND workload_id = $2
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4
+	`
 )
