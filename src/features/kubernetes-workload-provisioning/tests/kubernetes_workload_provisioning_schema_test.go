@@ -1,3 +1,8 @@
+// Package tests provides unit tests for Kubernetes Workload Provisioning contracts and schemas.
+//
+// Architectural Blueprint:
+// - Step 14 Schema Test: Validates schema parsing, bounds enforcement, and command validation.
+// - 100% comment-free function bodies.
 package tests
 
 import (

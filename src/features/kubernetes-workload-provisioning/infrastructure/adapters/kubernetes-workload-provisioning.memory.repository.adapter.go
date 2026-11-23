@@ -1,3 +1,9 @@
+// Package adapters provides outbound infrastructure adapters for Kubernetes Workload Provisioning.
+//
+// Architectural Blueprint:
+// - Step 11 Adapter: In-memory repository adapter fulfilling WorkloadStorePort for tests and lightweight local regimes.
+// - Thread-safe synchronization via sync.RWMutex.
+// - 100% comment-free function bodies.
 package adapters
 
 import (

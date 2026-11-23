@@ -1,3 +1,9 @@
+// Package contracts defines domain entities, commands, and DTOs for Workload Provisioning.
+//
+// Architectural Blueprint:
+// - Step 04 Types: Pure immutable domain models, commands, results, and error types.
+// - Prohibits untyped primitives; enforces strongly typed records.
+// - 100% comment-free function bodies.
 package contracts
 
 import (
@@ -41,14 +47,14 @@ const (
 )
 
 type IncidentTimelineEvent struct {
-	ID          string                 `json:"id"`
-	TenantID    string                 `json:"tenantId"`
-	WorkloadID  string                 `json:"workloadId"`
-	EventType   string                 `json:"eventType"`
-	Description string                 `json:"description"`
-	Actor       string                 `json:"actor"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt   time.Time              `json:"createdAt"`
+	ID          string            `json:"id"`
+	TenantID    string            `json:"tenantId"`
+	WorkloadID  string            `json:"workloadId"`
+	EventType   string            `json:"eventType"`
+	Description string            `json:"description"`
+	Actor       string            `json:"actor"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
 }
 
 type CanaryStep struct {

@@ -1,3 +1,8 @@
+// Package tests provides unit tests for Kubernetes Workload Provisioning state machine.
+//
+// Architectural Blueprint:
+// - Step 14 Machine Test: Exhaustive state transition validation and guard checks.
+// - 100% comment-free function bodies.
 package tests
 
 import (

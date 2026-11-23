@@ -1,3 +1,10 @@
+// Package ports declares outbound interface contracts for the
+// Kubernetes Workload Provisioning feature.
+//
+// Architectural Blueprint:
+// - Step 10 Ports: Abstract boundaries decoupling domain services from concrete infrastructure.
+// - Covers storage persistence, Kubernetes API interactions, GitOps repository delivery, and KMS encryption.
+// - All adapters in infrastructure/adapters/ fulfill these port contracts.
 package ports
 
 import (
@@ -28,4 +35,8 @@ type K8sClientPort interface {
 type GitOpsDeliveryPort interface {
 	CommitManifestBundle(ctx context.Context, tenantID, workloadName string, bundle contracts.ManifestBundle) error
 	RevertManifestBundle(ctx context.Context, tenantID, workloadName, reason string) error
+}
+
+type KmsEncryptionPort interface {
+	EncryptSecret(ctx context.Context, keyURI string, plaintext []byte, additionalData string) (string, error)
 }

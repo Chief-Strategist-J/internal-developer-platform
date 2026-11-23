@@ -12,6 +12,7 @@ import (
 	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
 	healthService "internal-developer-platform/src/features/health-checks/service"
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	workloadAdapters "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
@@ -83,11 +84,11 @@ func describeService() chassis.ServiceSpec {
 			if deps.DB != nil {
 				catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
 				gitopsStore = gitopsreconciliation.NewPostgresStore(deps.DB)
-				workloadStore = kubernetesworkloadprovisioning.NewPostgresStore(deps.DB)
+				workloadStore = workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
 			} else {
 				catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
 				gitopsStore = gitopsreconciliation.NewMemoryStore()
-				workloadStore = kubernetesworkloadprovisioning.NewMemoryStore()
+				workloadStore = workloadAdapters.NewMemoryWorkloadRepositoryAdapter()
 			}
 
 			catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
@@ -99,7 +100,7 @@ func describeService() chassis.ServiceSpec {
 			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
 			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
 
-			k8sClient := kubernetesworkloadprovisioning.NewK8sClient(deps.Config.Kubernetes.Endpoint)
+			k8sClient := workloadAdapters.NewKubernetesClientAdapter(deps.Config.Kubernetes.Endpoint)
 			workloadSvc := kubernetesworkloadprovisioning.NewService(workloadStore, k8sClient)
 			workloadHandler := handlers.NewKubernetesWorkloadHandler(workloadSvc)
 			workloadRouter := routers.NewKubernetesWorkloadRouter(workloadHandler, rbacMW)
