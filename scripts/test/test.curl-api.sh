@@ -496,5 +496,72 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 19] POST /api/v1/policies -> Create Policy-as-Code Rule"
+echo "--------------------------------------------------------------------------------"
+POL_TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+POL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${POL_TENANT}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"tenantId\": \"${POL_TENANT}\",
+    \"externalId\": \"SEC-01\",
+    \"name\": \"Restricted Pod Security Baseline\",
+    \"description\": \"Disallow privileged containers across tenant clusters\",
+    \"severity\": \"CRITICAL\",
+    \"enforcementPoint\": \"CEL\",
+    \"ruleExpression\": \"privileged == false\",
+    \"exceptable\": true,
+    \"detectionPair\": \"DET-01\",
+    \"source\": \"API\"
+  }")
+
+echo "${POL_RESP}"
+if echo "${POL_RESP}" | grep -q "201 Created" && echo "${POL_RESP}" | grep -q "Restricted Pod Security Baseline"; then
+    echo -e "\033[1;32m[PASS]\033[0m Policy-as-Code API created policy rule"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created for policy creation"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 20] POST /api/v1/policies/admission/evaluate -> Evaluate Admission"
+echo "--------------------------------------------------------------------------------"
+EVAL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies/admission/evaluate" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${POL_TENANT}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"tenantId\": \"${POL_TENANT}\",
+    \"namespace\": \"fintech-prod\",
+    \"workloadId\": \"ledger-worker\",
+    \"callerRole\": \"Developer\",
+    \"resourceJson\": \"{\\\"privileged\\\":true}\",
+    \"policies\": [
+      {
+        \"id\": \"${POL_TENANT}\",
+        \"externalId\": \"SEC-01\",
+        \"severity\": \"CRITICAL\",
+        \"enforcementPoint\": \"CEL\",
+        \"lifecycleState\": \"DENY\",
+        \"ruleExpression\": \"privileged == false\",
+        \"exceptable\": false,
+        \"description\": \"Privileged containers strictly forbidden in prod\"
+      }
+    ]
+  }")
+
+echo "${EVAL_RESP}"
+if echo "${EVAL_RESP}" | grep -q "403 Forbidden" && echo "${EVAL_RESP}" | grep -q "allowed\":false"; then
+    echo -e "\033[1;32m[PASS]\033[0m Policy-as-Code admission review denied privileged workload with HTTP 403"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 403 Forbidden for DENY policy violation"
+    exit 1
+fi
+
+
 
 

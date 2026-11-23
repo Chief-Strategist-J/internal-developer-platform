@@ -50,6 +50,9 @@ func (s *PolicyAsCodeService) CreatePolicy(ctx context.Context, p contracts.Poli
 		if p.CorrelationID == "" {
 			p.CorrelationID = uuid.New().String()
 		}
+		if p.Source == "" {
+			p.Source = contracts.PolicySourceAPI
+		}
 		if p.LifecycleState == "" {
 			p.LifecycleState = contracts.LifecycleDraft
 		}

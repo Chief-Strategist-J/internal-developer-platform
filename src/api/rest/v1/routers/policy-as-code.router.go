@@ -40,17 +40,17 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointPoliciesEvaluate, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourcePolicyRule,
+			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionRead,
 			admissionHandler,
 		))
 		mux.HandleFunc(constants.EndpointPolicies, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourcePolicyRule,
+			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionWrite,
 			collectionHandler,
 		))
 		mux.HandleFunc(constants.EndpointPoliciesPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourcePolicyRule,
+			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionWrite,
 			subresourceHandler,
 		))
