@@ -19,5 +19,3 @@ var NewMemoryStore = adapters.NewMemoryGitOpsRepositoryAdapter
 var NewPostgresStore = adapters.NewPostgresGitOpsRepositoryAdapter
 var NewArgoCDClient = adapters.NewArgoCDClientAdapter
 var NewLiveArgoCDClient = adapters.NewLiveArgoCDClientAdapter
-
-

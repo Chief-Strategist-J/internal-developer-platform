@@ -2,8 +2,8 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME SQL QUERIES
 
 1. Parameterized Queries:
-   - Super-fast, strictly parameterized queries matching 0013_create_platform_regime_policies.sql.
-   - Zero inline comments inside function bodies.
+  - Super-fast, strictly parameterized queries matching 0013_create_platform_regime_policies.sql.
+  - Zero inline comments inside function bodies.
 */
 package queries
 

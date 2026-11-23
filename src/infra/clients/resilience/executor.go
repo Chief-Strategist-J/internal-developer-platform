@@ -121,4 +121,3 @@ func (e *ResilienceExecutor) CircuitBreaker() *CircuitBreaker {
 func (e *ResilienceExecutor) RetryBudget() *RetryBudget {
 	return e.retryBudget
 }
-

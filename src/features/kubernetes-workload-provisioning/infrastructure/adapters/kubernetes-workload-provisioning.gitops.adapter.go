@@ -2,14 +2,14 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: GITOPS WORKLOAD DELIVERY ADAPTER
 
 1. GitOps Delivery Flow:
-   - Implements GitOpsDeliveryPort backed by infra gitops.GitManifestCommitter.
-   - Enforces Single Writer Invariant: manifests are committed to Git rather than mutating Kubernetes directly.
-   - Flattens ManifestBundle into structured YAML files under tenants/<tenant>/workloads/<workload>/.
-   - Calculates tree SHA, author credentials, and HMAC commit signature.
+  - Implements GitOpsDeliveryPort backed by infra gitops.GitManifestCommitter.
+  - Enforces Single Writer Invariant: manifests are committed to Git rather than mutating Kubernetes directly.
+  - Flattens ManifestBundle into structured YAML files under tenants/<tenant>/workloads/<workload>/.
+  - Calculates tree SHA, author credentials, and HMAC commit signature.
 
 2. Invariants:
-   - Zero inline comments inside method bodies.
-   - All methods strictly maintain length <= 25 lines.
+  - Zero inline comments inside method bodies.
+  - All methods strictly maintain length <= 25 lines.
 */
 package adapters
 
@@ -95,4 +95,3 @@ func appendIfPresent(files []gitops.ManifestFile, path, content string) []gitops
 	}
 	return files
 }
-

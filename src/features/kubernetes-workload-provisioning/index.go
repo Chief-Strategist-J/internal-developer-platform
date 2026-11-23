@@ -2,10 +2,10 @@
 // Kubernetes Workload Provisioning feature.
 //
 // Architectural Blueprint:
-// - Step 13 Public Facade: Shields internal infrastructure adapters and queries.
-// - Exports strictly the domain orchestrator Service, public DTOs, and Port abstractions.
-// - External callers and dependency injectors must import concrete adapters from
-//   infrastructure/adapters directly.
+//   - Step 13 Public Facade: Shields internal infrastructure adapters and queries.
+//   - Exports strictly the domain orchestrator Service, public DTOs, and Port abstractions.
+//   - External callers and dependency injectors must import concrete adapters from
+//     infrastructure/adapters directly.
 package kubernetesworkloadprovisioning
 
 import (

@@ -2,11 +2,11 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME DOMAIN RULES
 
 1. Domain Evaluation Algorithm:
-   - Validates WorkloadProvisionCommand against an active PlatformRegimePolicyRecord.
-   - Enforces B-1 (Jurisdiction, Retention >= Regime Floor, Approved Data Residency Regions, KMS Custody).
-   - Enforces B-2 (Disaster Recovery RTO/RPO limits if specified).
-   - Enforces B-4 (Tenant isolation constraints).
-   - Returns structured AdmissionViolations with no inline comments inside functions.
+  - Validates WorkloadProvisionCommand against an active PlatformRegimePolicyRecord.
+  - Enforces B-1 (Jurisdiction, Retention >= Regime Floor, Approved Data Residency Regions, KMS Custody).
+  - Enforces B-2 (Disaster Recovery RTO/RPO limits if specified).
+  - Enforces B-4 (Tenant isolation constraints).
+  - Returns structured AdmissionViolations with no inline comments inside functions.
 */
 package rules
 

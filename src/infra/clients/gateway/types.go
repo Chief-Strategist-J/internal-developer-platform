@@ -7,55 +7,55 @@ import (
 )
 
 const (
-	GatewayAPIVersion                 = "gateway.networking.k8s.io/v1"
-	HTTPRouteKind                     = "HTTPRoute"
-	GCPBackendPolicyAPIVersion        = "networking.gke.io/v1"
-	GCPBackendPolicyKind              = "GCPBackendPolicy"
-	ComputeSecurityPolicyAPIVersion   = "compute.cnrm.cloud.google.com/v1beta1"
-	ComputeSecurityPolicyKind         = "ComputeSecurityPolicy"
+	GatewayAPIVersion               = "gateway.networking.k8s.io/v1"
+	HTTPRouteKind                   = "HTTPRoute"
+	GCPBackendPolicyAPIVersion      = "networking.gke.io/v1"
+	GCPBackendPolicyKind            = "GCPBackendPolicy"
+	ComputeSecurityPolicyAPIVersion = "compute.cnrm.cloud.google.com/v1beta1"
+	ComputeSecurityPolicyKind       = "ComputeSecurityPolicy"
 
-	DefaultGatewayGroup               = "gateway.networking.k8s.io"
-	DefaultGatewayKind                = "Gateway"
-	DefaultGatewayNamespace           = "gateway-system"
-	DefaultExternalGatewayName        = "gke-external-gateway"
-	DefaultInternalGatewayName        = "gke-internal-gateway"
+	DefaultGatewayGroup        = "gateway.networking.k8s.io"
+	DefaultGatewayKind         = "Gateway"
+	DefaultGatewayNamespace    = "gateway-system"
+	DefaultExternalGatewayName = "gke-external-gateway"
+	DefaultInternalGatewayName = "gke-internal-gateway"
 
-	PathMatchPathPrefix               = "PathPrefix"
-	PathMatchExact                    = "Exact"
-	DefaultPathPrefix                 = "/"
+	PathMatchPathPrefix = "PathPrefix"
+	PathMatchExact      = "Exact"
+	DefaultPathPrefix   = "/"
 
-	DefaultPortHTTP                   = 80
-	DefaultPortApp                    = 8080
+	DefaultPortHTTP = 80
+	DefaultPortApp  = 8080
 
-	DefaultSecurityPolicyName         = "platform-edge-security-policy"
-	DefaultTimeoutSec                 = 30
-	DefaultConnectionDrainingSec      = 60
-	DefaultLoggingSampleRate          = 1.0
+	DefaultSecurityPolicyName    = "platform-edge-security-policy"
+	DefaultTimeoutSec            = 30
+	DefaultConnectionDrainingSec = 60
+	DefaultLoggingSampleRate     = 1.0
 
-	ActionAllow                       = "allow"
-	ActionDeny403                     = "deny(403)"
-	ActionRateBasedBan                = "rate_based_ban"
+	ActionAllow        = "allow"
+	ActionDeny403      = "deny(403)"
+	ActionRateBasedBan = "rate_based_ban"
 
 	TargetKindService                 = "Service"
 	VersionedExprSrcIPsV1             = "SRC_IPS_V1"
 	MatchAnySrcIP                     = "*"
 	DefaultRateLimitIntervalSec int32 = 60
 
-	LabelAppName                      = "app.kubernetes.io/name"
-	LabelManagedBy                    = "app.kubernetes.io/managed-by"
-	LabelManagedByValue               = "internal-developer-platform"
-	AnnotationProjectID               = "cnrm.cloud.google.com/project-id"
+	LabelAppName        = "app.kubernetes.io/name"
+	LabelManagedBy      = "app.kubernetes.io/managed-by"
+	LabelManagedByValue = "internal-developer-platform"
+	AnnotationProjectID = "cnrm.cloud.google.com/project-id"
 
-	ErrEmptyNameMsg                   = "name must not be empty"
-	ErrEmptyNamespaceMsg              = "namespace must not be empty"
-	ErrEmptyHostnamesMsg              = "at least one hostname must be provided"
-	ErrEmptyServiceNameMsg            = "service name must not be empty"
-	ErrInvalidServicePortMsg          = "service port must be greater than zero"
-	ErrEmptySecurityPolicyMsg         = "security policy name must not be empty"
-	ErrEmptyProjectIDMsg              = "project id must not be empty"
-	ErrEmptyRulesMsg                  = "at least one cloud armor rule must be provided"
-	ErrInvalidPriorityMsg             = "rule priority must be greater than or equal to zero"
-	ErrInvalidActionMsg               = "rule action must not be empty"
+	ErrEmptyNameMsg           = "name must not be empty"
+	ErrEmptyNamespaceMsg      = "namespace must not be empty"
+	ErrEmptyHostnamesMsg      = "at least one hostname must be provided"
+	ErrEmptyServiceNameMsg    = "service name must not be empty"
+	ErrInvalidServicePortMsg  = "service port must be greater than zero"
+	ErrEmptySecurityPolicyMsg = "security policy name must not be empty"
+	ErrEmptyProjectIDMsg      = "project id must not be empty"
+	ErrEmptyRulesMsg          = "at least one cloud armor rule must be provided"
+	ErrInvalidPriorityMsg     = "rule priority must be greater than or equal to zero"
+	ErrInvalidActionMsg       = "rule action must not be empty"
 )
 
 type GatewayParentRef struct {
@@ -148,13 +148,13 @@ func (c GCPBackendPolicyConfig) Validate() error {
 }
 
 type CloudArmorRule struct {
-	Priority              int32    `json:"priority" yaml:"priority"`
-	Action                string   `json:"action" yaml:"action"`
-	Description           string   `json:"description,omitempty" yaml:"description,omitempty"`
-	SrcIPRanges           []string `json:"srcIpRanges,omitempty" yaml:"srcIpRanges,omitempty"`
-	Expression            string   `json:"expression,omitempty" yaml:"expression,omitempty"`
-	RateLimitThreshold    int32    `json:"rateLimitThreshold,omitempty" yaml:"rateLimitThreshold,omitempty"`
-	RateLimitIntervalSec  int32    `json:"rateLimitIntervalSec,omitempty" yaml:"rateLimitIntervalSec,omitempty"`
+	Priority             int32    `json:"priority" yaml:"priority"`
+	Action               string   `json:"action" yaml:"action"`
+	Description          string   `json:"description,omitempty" yaml:"description,omitempty"`
+	SrcIPRanges          []string `json:"srcIpRanges,omitempty" yaml:"srcIpRanges,omitempty"`
+	Expression           string   `json:"expression,omitempty" yaml:"expression,omitempty"`
+	RateLimitThreshold   int32    `json:"rateLimitThreshold,omitempty" yaml:"rateLimitThreshold,omitempty"`
+	RateLimitIntervalSec int32    `json:"rateLimitIntervalSec,omitempty" yaml:"rateLimitIntervalSec,omitempty"`
 }
 
 type ComputeSecurityPolicyConfig struct {
@@ -188,4 +188,3 @@ func (c ComputeSecurityPolicyConfig) Validate() error {
 	}
 	return nil
 }
-

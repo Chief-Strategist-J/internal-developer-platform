@@ -28,4 +28,3 @@ func (a *KMSEncryptionAdapter) EncryptSecret(ctx context.Context, keyURI string,
 	}
 	return env.Ciphertext, nil
 }
-

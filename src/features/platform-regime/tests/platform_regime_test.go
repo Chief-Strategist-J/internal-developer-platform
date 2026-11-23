@@ -2,11 +2,11 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME UNIT TESTS
 
 1. Verification Suite:
-   - Tests contract validation (30-day floor, positive RTO/RPO, KMS custody).
-   - Tests in-memory repository supersede semantics.
-   - Tests domain rule validation against workload commands.
-   - Tests service registration and fallback to baseline.
-   - Zero comments inside test bodies.
+  - Tests contract validation (30-day floor, positive RTO/RPO, KMS custody).
+  - Tests in-memory repository supersede semantics.
+  - Tests domain rule validation against workload commands.
+  - Tests service registration and fallback to baseline.
+  - Zero comments inside test bodies.
 */
 package tests
 

@@ -251,4 +251,3 @@ func (c *KubernetesClient) mapKubernetesError(err error) error {
 
 	return apperrors.NewDownstreamUnavailableError(err.Error())
 }
-

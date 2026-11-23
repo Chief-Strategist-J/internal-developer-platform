@@ -2,10 +2,10 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC REDIS REVOCATION ADAPTER
 
 1. Architecture Role:
-   - Outbound infrastructure adapter implementing RevocationRepositoryPort.
-   - Communicates with Redis over raw TCP using RESP-compatible query builders.
-   - Enforces Tier-4 infrastructure spans for all revocation checks and writes.
-   - Zero inline comments inside method bodies.
+  - Outbound infrastructure adapter implementing RevocationRepositoryPort.
+  - Communicates with Redis over raw TCP using RESP-compatible query builders.
+  - Enforces Tier-4 infrastructure spans for all revocation checks and writes.
+  - Zero inline comments inside method bodies.
 */
 package adapters
 

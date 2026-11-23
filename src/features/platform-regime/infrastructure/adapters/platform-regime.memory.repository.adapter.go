@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME MEMORY REPOSITORY ADAPTER
 
 1. In-Memory Store Adapter:
-   - Thread-safe in-memory adapter for hermetic testing and runtime fallback.
-   - Enforces Tier-4 infrastructure spans for all operations.
-   - Zero comments inside method bodies.
+  - Thread-safe in-memory adapter for hermetic testing and runtime fallback.
+  - Enforces Tier-4 infrastructure spans for all operations.
+  - Zero comments inside method bodies.
 */
 package adapters
 

@@ -2,11 +2,11 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC REST HANDLER
 
 1. Ingress Execution:
-   - Ingests W3C traceparent, correlation, and tenant headers.
-   - Decodes closed-schema JSON payload with disallowance of unknown fields.
-   - Enforces Tier-2 handler spans ("rbac.handler.*") wrapping all endpoint executions.
-   - Dispatches authenticated/authorized requests to RBACService.
-   - Zero inline comments inside method bodies.
+  - Ingests W3C traceparent, correlation, and tenant headers.
+  - Decodes closed-schema JSON payload with disallowance of unknown fields.
+  - Enforces Tier-2 handler spans ("rbac.handler.*") wrapping all endpoint executions.
+  - Dispatches authenticated/authorized requests to RBACService.
+  - Zero inline comments inside method bodies.
 */
 package handlers
 
@@ -22,6 +22,7 @@ import (
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
+	sharedErrors "internal-developer-platform/src/shared/errors"
 	"internal-developer-platform/src/shared/types"
 )
 
@@ -66,6 +67,12 @@ func (h *RBACHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 			Roles:       req.Roles,
 			Permissions: req.Permissions,
 			ExpiresAt:   exp,
+		}
+
+		if len(sub.Roles) == 0 {
+			if roles, err := h.rbacSvc.GetUserRoles(ctx, sub.TenantID, sub.ID); err == nil && len(roles) > 0 {
+				sub.Roles = roles
+			}
 		}
 
 		token, err := h.rbacSvc.IssueToken(sub)
@@ -390,7 +397,7 @@ func (h *RBACHandler) BindUserRole(w http.ResponseWriter, r *http.Request) {
 		if err := h.rbacSvc.BindUserRole(ctx, record); err != nil {
 			statusCode := http.StatusBadRequest
 			errCode := constants.ErrCodeValidationFailed
-			if errors.IsConflictError(err) {
+			if sharedErrors.IsConflictError(err) {
 				statusCode = http.StatusConflict
 				errCode = constants.ErrCodeConflict
 			}
@@ -438,7 +445,7 @@ func (h *RBACHandler) UnbindUserRole(w http.ResponseWriter, r *http.Request) {
 		if err := h.rbacSvc.UnbindUserRole(ctx, req.TenantID, req.SubjectID, req.RoleName); err != nil {
 			statusCode := http.StatusBadRequest
 			errCode := constants.ErrCodeValidationFailed
-			if errors.IsNotFoundError(err) {
+			if sharedErrors.IsNotFoundError(err) {
 				statusCode = http.StatusNotFound
 				errCode = constants.ErrCodeNotFound
 			}

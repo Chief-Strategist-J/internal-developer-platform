@@ -39,4 +39,3 @@ func DefaultResilienceConfig() ResilienceConfig {
 		BackoffMax:            500 * time.Millisecond,
 	}
 }
-

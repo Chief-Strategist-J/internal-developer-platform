@@ -304,4 +304,3 @@ func TestCloudArmorGenerator_ComputeSecurityPolicyValidation(t *testing.T) {
 		t.Fatalf("expected error for empty rules")
 	}
 }
-

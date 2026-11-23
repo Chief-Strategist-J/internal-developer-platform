@@ -1299,12 +1299,12 @@ func ValidateKubernetesAPIVersions(resources []string) (bool, []contracts.Admiss
 		return true, nil
 	}
 	deprecatedAPIs := map[string]string{
-		"extensions/v1beta1":              "removed in v1.16; migrate to apps/v1, networking.k8s.io/v1",
-		"networking.k8s.io/v1beta1":       "removed in v1.22; migrate to networking.k8s.io/v1",
+		"extensions/v1beta1":               "removed in v1.16; migrate to apps/v1, networking.k8s.io/v1",
+		"networking.k8s.io/v1beta1":        "removed in v1.22; migrate to networking.k8s.io/v1",
 		"policy/v1beta1/podsecuritypolicy": "removed in v1.25; migrate to Pod Security Standards",
-		"batch/v1beta1":                   "removed in v1.25; migrate to batch/v1",
-		"autoscaling/v2beta1":             "removed in v1.25; migrate to autoscaling/v2",
-		"autoscaling/v2beta2":             "removed in v1.26; migrate to autoscaling/v2",
+		"batch/v1beta1":                    "removed in v1.25; migrate to batch/v1",
+		"autoscaling/v2beta1":              "removed in v1.25; migrate to autoscaling/v2",
+		"autoscaling/v2beta2":              "removed in v1.26; migrate to autoscaling/v2",
 	}
 	violations := make([]contracts.AdmissionViolation, 0)
 	for _, res := range resources {

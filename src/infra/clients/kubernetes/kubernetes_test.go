@@ -142,4 +142,3 @@ func TestKubernetesClientResilienceIntegration(t *testing.T) {
 		t.Fatalf("expected error when context deadline budget is insufficient")
 	}
 }
-

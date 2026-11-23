@@ -98,4 +98,3 @@ func (g *AnalysisTemplateGenerator) GenerateAnalysisTemplateYAML(config RolloutM
 	}
 	return strings.TrimSpace(string(bytes)), nil
 }
-

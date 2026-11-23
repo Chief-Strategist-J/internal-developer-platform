@@ -2,10 +2,10 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME SERVICE
 
 1. Service Orchestrator:
-   - Registers and supersedes regime policies per tenant.
-   - Falls back to declarative config baseline if no dynamic record exists for the tenant.
-   - Enforces W3C distributed tracing spans on all queries.
-   - Zero comments inside method bodies.
+  - Registers and supersedes regime policies per tenant.
+  - Falls back to declarative config baseline if no dynamic record exists for the tenant.
+  - Enforces W3C distributed tracing spans on all queries.
+  - Zero comments inside method bodies.
 */
 package service
 

@@ -2,10 +2,10 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME REST ROUTER
 
 1. Routing Flow Execution:
-   - Registers declarative endpoints for Platform Regime API.
-   - Binds /api/v1/regimes (POST) and /api/v1/regimes/active (GET).
-   - Enforces RBAC permissions via RequirePermission: ResourceInfrastructure ActionWrite for register, ActionRead for active.
-   - Zero inline comments inside function bodies.
+  - Registers declarative endpoints for Platform Regime API.
+  - Binds /api/v1/regimes (POST) and /api/v1/regimes/active (GET).
+  - Enforces RBAC permissions via RequirePermission: ResourceInfrastructure ActionWrite for register, ActionRead for active.
+  - Zero inline comments inside function bodies.
 */
 package routers
 

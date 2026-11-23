@@ -10,10 +10,10 @@ import (
 )
 
 type GenericKCCManifest struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   KCCMetadata       `yaml:"metadata"`
-	Spec       map[string]any    `yaml:"spec"`
+	APIVersion string         `yaml:"apiVersion"`
+	Kind       string         `yaml:"kind"`
+	Metadata   KCCMetadata    `yaml:"metadata"`
+	Spec       map[string]any `yaml:"spec"`
 }
 
 type KCCMetadata struct {

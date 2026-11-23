@@ -339,4 +339,3 @@ func TestValidateDigestVEX_D05(t *testing.T) {
 		t.Fatalf("expected valid digest-level VEX to pass, got: %s", msg)
 	}
 }
-

@@ -310,4 +310,3 @@ func EvaluateImageSecurityPolicy(cmd contracts.ImageScanCommand, now time.Time) 
 		PrioUCount:       pUCount,
 	}
 }
-

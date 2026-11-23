@@ -40,7 +40,6 @@ const (
 	EndpointAuthBindingsPrefix    = "/api/v1/auth/bindings/"
 )
 
-
 const (
 	ErrCodeValidationFailed   = "VALIDATION_FAILED"
 	ErrCodeConflict           = "CONFLICT"

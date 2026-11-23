@@ -101,31 +101,31 @@ func TestPostgresWorkloadRepositoryLive(t *testing.T) {
 	idempKey := "idemp-live-pg-" + uniqueSuffix
 
 	record := contracts.WorkloadProvisionRecord{
-		ID:             recordID,
-		PublicID:       "wld_" + uniqueSuffix,
-		TenantID:       tenantID,
-		Source:         "developer-portal",
-		ExternalID:     "ext-" + uniqueSuffix,
-		CorrelationID:  "00000000-0000-0000-0000-000000000001",
-		ServiceID:      "order-service",
-		Namespace:      "orders-live",
-		WorkloadName:   "orders-backend",
-		CPURequest:     "250m",
-		CPULimit:       "500m",
-		MemoryRequest:  "256Mi",
-		MemoryLimit:    "512Mi",
-		Replicas:       2,
-		Strategy:         contracts.StrategyCanary,
-		Status:           contracts.StatusSubmitted,
-		SpecHash:         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		ApprovedSpecHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		ApproverRole:     "platform-admin",
-		ImagePullPolicy:  "IfNotPresent",
+		ID:                      recordID,
+		PublicID:                "wld_" + uniqueSuffix,
+		TenantID:                tenantID,
+		Source:                  "developer-portal",
+		ExternalID:              "ext-" + uniqueSuffix,
+		CorrelationID:           "00000000-0000-0000-0000-000000000001",
+		ServiceID:               "order-service",
+		Namespace:               "orders-live",
+		WorkloadName:            "orders-backend",
+		CPURequest:              "250m",
+		CPULimit:                "500m",
+		MemoryRequest:           "256Mi",
+		MemoryLimit:             "512Mi",
+		Replicas:                2,
+		Strategy:                contracts.StrategyCanary,
+		Status:                  contracts.StatusSubmitted,
+		SpecHash:                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		ApprovedSpecHash:        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		ApproverRole:            "platform-admin",
+		ImagePullPolicy:         "IfNotPresent",
 		BreakglassJustification: "SEV-1-hotfix",
-		IdempotencyKey:   idempKey,
-		Version:          1,
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
+		IdempotencyKey:          idempKey,
+		Version:                 1,
+		CreatedAt:               time.Now().UTC(),
+		UpdatedAt:               time.Now().UTC(),
 	}
 
 	if err := adapter.Save(ctx, record); err != nil {
@@ -302,7 +302,6 @@ func TestWorkloadProvisioningQuotaExceeded(t *testing.T) {
 		t.Errorf("expected insufficient quota headroom in error, got: %v", err)
 	}
 }
-
 
 func TestPostgresAdapterValidationGuards(t *testing.T) {
 	ctx := context.Background()

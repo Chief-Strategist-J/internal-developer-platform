@@ -35,13 +35,13 @@ type Role struct {
 }
 
 type Subject struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenantId"`
-	Roles       []RoleName `json:"roles"`
+	ID          string       `json:"id"`
+	TenantID    string       `json:"tenantId"`
+	Roles       []RoleName   `json:"roles"`
 	Permissions []Permission `json:"permissions,omitempty"`
-	Issuer      string     `json:"issuer"`
-	ExpiresAt   time.Time  `json:"expiresAt"`
-	JTI         string     `json:"jti,omitempty"`
+	Issuer      string       `json:"issuer"`
+	ExpiresAt   time.Time    `json:"expiresAt"`
+	JTI         string       `json:"jti,omitempty"`
 }
 
 type EvaluationRequest struct {

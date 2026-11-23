@@ -27,20 +27,20 @@ const (
 	DefaultP99LatencyCondition        = "result[0] <= 200"
 	IstioMutualTLSMode                = "ISTIO_MUTUAL"
 
-	IgnoreDiffGroupIstio   = "networking.istio.io"
-	IgnoreDiffKindVS       = "VirtualService"
-	IgnoreDiffRoutePointer = "/spec/http/0/route"
-	IgnoreDiffGroupArgo    = "argoproj.io"
-	IgnoreDiffKindRollout  = "Rollout"
+	IgnoreDiffGroupIstio    = "networking.istio.io"
+	IgnoreDiffKindVS        = "VirtualService"
+	IgnoreDiffRoutePointer  = "/spec/http/0/route"
+	IgnoreDiffGroupArgo     = "argoproj.io"
+	IgnoreDiffKindRollout   = "Rollout"
 	IgnoreDiffStatusPointer = "/status"
 
-	ErrEmptyNameMsg             = "name must not be empty"
-	ErrEmptyNamespaceMsg        = "namespace must not be empty"
-	ErrInvalidReplicasMsg       = "replicas must be greater than zero"
-	ErrEmptyWorkloadDigestMsg   = "workload digest must not be empty"
-	ErrEmptyStableServiceMsg    = "stable service name must not be empty"
-	ErrEmptyCanaryServiceMsg    = "canary service name must not be empty"
-	ErrEmptyVirtualServiceMsg   = "virtual service name must not be empty"
+	ErrEmptyNameMsg              = "name must not be empty"
+	ErrEmptyNamespaceMsg         = "namespace must not be empty"
+	ErrInvalidReplicasMsg        = "replicas must be greater than zero"
+	ErrEmptyWorkloadDigestMsg    = "workload digest must not be empty"
+	ErrEmptyStableServiceMsg     = "stable service name must not be empty"
+	ErrEmptyCanaryServiceMsg     = "canary service name must not be empty"
+	ErrEmptyVirtualServiceMsg    = "virtual service name must not be empty"
 	ErrEmptyPrometheusAddressMsg = "prometheus address must not be empty"
 )
 
@@ -50,15 +50,15 @@ type CanaryStep struct {
 }
 
 type RolloutManifestConfig struct {
-	Name              string
-	Namespace         string
-	Replicas          int32
-	WorkloadDigest    string
-	StableServiceName string
-	CanaryServiceName string
+	Name               string
+	Namespace          string
+	Replicas           int32
+	WorkloadDigest     string
+	StableServiceName  string
+	CanaryServiceName  string
 	VirtualServiceName string
-	PrometheusAddress string
-	CanarySteps       []CanaryStep
+	PrometheusAddress  string
+	CanarySteps        []CanaryStep
 }
 
 func (c RolloutManifestConfig) Validate() error {
@@ -91,4 +91,3 @@ type ArgoCDIgnoreDifference struct {
 	Kind         string   `json:"kind" yaml:"kind"`
 	JSONPointers []string `json:"jsonPointers" yaml:"jsonPointers"`
 }
-

@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME SCHEMA VALIDATOR
 
 1. Closed Schema Ingress Gate:
-   - Validates all fields against domain constraints before hitting services.
-   - Enforces RFC-1123 formats, minimum floor retention >= 30, and positive RTO budgets.
-   - Zero inline comments inside function bodies.
+  - Validates all fields against domain constraints before hitting services.
+  - Enforces RFC-1123 formats, minimum floor retention >= 30, and positive RTO budgets.
+  - Zero inline comments inside function bodies.
 */
 package contracts
 

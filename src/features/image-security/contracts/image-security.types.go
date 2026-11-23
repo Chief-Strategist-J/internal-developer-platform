@@ -16,11 +16,11 @@ const (
 type ScanStatus string
 
 const (
-	ScanStatusPending    ScanStatus = "PENDING"
-	ScanStatusScanning   ScanStatus = "SCANNING"
-	ScanStatusPassed     ScanStatus = "PASSED"
-	ScanStatusBlocked    ScanStatus = "BLOCKED"
-	ScanStatusException  ScanStatus = "EXCEPTION_ACTIVE"
+	ScanStatusPending   ScanStatus = "PENDING"
+	ScanStatusScanning  ScanStatus = "SCANNING"
+	ScanStatusPassed    ScanStatus = "PASSED"
+	ScanStatusBlocked   ScanStatus = "BLOCKED"
+	ScanStatusException ScanStatus = "EXCEPTION_ACTIVE"
 )
 
 type PriorityClass string
@@ -108,35 +108,35 @@ type EmbeddedSecretFinding struct {
 }
 
 type SBOMAttestation struct {
-	Format      string    `json:"format"`
-	Signature   string    `json:"signature"`
-	SignerKeyID string    `json:"signerKeyId"`
-	GeneratedAt time.Time `json:"generatedAt"`
-	PackageCount int      `json:"packageCount"`
+	Format       string    `json:"format"`
+	Signature    string    `json:"signature"`
+	SignerKeyID  string    `json:"signerKeyId"`
+	GeneratedAt  time.Time `json:"generatedAt"`
+	PackageCount int       `json:"packageCount"`
 }
 
 type SecurityExceptionWaiver struct {
-	ExceptionID    string    `json:"exceptionId"`
-	CVEID          string    `json:"cveId"`
-	ApprovedBy     string    `json:"approvedBy"`
-	Reason         string    `json:"reason"`
-	Compensating   string    `json:"compensatingControls"`
-	ExpiresAt      time.Time `json:"expiresAt"`
+	ExceptionID  string    `json:"exceptionId"`
+	CVEID        string    `json:"cveId"`
+	ApprovedBy   string    `json:"approvedBy"`
+	Reason       string    `json:"reason"`
+	Compensating string    `json:"compensatingControls"`
+	ExpiresAt    time.Time `json:"expiresAt"`
 }
 
 type ImageScanCommand struct {
-	ImageDigest     string                    `json:"imageDigest"`
-	ImageRepository string                    `json:"imageRepository"`
-	TenantID        string                    `json:"tenantId"`
-	Namespace       string                    `json:"namespace"`
-	Vulnerabilities []VulnerabilityItem       `json:"vulnerabilities"`
-	SecretsFound    []EmbeddedSecretFinding   `json:"secretsFound,omitempty"`
-	SBOM            *SBOMAttestation          `json:"sbom,omitempty"`
-	ActiveWaiver    *SecurityExceptionWaiver  `json:"activeWaiver,omitempty"`
-	PodSlots        []PodSlotImageRef         `json:"podSlots,omitempty"`
-	Provenance      *ProvenanceAttestation    `json:"provenance,omitempty"`
-	VEXStatements   []VEXStatement            `json:"vexStatements,omitempty"`
-	Exposure        WorkloadExposure          `json:"exposure,omitempty"`
+	ImageDigest     string                   `json:"imageDigest"`
+	ImageRepository string                   `json:"imageRepository"`
+	TenantID        string                   `json:"tenantId"`
+	Namespace       string                   `json:"namespace"`
+	Vulnerabilities []VulnerabilityItem      `json:"vulnerabilities"`
+	SecretsFound    []EmbeddedSecretFinding  `json:"secretsFound,omitempty"`
+	SBOM            *SBOMAttestation         `json:"sbom,omitempty"`
+	ActiveWaiver    *SecurityExceptionWaiver `json:"activeWaiver,omitempty"`
+	PodSlots        []PodSlotImageRef        `json:"podSlots,omitempty"`
+	Provenance      *ProvenanceAttestation   `json:"provenance,omitempty"`
+	VEXStatements   []VEXStatement           `json:"vexStatements,omitempty"`
+	Exposure        WorkloadExposure         `json:"exposure,omitempty"`
 }
 
 type ImageAdmissionVerdict struct {

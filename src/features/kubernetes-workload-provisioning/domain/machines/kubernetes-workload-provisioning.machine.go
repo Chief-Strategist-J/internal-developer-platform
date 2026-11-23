@@ -16,14 +16,14 @@ import (
 type WorkloadEvent string
 
 const (
-	EventValidate      WorkloadEvent = "VALIDATE"
-	EventAdmit         WorkloadEvent = "ADMIT"
-	EventApply         WorkloadEvent = "APPLY"
-	EventActivate      WorkloadEvent = "ACTIVATE"
-	EventReplicasReady WorkloadEvent = "REPLICAS_READY"
-	EventDegrade       WorkloadEvent = "DEGRADE"
-	EventReject        WorkloadEvent = "REJECT"
-	EventDecommission  WorkloadEvent = "DECOMMISSION"
+	EventValidate             WorkloadEvent = "VALIDATE"
+	EventAdmit                WorkloadEvent = "ADMIT"
+	EventApply                WorkloadEvent = "APPLY"
+	EventActivate             WorkloadEvent = "ACTIVATE"
+	EventReplicasReady        WorkloadEvent = "REPLICAS_READY"
+	EventDegrade              WorkloadEvent = "DEGRADE"
+	EventReject               WorkloadEvent = "REJECT"
+	EventDecommission         WorkloadEvent = "DECOMMISSION"
 	EventCompleteDecommission WorkloadEvent = "COMPLETE_DECOMMISSION"
 )
 

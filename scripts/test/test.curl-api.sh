@@ -336,3 +336,62 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 13] POST /api/v1/auth/bindings -> Bind User to Role Developer"
+echo "--------------------------------------------------------------------------------"
+BIND_SUB="user-bound-$(date +%s%N)"
+BIND_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/bindings" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"subjectId\": \"${BIND_SUB}\",
+    \"tenantId\": \"fintech-team\",
+    \"roleName\": \"Developer\"
+  }")
+
+echo "${BIND_RESP}"
+if echo "${BIND_RESP}" | grep -q "201 Created"; then
+    echo -e "\033[1;32m[PASS]\033[0m User role successfully bound"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created for user binding"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 14] GET /api/v1/auth/bindings -> Query Bound User Roles"
+echo "--------------------------------------------------------------------------------"
+GET_BIND_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/bindings?subjectId=${BIND_SUB}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team")
+
+echo "${GET_BIND_RESP}"
+if echo "${GET_BIND_RESP}" | grep -q "200 OK" && echo "${GET_BIND_RESP}" | grep -q "Developer"; then
+    echo -e "\033[1;32m[PASS]\033[0m User roles query returned Developer role"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with Developer role"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 15] POST /api/v1/auth/token -> Token Resolution from User Binding"
+echo "--------------------------------------------------------------------------------"
+RESOLVED_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"subjectId\": \"${BIND_SUB}\",
+    \"tenantId\": \"fintech-team\"
+  }")
+
+echo "${RESOLVED_TOKEN_RESP}"
+if echo "${RESOLVED_TOKEN_RESP}" | grep -q "Developer"; then
+    echo -e "\033[1;32m[PASS]\033[0m Token issuance resolved role Developer from user bindings"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected resolved token to contain Developer role"
+    exit 1
+fi
+
+

@@ -111,4 +111,3 @@ func (a *MemoryWorkloadRepositoryAdapter) Update(ctx context.Context, record con
 	a.records[key] = record
 	return nil
 }
-

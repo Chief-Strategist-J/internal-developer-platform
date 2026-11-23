@@ -40,4 +40,3 @@ func TestValidateSyncCommand(t *testing.T) {
 		t.Errorf("expected error on empty idempotency key")
 	}
 }
-

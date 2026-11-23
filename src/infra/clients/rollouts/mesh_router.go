@@ -125,4 +125,3 @@ func (g *MeshRouterGenerator) GenerateDestinationRuleYAML(config RolloutManifest
 	}
 	return strings.TrimSpace(string(bytes)), nil
 }
-

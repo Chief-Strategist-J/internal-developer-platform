@@ -1,5 +1,7 @@
 package errors
 
+import stdErrors "errors"
+
 type ApplicationError struct {
 	StatusCode    int
 	CanonicalCode string
@@ -96,3 +98,18 @@ func NewInternalError(message string, cause ...error) *ApplicationError {
 	}
 }
 
+func IsConflictError(err error) bool {
+	var appErr *ApplicationError
+	if stdErrors.As(err, &appErr) {
+		return appErr.StatusCode == 409
+	}
+	return false
+}
+
+func IsNotFoundError(err error) bool {
+	var appErr *ApplicationError
+	if stdErrors.As(err, &appErr) {
+		return appErr.StatusCode == 404
+	}
+	return false
+}

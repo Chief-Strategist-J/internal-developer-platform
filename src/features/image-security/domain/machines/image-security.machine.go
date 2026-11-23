@@ -10,11 +10,11 @@ import (
 type ImageScanEvent string
 
 const (
-	EventStartScan     ImageScanEvent = "START_SCAN"
-	EventScanPass      ImageScanEvent = "SCAN_PASS"
-	EventScanFail      ImageScanEvent = "SCAN_FAIL"
-	EventGrantWaiver   ImageScanEvent = "GRANT_WAIVER"
-	EventRevokeWaiver  ImageScanEvent = "REVOKE_WAIVER"
+	EventStartScan    ImageScanEvent = "START_SCAN"
+	EventScanPass     ImageScanEvent = "SCAN_PASS"
+	EventScanFail     ImageScanEvent = "SCAN_FAIL"
+	EventGrantWaiver  ImageScanEvent = "GRANT_WAIVER"
+	EventRevokeWaiver ImageScanEvent = "REVOKE_WAIVER"
 )
 
 func TransitionScanState(current contracts.ScanStatus, event ImageScanEvent) (contracts.ScanStatus, error) {

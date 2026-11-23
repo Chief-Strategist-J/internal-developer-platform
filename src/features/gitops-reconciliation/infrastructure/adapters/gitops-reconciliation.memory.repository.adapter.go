@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: GITOPS MEMORY REPOSITORY ADAPTER
 
 1. Architecture Role:
-   - In-memory store implementing GitOpsStorePort for unit tests and fallback execution.
-   - Enforces Tier-4 infrastructure spans for all operations.
-   - Zero inline comments inside method bodies.
+  - In-memory store implementing GitOpsStorePort for unit tests and fallback execution.
+  - Enforces Tier-4 infrastructure spans for all operations.
+  - Zero inline comments inside method bodies.
 */
 package adapters
 

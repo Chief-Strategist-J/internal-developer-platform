@@ -128,10 +128,10 @@ type ClusterPostureReport struct {
 }
 
 type GKEClusterRecord struct {
-	Spec        GKEClusterSpec       `json:"spec"`
-	Status      ClusterStatus        `json:"status"`
-	Posture     ClusterPostureReport `json:"posture"`
-	Version     int64                `json:"version"`
-	CreatedAt   time.Time            `json:"createdAt"`
-	UpdatedAt   time.Time            `json:"updatedAt"`
+	Spec      GKEClusterSpec       `json:"spec"`
+	Status    ClusterStatus        `json:"status"`
+	Posture   ClusterPostureReport `json:"posture"`
+	Version   int64                `json:"version"`
+	CreatedAt time.Time            `json:"createdAt"`
+	UpdatedAt time.Time            `json:"updatedAt"`
 }

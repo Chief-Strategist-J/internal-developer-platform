@@ -20,4 +20,3 @@ func ValidateDeadlineBudget(ctx context.Context, margin time.Duration, connectTi
 
 	return nil
 }
-

@@ -21,9 +21,9 @@ import (
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
-	pacports "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
 	regimerules "internal-developer-platform/src/features/platform-regime/domain/rules"
 	regimeports "internal-developer-platform/src/features/platform-regime/infrastructure/ports"
+	pacports "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -58,7 +58,6 @@ func (s *WorkloadProvisioningService) WithRegimeRepository(regimeRepo regimeport
 	s.regimeRepo = regimeRepo
 	return s
 }
-
 
 func (s *WorkloadProvisioningService) WithKMSPort(kmsPort ports.KmsEncryptionPort) *WorkloadProvisioningService {
 	s.kmsPort = kmsPort
@@ -159,7 +158,6 @@ func (s *WorkloadProvisioningService) advanceStateMachine(ctx context.Context, r
 		return nil
 	})
 }
-
 
 func (s *WorkloadProvisioningService) applyWorkloadResources(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, record *contracts.WorkloadProvisionRecord) error {
 	return observability.WithSpan(ctx, "kubernetes.workload.apply_resources", func(ctx context.Context) error {
@@ -265,13 +263,13 @@ func buildInitialRecord(cmd contracts.WorkloadProvisionCommand, mutations rules.
 		Replicas:                cmd.Replicas,
 		Strategy:                strategy,
 		Status:                  contracts.StatusSubmitted,
-		EnableDataAccessLogs:   cmd.AuditLogging.EnableDataAccessLogs,
-		AuditDestinationBucket: cmd.AuditLogging.DestinationBucket,
-		AuditRetentionDays:     cmd.AuditLogging.RetentionDays,
-		AuditLockedRetention:   cmd.AuditLogging.LockedRetention,
-		OnCallPager:            cmd.OnCallPager,
-		RunbookURL:             cmd.RunbookURL,
-		IncidentTier:           tier,
+		EnableDataAccessLogs:    cmd.AuditLogging.EnableDataAccessLogs,
+		AuditDestinationBucket:  cmd.AuditLogging.DestinationBucket,
+		AuditRetentionDays:      cmd.AuditLogging.RetentionDays,
+		AuditLockedRetention:    cmd.AuditLogging.LockedRetention,
+		OnCallPager:             cmd.OnCallPager,
+		RunbookURL:              cmd.RunbookURL,
+		IncidentTier:            tier,
 		IdempotencyKey:          cmd.IdempotencyKey,
 		Version:                 1,
 		CreatedAt:               time.Now().UTC(),

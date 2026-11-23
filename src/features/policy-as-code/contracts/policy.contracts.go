@@ -58,13 +58,13 @@ const (
 )
 
 const (
-	MaxPolicyNameLength        = 256
-	MaxExternalIDLength        = 128
-	MaxWorkloadIDLength        = 256
-	MaxNamespaceLength         = 63
-	MinJustificationLength     = 10
-	DefaultPageSize            = 50
-	MaxPageSize                = 100
+	MaxPolicyNameLength    = 256
+	MaxExternalIDLength    = 128
+	MaxWorkloadIDLength    = 256
+	MaxNamespaceLength     = 63
+	MinJustificationLength = 10
+	DefaultPageSize        = 50
+	MaxPageSize            = 100
 )
 
 type PolicyRecord struct {
