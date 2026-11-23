@@ -173,6 +173,10 @@ func (s *PolicyAsCodeService) EvaluateAdmission(ctx context.Context, input workf
 			return workflows.AdmissionVerdict{}, errors.NewValidationError("tenantId is required")
 		}
 
+		if (s.repo != nil) && (input.TenantID != "") {
+			_, _ = s.repo.ReconcileExpiredExceptions(ctx, input.TenantID, time.Now().UTC())
+		}
+
 		if len(input.Policies) == 0 && s.repo != nil {
 			policies, err := s.repo.ListActiveCELPolicies(ctx, input.TenantID)
 			if err == nil {
@@ -255,6 +259,10 @@ func (s *PolicyAsCodeService) ExecuteAuditScan(ctx context.Context, input workfl
 			return nil, errors.NewValidationError("tenantId is required")
 		}
 
+		if (s.repo != nil) && (input.TenantID != "") {
+			_, _ = s.repo.ReconcileExpiredExceptions(ctx, input.TenantID, time.Now().UTC())
+		}
+
 		if len(input.Policies) == 0 && s.repo != nil {
 			policies, err := s.repo.ListActiveCELPolicies(ctx, input.TenantID)
 			if err == nil {
@@ -305,4 +313,13 @@ func (s *PolicyAsCodeService) ExecuteAuditScan(ctx context.Context, input workfl
 
 		return &report, nil
 	}, attribute.String("tenant.id", input.TenantID), attribute.Int("workloads.count", len(input.Workloads)))
+}
+
+func (s *PolicyAsCodeService) ReconcileExpiredExceptions(ctx context.Context, tenantID string) (int, error) {
+	return observability.RunTraced(ctx, "policy.service.reconcile_expired_exceptions", func(ctx context.Context) (int, error) {
+		if tenantID == "" {
+			return 0, errors.NewValidationError("tenantId is required")
+		}
+		return s.repo.ReconcileExpiredExceptions(ctx, tenantID, time.Now().UTC())
+	}, attribute.String("tenant.id", tenantID))
 }
