@@ -106,8 +106,8 @@ var PermittedIAMRoles = map[string]bool{
 }
 
 var ProhibitedIAMRoles = map[string]bool{
-	"roles/owner":                             true,
-	"roles/editor":                            true,
+	"roles/owner":  true,
+	"roles/editor": true,
 	"roles/resourcemanager.organizationAdmin": true,
 	"roles/resourcemanager.folderAdmin":       true,
 	"roles/iam.securityAdmin":                 true,

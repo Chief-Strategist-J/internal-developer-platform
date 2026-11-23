@@ -18,7 +18,7 @@ import (
 
 const (
 	SpanWorkloadDecommissionDAG = "kubernetes.workload.dag.decommission"
-	AttrDecommissionStep       = "decommission.step"
+	AttrDecommissionStep        = "decommission.step"
 )
 
 type DecommissionDAGStep struct {

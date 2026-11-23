@@ -131,4 +131,3 @@ func TestGitOpsReconciliationWithLiveArgoCDClient(t *testing.T) {
 		t.Fatalf("expected 2 applied hooks/resources, got %d", result.AppliedHooks)
 	}
 }
-

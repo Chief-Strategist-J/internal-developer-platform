@@ -49,4 +49,3 @@ func TestValidateWorkloadCommand(t *testing.T) {
 		t.Errorf("expected error on replicas < 1")
 	}
 }
-

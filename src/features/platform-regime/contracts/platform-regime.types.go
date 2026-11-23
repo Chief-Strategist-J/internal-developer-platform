@@ -2,10 +2,10 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME TYPES
 
 1. Entity Contract:
-   - Implements data contract v1.2 for platform regime governance (B-1 to B-4).
-   - Enforces 5-identifier roles: id (surrogate), public_id (external), tenant_id (scope),
-     source + external_id (natural key), correlation_id (causation trace).
-   - Strict immutable parameter types and zero comments inside function bodies.
+  - Implements data contract v1.2 for platform regime governance (B-1 to B-4).
+  - Enforces 5-identifier roles: id (surrogate), public_id (external), tenant_id (scope),
+    source + external_id (natural key), correlation_id (causation trace).
+  - Strict immutable parameter types and zero comments inside function bodies.
 */
 package contracts
 
@@ -43,8 +43,8 @@ const (
 type TenancyMode string
 
 const (
-	TenancyModeInternalOnly    TenancyMode = "INTERNAL_ONLY"
-	TenancyModeSharedExternal  TenancyMode = "SHARED_EXTERNAL"
+	TenancyModeInternalOnly   TenancyMode = "INTERNAL_ONLY"
+	TenancyModeSharedExternal TenancyMode = "SHARED_EXTERNAL"
 )
 
 type PlatformRegimePolicyRecord struct {

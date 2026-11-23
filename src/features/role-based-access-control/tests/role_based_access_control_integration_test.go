@@ -91,3 +91,44 @@ func TestRoleBasedAccessControl_MemoryGrantAdapterAndService(t *testing.T) {
 	}
 }
 
+func TestRoleBasedAccessControl_MemoryUserBindingAdapterAndService(t *testing.T) {
+	ctx := context.Background()
+	bindingRepo := rbacAdapters.NewMemoryUserBindingAdapter()
+	svc := rbacService.NewRBACService(nil, nil)
+	svc.SetUserBindingRepository(bindingRepo)
+
+	tenantID := "tenant-alpha"
+	subjectID := "usr-alice"
+
+	roles, err := svc.GetUserRoles(ctx, tenantID, subjectID)
+	if err != nil {
+		t.Fatalf("unexpected error getting initial roles: %v", err)
+	}
+	if len(roles) != 0 {
+		t.Fatalf("expected 0 roles, got %d", len(roles))
+	}
+
+	binding := rbacContracts.UserBindingRecord{
+		SubjectID: subjectID,
+		TenantID:  tenantID,
+		RoleName:  rbacContracts.RoleDeveloper,
+		CreatedAt: time.Now(),
+	}
+	if err := svc.BindUserRole(ctx, binding); err != nil {
+		t.Fatalf("failed to bind user role: %v", err)
+	}
+
+	roles, err = svc.GetUserRoles(ctx, tenantID, subjectID)
+	if err != nil || len(roles) != 1 || roles[0] != rbacContracts.RoleDeveloper {
+		t.Fatalf("expected role Developer, got %v, err: %v", roles, err)
+	}
+
+	if err := svc.UnbindUserRole(ctx, tenantID, subjectID, rbacContracts.RoleDeveloper); err != nil {
+		t.Fatalf("failed to unbind user role: %v", err)
+	}
+
+	roles, err = svc.GetUserRoles(ctx, tenantID, subjectID)
+	if err != nil || len(roles) != 0 {
+		t.Fatalf("expected 0 roles after unbind, got %d", len(roles))
+	}
+}

@@ -56,4 +56,3 @@ func (r *GitOpsReconciliationRouter) RegisterRoutes(mux *http.ServeMux) {
 		mux.HandleFunc(constants.EndpointReconciliationsPrefix, singleReconcileHandler)
 	}
 }
-

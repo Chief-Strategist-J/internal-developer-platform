@@ -134,7 +134,6 @@ func TestGenerateArgoCDApplicationYAML(t *testing.T) {
 	}
 }
 
-
 func TestGenerateArgoRolloutYAML(t *testing.T) {
 	cmd := contracts.WorkloadProvisionCommand{
 		TenantID:     "tenant-commerce",
@@ -536,12 +535,6 @@ func TestGenerateJITRoleBindingYAML(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
 func TestValidateIncidentAndOnCallRules(t *testing.T) {
 	t.Run("valid tier-2 with no pager and no runbook", func(t *testing.T) {
 		err := rules.ValidateIncidentAndOnCallRules(contracts.IncidentTier2, "", "")
@@ -775,10 +768,9 @@ func TestValidateIncidentAndOnCallRules(t *testing.T) {
 	})
 }
 
-
 func TestValidateCostAndChargebackLabels(t *testing.T) {
 	cmd := contracts.WorkloadProvisionCommand{
-		TenantID: "tenant-payments",
+		TenantID:   "tenant-payments",
 		CostCenter: "CC-9801",
 	}
 	ok, violations := rules.ValidateCostAndChargebackLabels(cmd)
@@ -787,7 +779,7 @@ func TestValidateCostAndChargebackLabels(t *testing.T) {
 	}
 
 	cmdNoOwner := contracts.WorkloadProvisionCommand{
-		TenantID: "",
+		TenantID:   "",
 		CostCenter: "CC-9801",
 	}
 	okNoOwner, violationsNoOwner := rules.ValidateCostAndChargebackLabels(cmdNoOwner)
@@ -890,4 +882,3 @@ func TestAdmissionValidationRejectsPrivilegeEscalation(t *testing.T) {
 		t.Errorf("expected Admitted=false for privilege escalation workload")
 	}
 }
-

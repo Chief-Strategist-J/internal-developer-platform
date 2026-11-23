@@ -242,9 +242,9 @@ func TestPrivilegedContainerFails(t *testing.T) {
 func TestInvalidRuleExpressionRejected(t *testing.T) {
 	invalidRules := []admission.CELPolicyRule{
 		{
-			ID:          "INVALID_RULE",
-			Expression:  "this is invalid syntax !!!",
-			Severity:    admission.SeverityBlocker,
+			ID:         "INVALID_RULE",
+			Expression: "this is invalid syntax !!!",
+			Severity:   admission.SeverityBlocker,
 		},
 	}
 
@@ -253,4 +253,3 @@ func TestInvalidRuleExpressionRejected(t *testing.T) {
 		t.Fatalf("expected error compiling invalid rule syntax, got nil")
 	}
 }
-

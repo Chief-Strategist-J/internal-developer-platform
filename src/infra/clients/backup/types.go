@@ -7,17 +7,17 @@ import (
 )
 
 const (
-	BackupPlanAPIVersion = "gkebackup.gke.io/v1"
-	BackupPlanKind       = "BackupPlan"
+	BackupPlanAPIVersion  = "gkebackup.gke.io/v1"
+	BackupPlanKind        = "BackupPlan"
 	RestorePlanAPIVersion = "gkebackup.gke.io/v1"
-	RestorePlanKind      = "RestorePlan"
+	RestorePlanKind       = "RestorePlan"
 
-	DefaultCronSchedule = "0 2 * * *"
+	DefaultCronSchedule  = "0 2 * * *"
 	DefaultRetentionDays = 30
 	MinRetentionDays     = 30
 
 	ConflictPolicyRollbackSaveBackup = "ROLLBACK_SAVE_BACKUP"
-	ConflictPolicyFailOnConflict    = "FAIL_ON_CONFLICT"
+	ConflictPolicyFailOnConflict     = "FAIL_ON_CONFLICT"
 
 	LabelAppName        = "app.kubernetes.io/name"
 	LabelManagedBy      = "app.kubernetes.io/managed-by"
@@ -35,27 +35,27 @@ const (
 )
 
 type BackupPlanConfig struct {
-	Name               string   `json:"name" yaml:"name"`
-	Namespace          string   `json:"namespace" yaml:"namespace"`
-	Cluster            string   `json:"cluster" yaml:"cluster"`
-	Location           string   `json:"location" yaml:"location"`
-	CronSchedule       string   `json:"cronSchedule" yaml:"cronSchedule"`
-	RetentionDays      int      `json:"retentionDays" yaml:"retentionDays"`
-	LockedRetention    bool     `json:"lockedRetention" yaml:"lockedRetention"`
-	IncludeSecrets     bool     `json:"includeSecrets" yaml:"includeSecrets"`
-	IncludeVolumeData  bool     `json:"includeVolumeData" yaml:"includeVolumeData"`
-	TargetNamespaces   []string `json:"targetNamespaces" yaml:"targetNamespaces"`
-	EncryptionKeyKMS   string   `json:"encryptionKeyKms,omitempty" yaml:"encryptionKeyKms,omitempty"`
+	Name              string   `json:"name" yaml:"name"`
+	Namespace         string   `json:"namespace" yaml:"namespace"`
+	Cluster           string   `json:"cluster" yaml:"cluster"`
+	Location          string   `json:"location" yaml:"location"`
+	CronSchedule      string   `json:"cronSchedule" yaml:"cronSchedule"`
+	RetentionDays     int      `json:"retentionDays" yaml:"retentionDays"`
+	LockedRetention   bool     `json:"lockedRetention" yaml:"lockedRetention"`
+	IncludeSecrets    bool     `json:"includeSecrets" yaml:"includeSecrets"`
+	IncludeVolumeData bool     `json:"includeVolumeData" yaml:"includeVolumeData"`
+	TargetNamespaces  []string `json:"targetNamespaces" yaml:"targetNamespaces"`
+	EncryptionKeyKMS  string   `json:"encryptionKeyKms,omitempty" yaml:"encryptionKeyKms,omitempty"`
 }
 
 type RestorePlanConfig struct {
-	Name                 string   `json:"name" yaml:"name"`
-	Namespace            string   `json:"namespace" yaml:"namespace"`
-	TargetCluster        string   `json:"targetCluster" yaml:"targetCluster"`
-	SourceBackupPlan     string   `json:"sourceBackupPlan" yaml:"sourceBackupPlan"`
-	Location             string   `json:"location" yaml:"location"`
-	ConflictPolicy       string   `json:"conflictPolicy" yaml:"conflictPolicy"`
-	SelectedNamespaces   []string `json:"selectedNamespaces" yaml:"selectedNamespaces"`
+	Name               string   `json:"name" yaml:"name"`
+	Namespace          string   `json:"namespace" yaml:"namespace"`
+	TargetCluster      string   `json:"targetCluster" yaml:"targetCluster"`
+	SourceBackupPlan   string   `json:"sourceBackupPlan" yaml:"sourceBackupPlan"`
+	Location           string   `json:"location" yaml:"location"`
+	ConflictPolicy     string   `json:"conflictPolicy" yaml:"conflictPolicy"`
+	SelectedNamespaces []string `json:"selectedNamespaces" yaml:"selectedNamespaces"`
 }
 
 func ValidateBackupPlanConfig(cfg BackupPlanConfig) error {

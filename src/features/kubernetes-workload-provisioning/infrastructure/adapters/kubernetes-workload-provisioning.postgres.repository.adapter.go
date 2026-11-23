@@ -2,17 +2,17 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: POSTGRESQL WORKLOAD REPOSITORY ADAPTER
 
 1. Persistence Flow Execution:
-   - Implements WorkloadStorePort backed by PostgreSQL 18.
-   - Enforces the 5-identifier roles contract: id (surrogate), public_id (external), tenant_id (scope),
-     source + external_id (natural key), and correlation_id (causation trace).
-   - Validates entity boundary prerequisites before issuing parameterized SQL statements.
-   - Maps database rows to strongly typed WorkloadProvisionRecord domain entities.
-   - Integrates W3C distributed tracing with standard OpenTelemetry db.system attributes.
+  - Implements WorkloadStorePort backed by PostgreSQL 18.
+  - Enforces the 5-identifier roles contract: id (surrogate), public_id (external), tenant_id (scope),
+    source + external_id (natural key), and correlation_id (causation trace).
+  - Validates entity boundary prerequisites before issuing parameterized SQL statements.
+  - Maps database rows to strongly typed WorkloadProvisionRecord domain entities.
+  - Integrates W3C distributed tracing with standard OpenTelemetry db.system attributes.
 
 2. Invariants:
-   - Zero inline comments inside method bodies.
-   - All methods strictly maintain a length <= 25 lines.
-   - Zero raw SQL queries; all statements reference queries.FLOW_* constants.
+  - Zero inline comments inside method bodies.
+  - All methods strictly maintain a length <= 25 lines.
+  - Zero raw SQL queries; all statements reference queries.FLOW_* constants.
 */
 package adapters
 

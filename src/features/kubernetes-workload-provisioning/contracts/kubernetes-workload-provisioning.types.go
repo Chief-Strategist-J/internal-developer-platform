@@ -17,14 +17,14 @@ import (
 type WorkloadStatus string
 
 const (
-	StatusSubmitted     WorkloadStatus = "SUBMITTED"
-	StatusValidated     WorkloadStatus = "VALIDATED"
-	StatusAdmitted      WorkloadStatus = "ADMITTED"
-	StatusProvisioning  WorkloadStatus = "PROVISIONING"
-	StatusActive        WorkloadStatus = "ACTIVE"
-	StatusObservedReady WorkloadStatus = "OBSERVED_READY"
-	StatusDegraded      WorkloadStatus = "DEGRADED"
-	StatusRejected      WorkloadStatus = "REJECTED"
+	StatusSubmitted       WorkloadStatus = "SUBMITTED"
+	StatusValidated       WorkloadStatus = "VALIDATED"
+	StatusAdmitted        WorkloadStatus = "ADMITTED"
+	StatusProvisioning    WorkloadStatus = "PROVISIONING"
+	StatusActive          WorkloadStatus = "ACTIVE"
+	StatusObservedReady   WorkloadStatus = "OBSERVED_READY"
+	StatusDegraded        WorkloadStatus = "DEGRADED"
+	StatusRejected        WorkloadStatus = "REJECTED"
 	StatusDecommissioning WorkloadStatus = "DECOMMISSIONING"
 	StatusDecommissioned  WorkloadStatus = "DECOMMISSIONED"
 )
@@ -139,15 +139,15 @@ type CertificateExpiryStatus struct {
 }
 
 type BackupPlanConfig struct {
-	Enabled           bool     `json:"enabled"`
-	Cluster           string   `json:"cluster"`
-	Location          string   `json:"location"`
-	CronSchedule      string   `json:"cronSchedule,omitempty"`
-	RetentionDays     int      `json:"retentionDays"`
-	LockedRetention   bool     `json:"lockedRetention"`
-	IncludeSecrets    bool     `json:"includeSecrets"`
-	IncludeVolumeData bool     `json:"includeVolumeData"`
-	EncryptionKeyKMS  string   `json:"encryptionKeyKms,omitempty"`
+	Enabled           bool   `json:"enabled"`
+	Cluster           string `json:"cluster"`
+	Location          string `json:"location"`
+	CronSchedule      string `json:"cronSchedule,omitempty"`
+	RetentionDays     int    `json:"retentionDays"`
+	LockedRetention   bool   `json:"lockedRetention"`
+	IncludeSecrets    bool   `json:"includeSecrets"`
+	IncludeVolumeData bool   `json:"includeVolumeData"`
+	EncryptionKeyKMS  string `json:"encryptionKeyKms,omitempty"`
 }
 
 type RestorePlanConfig struct {
@@ -176,21 +176,21 @@ type WorkloadDecommissionCommand struct {
 type DecommissionExecutionStep string
 
 const (
-	StepDecommissionDrainTraffic      DecommissionExecutionStep = "DRAIN_TRAFFIC"
-	StepDecommissionRemoveWorkload    DecommissionExecutionStep = "REMOVE_WORKLOAD"
-	StepDecommissionRemoveBindings    DecommissionExecutionStep = "REMOVE_BINDINGS"
-	StepDecommissionReleaseStorage    DecommissionExecutionStep = "RELEASE_STORAGE"
+	StepDecommissionDrainTraffic        DecommissionExecutionStep = "DRAIN_TRAFFIC"
+	StepDecommissionRemoveWorkload      DecommissionExecutionStep = "REMOVE_WORKLOAD"
+	StepDecommissionRemoveBindings      DecommissionExecutionStep = "REMOVE_BINDINGS"
+	StepDecommissionReleaseStorage      DecommissionExecutionStep = "RELEASE_STORAGE"
 	StepDecommissionDeprovisionIdentity DecommissionExecutionStep = "DEPROVISION_IDENTITY"
-	StepDecommissionRemoveDNS         DecommissionExecutionStep = "REMOVE_DNS"
-	StepDecommissionRecordAudit       DecommissionExecutionStep = "RECORD_AUDIT"
+	StepDecommissionRemoveDNS           DecommissionExecutionStep = "REMOVE_DNS"
+	StepDecommissionRecordAudit         DecommissionExecutionStep = "RECORD_AUDIT"
 )
 
 type DecommissionExecutionResult struct {
-	WorkloadName string                      `json:"workloadName"`
-	Namespace    string                      `json:"namespace"`
-	Status       WorkloadStatus              `json:"status"`
+	WorkloadName  string                      `json:"workloadName"`
+	Namespace     string                      `json:"namespace"`
+	Status        WorkloadStatus              `json:"status"`
 	StepsExecuted []DecommissionExecutionStep `json:"stepsExecuted"`
-	AuditRecordID string                     `json:"auditRecordId"`
+	AuditRecordID string                      `json:"auditRecordId"`
 }
 
 type DisasterRecoveryTopology string
@@ -211,78 +211,78 @@ type MultiClusterDRConfig struct {
 }
 
 type WorkloadProvisionCommand struct {
-	ID               string             `json:"id"`
-	PublicID         string             `json:"publicId,omitempty"`
-	TenantID         string             `json:"tenantId"`
-	Source           string             `json:"source,omitempty"`
-	ExternalID       string             `json:"externalId,omitempty"`
-	CorrelationID    string             `json:"correlationId,omitempty"`
-	ServiceID        string             `json:"serviceId"`
-	Namespace        string             `json:"namespace"`
-	WorkloadName     string             `json:"workloadName"`
-	Image            string             `json:"image"`
-	ImagePullPolicy  string             `json:"imagePullPolicy,omitempty"`
-	BreakglassJustification string      `json:"breakglassJustification,omitempty"`
-	CPURequest       string             `json:"cpuRequest"`
-	CPULimit         string             `json:"cpuLimit"`
-	MemoryRequest    string             `json:"memoryRequest"`
-	MemoryLimit      string             `json:"memoryLimit"`
-	Replicas         int                `json:"replicas"`
-	Strategy         DeploymentStrategy `json:"strategy,omitempty"`
-	IdempotencyKey   string             `json:"idempotencyKey"`
-	ApprovedSpecHash string             `json:"approvedSpecHash,omitempty"`
-	ApproverRole     string             `json:"approverRole,omitempty"`
-	SecretMounts     []SecretVolumeMount `json:"secretMounts,omitempty"`
-	KMSKeyURI        string              `json:"kmsKeyUri,omitempty"`
-	EncryptedSecrets map[string]string   `json:"encryptedSecrets,omitempty"`
-	TLSHosts         []string            `json:"tlsHosts,omitempty"`
-	MeshSecurity     MeshSecurityConfig  `json:"meshSecurity,omitempty"`
-	UnsupportedMeshResources []string    `json:"unsupportedMeshResources,omitempty"`
-	EgressRules      []EgressRule        `json:"egressRules,omitempty"`
-	AuditLogging     AuditLoggingConfig  `json:"auditLogging,omitempty"`
-	BackupPlan       BackupPlanConfig    `json:"backupPlan,omitempty"`
-	RestorePlan      RestorePlanConfig   `json:"restorePlan,omitempty"`
-	OnCallPager      string              `json:"onCallPager,omitempty"`
-	RunbookURL       string              `json:"runbookUrl,omitempty"`
-	IncidentTier     IncidentTier         `json:"incidentTier,omitempty"`
-	CostCenter       string               `json:"costCenter,omitempty"`
-	RequestedResources []string           `json:"requestedResources,omitempty"`
-	DisasterRecovery MultiClusterDRConfig `json:"disasterRecovery,omitempty"`
+	ID                       string               `json:"id"`
+	PublicID                 string               `json:"publicId,omitempty"`
+	TenantID                 string               `json:"tenantId"`
+	Source                   string               `json:"source,omitempty"`
+	ExternalID               string               `json:"externalId,omitempty"`
+	CorrelationID            string               `json:"correlationId,omitempty"`
+	ServiceID                string               `json:"serviceId"`
+	Namespace                string               `json:"namespace"`
+	WorkloadName             string               `json:"workloadName"`
+	Image                    string               `json:"image"`
+	ImagePullPolicy          string               `json:"imagePullPolicy,omitempty"`
+	BreakglassJustification  string               `json:"breakglassJustification,omitempty"`
+	CPURequest               string               `json:"cpuRequest"`
+	CPULimit                 string               `json:"cpuLimit"`
+	MemoryRequest            string               `json:"memoryRequest"`
+	MemoryLimit              string               `json:"memoryLimit"`
+	Replicas                 int                  `json:"replicas"`
+	Strategy                 DeploymentStrategy   `json:"strategy,omitempty"`
+	IdempotencyKey           string               `json:"idempotencyKey"`
+	ApprovedSpecHash         string               `json:"approvedSpecHash,omitempty"`
+	ApproverRole             string               `json:"approverRole,omitempty"`
+	SecretMounts             []SecretVolumeMount  `json:"secretMounts,omitempty"`
+	KMSKeyURI                string               `json:"kmsKeyUri,omitempty"`
+	EncryptedSecrets         map[string]string    `json:"encryptedSecrets,omitempty"`
+	TLSHosts                 []string             `json:"tlsHosts,omitempty"`
+	MeshSecurity             MeshSecurityConfig   `json:"meshSecurity,omitempty"`
+	UnsupportedMeshResources []string             `json:"unsupportedMeshResources,omitempty"`
+	EgressRules              []EgressRule         `json:"egressRules,omitempty"`
+	AuditLogging             AuditLoggingConfig   `json:"auditLogging,omitempty"`
+	BackupPlan               BackupPlanConfig     `json:"backupPlan,omitempty"`
+	RestorePlan              RestorePlanConfig    `json:"restorePlan,omitempty"`
+	OnCallPager              string               `json:"onCallPager,omitempty"`
+	RunbookURL               string               `json:"runbookUrl,omitempty"`
+	IncidentTier             IncidentTier         `json:"incidentTier,omitempty"`
+	CostCenter               string               `json:"costCenter,omitempty"`
+	RequestedResources       []string             `json:"requestedResources,omitempty"`
+	DisasterRecovery         MultiClusterDRConfig `json:"disasterRecovery,omitempty"`
 }
 
 type WorkloadProvisionRecord struct {
-	ID               string             `json:"id"`
-	PublicID         string             `json:"publicId"`
-	TenantID         string             `json:"tenantId"`
-	Source           string             `json:"source"`
-	ExternalID       string             `json:"externalId"`
-	CorrelationID    string             `json:"correlationId"`
-	SpecHash         string             `json:"specHash"`
-	ApprovedSpecHash string             `json:"approvedSpecHash"`
-	ApproverRole     string             `json:"approverRole"`
-	ImagePullPolicy  string             `json:"imagePullPolicy"`
-	BreakglassJustification string      `json:"breakglassJustification"`
-	ServiceID        string             `json:"serviceId"`
-	Namespace        string             `json:"namespace"`
-	WorkloadName     string             `json:"workloadName"`
-	CPURequest       string             `json:"cpuRequest"`
-	CPULimit         string             `json:"cpuLimit"`
-	MemoryRequest    string             `json:"memoryRequest"`
-	MemoryLimit      string             `json:"memoryLimit"`
-	Replicas         int                `json:"replicas"`
-	Strategy         DeploymentStrategy `json:"strategy"`
-	Status           WorkloadStatus     `json:"status"`
-	EnableDataAccessLogs   bool         `json:"enableDataAccessLogs"`
-	AuditDestinationBucket string       `json:"auditDestinationBucket"`
-	AuditRetentionDays     int          `json:"auditRetentionDays"`
-	AuditLockedRetention   bool         `json:"auditLockedRetention"`
-	OnCallPager      string             `json:"onCallPager"`
-	RunbookURL       string             `json:"runbookUrl"`
-	IncidentTier     IncidentTier       `json:"incidentTier"`
-	IdempotencyKey   string             `json:"idempotencyKey"`
-	Version          int64              `json:"version"`
-	CreatedAt        time.Time          `json:"createdAt"`
-	UpdatedAt        time.Time          `json:"updatedAt"`
+	ID                      string             `json:"id"`
+	PublicID                string             `json:"publicId"`
+	TenantID                string             `json:"tenantId"`
+	Source                  string             `json:"source"`
+	ExternalID              string             `json:"externalId"`
+	CorrelationID           string             `json:"correlationId"`
+	SpecHash                string             `json:"specHash"`
+	ApprovedSpecHash        string             `json:"approvedSpecHash"`
+	ApproverRole            string             `json:"approverRole"`
+	ImagePullPolicy         string             `json:"imagePullPolicy"`
+	BreakglassJustification string             `json:"breakglassJustification"`
+	ServiceID               string             `json:"serviceId"`
+	Namespace               string             `json:"namespace"`
+	WorkloadName            string             `json:"workloadName"`
+	CPURequest              string             `json:"cpuRequest"`
+	CPULimit                string             `json:"cpuLimit"`
+	MemoryRequest           string             `json:"memoryRequest"`
+	MemoryLimit             string             `json:"memoryLimit"`
+	Replicas                int                `json:"replicas"`
+	Strategy                DeploymentStrategy `json:"strategy"`
+	Status                  WorkloadStatus     `json:"status"`
+	EnableDataAccessLogs    bool               `json:"enableDataAccessLogs"`
+	AuditDestinationBucket  string             `json:"auditDestinationBucket"`
+	AuditRetentionDays      int                `json:"auditRetentionDays"`
+	AuditLockedRetention    bool               `json:"auditLockedRetention"`
+	OnCallPager             string             `json:"onCallPager"`
+	RunbookURL              string             `json:"runbookUrl"`
+	IncidentTier            IncidentTier       `json:"incidentTier"`
+	IdempotencyKey          string             `json:"idempotencyKey"`
+	Version                 int64              `json:"version"`
+	CreatedAt               time.Time          `json:"createdAt"`
+	UpdatedAt               time.Time          `json:"updatedAt"`
 }
 
 func ComputeWorkloadSpecHash(cmd WorkloadProvisionCommand) string {

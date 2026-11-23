@@ -32,7 +32,6 @@ type AppServices struct {
 	HealthRouter   *routers.HealthCheckRouter
 }
 
-
 func main() {
 	os.Exit(chassis.Run(describeService(), os.Args[1:], os.Environ()))
 }

@@ -2,11 +2,11 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME REST HANDLER
 
 1. Ingress Flow Execution:
-   - Ingests W3C traceparent, correlation, causation, and tenant headers.
-   - Decodes closed-schema JSON payload for POST /api/v1/regimes.
-   - Enforces Tier-2 handler spans ("platform_regime.handler.*") wrapping all endpoint executions.
-   - Dispatches to PlatformRegimeService under child span.
-   - Returns typed ApiResponse envelopes with no comments inside function bodies.
+  - Ingests W3C traceparent, correlation, causation, and tenant headers.
+  - Decodes closed-schema JSON payload for POST /api/v1/regimes.
+  - Enforces Tier-2 handler spans ("platform_regime.handler.*") wrapping all endpoint executions.
+  - Dispatches to PlatformRegimeService under child span.
+  - Returns typed ApiResponse envelopes with no comments inside function bodies.
 */
 package handlers
 

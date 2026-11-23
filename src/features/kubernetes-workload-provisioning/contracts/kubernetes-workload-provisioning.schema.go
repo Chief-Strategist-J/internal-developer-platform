@@ -15,11 +15,11 @@ import (
 )
 
 var (
-	rxWorkloadID        = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{1,128}$`)
-	rxK8sName           = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
-	rxCPUQuantity       = regexp.MustCompile(`^[0-9]+m?$`)
-	rxMemoryQuantity    = regexp.MustCompile(`^[0-9]+(Mi|Gi|Ki|M|G|K)?$`)
-	rxImageRef          = regexp.MustCompile(`^[a-zA-Z0-9_\.\-\/]+(:[a-zA-Z0-9_\.\-]+)?(@sha256:[a-f0-9]{64})?$`)
+	rxWorkloadID     = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{1,128}$`)
+	rxK8sName        = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
+	rxCPUQuantity    = regexp.MustCompile(`^[0-9]+m?$`)
+	rxMemoryQuantity = regexp.MustCompile(`^[0-9]+(Mi|Gi|Ki|M|G|K)?$`)
+	rxImageRef       = regexp.MustCompile(`^[a-zA-Z0-9_\.\-\/]+(:[a-zA-Z0-9_\.\-]+)?(@sha256:[a-f0-9]{64})?$`)
 )
 
 func ValidateWorkloadCommand(cmd WorkloadProvisionCommand) error {

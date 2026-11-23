@@ -8,14 +8,14 @@ import (
 )
 
 const (
-	TestWorkloadName      = "payment-service"
-	TestNamespaceName     = "production"
-	TestReplicas          = int32(5)
-	TestDigest            = "gcr.io/corp-prod/payment@sha256:4f355bd3a39e728ec65147be15e1fa6dc9e20dd4a218f02934ffea210087799e"
-	TestStableSvc         = "payment-service-stable"
-	TestCanarySvc         = "payment-service-canary"
-	TestVirtualSvc        = "payment-service"
-	TestPrometheusServer  = "http://prometheus.monitoring.svc:9090"
+	TestWorkloadName     = "payment-service"
+	TestNamespaceName    = "production"
+	TestReplicas         = int32(5)
+	TestDigest           = "gcr.io/corp-prod/payment@sha256:4f355bd3a39e728ec65147be15e1fa6dc9e20dd4a218f02934ffea210087799e"
+	TestStableSvc        = "payment-service-stable"
+	TestCanarySvc        = "payment-service-canary"
+	TestVirtualSvc       = "payment-service"
+	TestPrometheusServer = "http://prometheus.monitoring.svc:9090"
 )
 
 func validTestConfig() RolloutManifestConfig {
@@ -179,4 +179,3 @@ func TestMeshRouterGenerator(t *testing.T) {
 	assert.Contains(t, drYaml, "kind: DestinationRule")
 	assert.Contains(t, drYaml, "mode: ISTIO_MUTUAL")
 }
-

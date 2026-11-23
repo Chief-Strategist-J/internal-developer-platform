@@ -2,8 +2,8 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME INDEX
 
 1. Package Entrypoint:
-   - Exposes clean constructors and types for the platform-regime feature.
-   - Zero comments inside method bodies.
+  - Exposes clean constructors and types for the platform-regime feature.
+  - Zero comments inside method bodies.
 */
 package platformregime
 

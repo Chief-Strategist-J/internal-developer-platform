@@ -42,4 +42,3 @@ func (b *Bulkhead) Capacity() int {
 func (b *Bulkhead) InFlight() int {
 	return len(b.semaphore)
 }
-

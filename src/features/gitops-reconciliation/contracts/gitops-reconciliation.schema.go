@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	rxUUID       = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{1,128}$`)
-	rxRevision   = regexp.MustCompile(`^[a-zA-Z0-9_\-\.\/]{1,128}$`)
-	rxAppName    = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
+	rxUUID     = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{1,128}$`)
+	rxRevision = regexp.MustCompile(`^[a-zA-Z0-9_\-\.\/]{1,128}$`)
+	rxAppName  = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
 )
 
 func ValidateSyncCommand(cmd SyncCommand) error {
@@ -33,4 +33,3 @@ func ValidateSyncCommand(cmd SyncCommand) error {
 	}
 	return nil
 }
-

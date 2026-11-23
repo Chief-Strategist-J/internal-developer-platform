@@ -15,11 +15,11 @@ type backupPlanResource struct {
 }
 
 type backupPlanSpec struct {
-	Cluster            string             `json:"cluster"`
-	RetentionPolicy    retentionPolicy    `json:"retentionPolicy"`
-	Schedule           *scheduleSpec      `json:"schedule,omitempty"`
-	BackupConfig       backupConfig       `json:"backupConfig"`
-	BackupVault        string             `json:"backupVault,omitempty"`
+	Cluster         string          `json:"cluster"`
+	RetentionPolicy retentionPolicy `json:"retentionPolicy"`
+	Schedule        *scheduleSpec   `json:"schedule,omitempty"`
+	BackupConfig    backupConfig    `json:"backupConfig"`
+	BackupVault     string          `json:"backupVault,omitempty"`
 }
 
 type retentionPolicy struct {
@@ -34,11 +34,11 @@ type scheduleSpec struct {
 }
 
 type backupConfig struct {
-	IncludeSecrets    bool                   `json:"includeSecrets"`
-	IncludeVolumeData bool                   `json:"includeVolumeData"`
-	AllNamespaces     bool                   `json:"allNamespaces,omitempty"`
+	IncludeSecrets     bool                    `json:"includeSecrets"`
+	IncludeVolumeData  bool                    `json:"includeVolumeData"`
+	AllNamespaces      bool                    `json:"allNamespaces,omitempty"`
 	SelectedNamespaces *selectedNamespacesSpec `json:"selectedNamespaces,omitempty"`
-	EncryptionKey     *encryptionKeySpec     `json:"encryptionKey,omitempty"`
+	EncryptionKey      *encryptionKeySpec      `json:"encryptionKey,omitempty"`
 }
 
 type selectedNamespacesSpec struct {
@@ -57,16 +57,16 @@ type restorePlanResource struct {
 }
 
 type restorePlanSpec struct {
-	BackupPlan         string            `json:"backupPlan"`
-	Cluster            string            `json:"cluster"`
-	RestoreConfig      restoreConfigSpec `json:"restoreConfig"`
+	BackupPlan    string            `json:"backupPlan"`
+	Cluster       string            `json:"cluster"`
+	RestoreConfig restoreConfigSpec `json:"restoreConfig"`
 }
 
 type restoreConfigSpec struct {
-	VolumeDataRestorePolicy string                 `json:"volumeDataRestorePolicy"`
-	ClusterResourceConflictPolicy string           `json:"clusterResourceConflictPolicy"`
-	NamespacedResourceRestoreMode string           `json:"namespacedResourceRestoreMode"`
-	SelectedNamespaces      *selectedNamespacesSpec `json:"selectedNamespaces,omitempty"`
+	VolumeDataRestorePolicy       string                  `json:"volumeDataRestorePolicy"`
+	ClusterResourceConflictPolicy string                  `json:"clusterResourceConflictPolicy"`
+	NamespacedResourceRestoreMode string                  `json:"namespacedResourceRestoreMode"`
+	SelectedNamespaces            *selectedNamespacesSpec `json:"selectedNamespaces,omitempty"`
 }
 
 func GenerateBackupPlanYAML(cfg BackupPlanConfig) (string, error) {
@@ -117,9 +117,9 @@ func GenerateBackupPlanYAML(cfg BackupPlanConfig) (string, error) {
 			"name":      fmt.Sprintf("%s-backup-plan", cfg.Name),
 			"namespace": cfg.Namespace,
 			"labels": map[string]string{
-				LabelAppName:        cfg.Name,
-				LabelManagedBy:      LabelManagedByValue,
-				LabelBackupTier:     "gold-standard",
+				LabelAppName:    cfg.Name,
+				LabelManagedBy:  LabelManagedByValue,
+				LabelBackupTier: "gold-standard",
 			},
 		},
 		Spec: spec,

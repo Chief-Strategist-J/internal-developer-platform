@@ -2,12 +2,12 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: GITOPS RECONCILIATION REST HANDLER
 
 1. Ingress Flow Execution:
-   - Ingests W3C traceparent, correlation, tenant, and idempotency headers.
-   - Decodes closed-schema JSON payload for POST /api/v1/gitops/sync.
-   - Enforces Tier-2 handler spans ("gitops.handler.*") wrapping all endpoint executions.
-   - Dispatches validated commands to GitOpsReconciliationService.
-   - Formats success or typed error responses into ApiResponse envelopes.
-   - Zero inline comments inside method bodies.
+  - Ingests W3C traceparent, correlation, tenant, and idempotency headers.
+  - Decodes closed-schema JSON payload for POST /api/v1/gitops/sync.
+  - Enforces Tier-2 handler spans ("gitops.handler.*") wrapping all endpoint executions.
+  - Dispatches validated commands to GitOpsReconciliationService.
+  - Formats success or typed error responses into ApiResponse envelopes.
+  - Zero inline comments inside method bodies.
 */
 package handlers
 

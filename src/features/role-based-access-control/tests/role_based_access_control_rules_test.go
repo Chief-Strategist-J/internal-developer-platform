@@ -195,4 +195,3 @@ func TestValidateRoleSecurityPosture_RejectsNodesProxy(t *testing.T) {
 		t.Fatalf("expected V-25 violation for nodes/exec, got nil")
 	}
 }
-

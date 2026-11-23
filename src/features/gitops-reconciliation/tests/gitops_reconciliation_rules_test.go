@@ -60,4 +60,3 @@ func TestCanInitiateSync(t *testing.T) {
 		t.Errorf("expected sync blocked while currently syncing")
 	}
 }
-

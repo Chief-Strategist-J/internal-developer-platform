@@ -130,4 +130,3 @@ func TestValidateConfigShortSecret(t *testing.T) {
 		t.Errorf("expected error on short JWT secret")
 	}
 }
-

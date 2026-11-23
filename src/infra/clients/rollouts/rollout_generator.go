@@ -76,7 +76,7 @@ func (g *RolloutManifestGenerator) GenerateRollout(config RolloutManifestConfig)
 								"routes": []interface{}{DefaultRouteName},
 							},
 							"destinationRule": map[string]interface{}{
-								"name":          config.Name,
+								"name":             config.Name,
 								"canarySubsetName": DefaultCanarySubset,
 								"stableSubsetName": DefaultStableSubset,
 							},
@@ -162,4 +162,3 @@ func (g *RolloutManifestGenerator) defaultCanarySteps() []CanaryStep {
 		{SetWeight: &w4},
 	}
 }
-

@@ -134,4 +134,3 @@ func (e *EnvelopeEncryptionEngine) DecryptSecret(ctx context.Context, env *Encry
 		KeyURI:    env.KeyURI,
 	}, nil
 }
-

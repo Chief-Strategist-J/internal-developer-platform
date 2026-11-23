@@ -2,15 +2,15 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS ROUTER
 
 1. Routing Flow Execution:
-   - Registers declarative endpoints for Kubernetes Workload Provisioning API.
-   - Binds root endpoint constants from shared system constants.
-   - Attaches Role-Based Access Control (RBAC) permission evaluation when middleware is supplied.
-   - Segregates collection endpoints (POST /api/v1/workloads) from entity lookups (GET /api/v1/workloads/{id}).
+  - Registers declarative endpoints for Kubernetes Workload Provisioning API.
+  - Binds root endpoint constants from shared system constants.
+  - Attaches Role-Based Access Control (RBAC) permission evaluation when middleware is supplied.
+  - Segregates collection endpoints (POST /api/v1/workloads) from entity lookups (GET /api/v1/workloads/{id}).
 
 2. Invariants:
-   - Zero inline comments inside function bodies.
-   - All functions strictly maintain a length <= 20 lines.
-   - All endpoint paths reference centralized package constants.
+  - Zero inline comments inside function bodies.
+  - All functions strictly maintain a length <= 20 lines.
+  - All endpoint paths reference centralized package constants.
 */
 package routers
 

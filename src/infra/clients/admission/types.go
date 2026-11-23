@@ -57,13 +57,13 @@ const (
 
 	DigestPrefixSHA256 = "@sha256:"
 
-	VarPodSecurityLevel = "pod_security_level"
-	VarMeshInjection    = "mesh_injection"
+	VarPodSecurityLevel  = "pod_security_level"
+	VarMeshInjection     = "mesh_injection"
 	VarDefaultDenyNetPol = "default_deny_netpol"
-	VarImage            = "image"
-	VarPrivileged       = "privileged"
-	VarLabels           = "labels"
-	VarAnnotations      = "annotations"
+	VarImage             = "image"
+	VarPrivileged        = "privileged"
+	VarLabels            = "labels"
+	VarAnnotations       = "annotations"
 
 	SpanAdmissionEvaluate        = "kubernetes.workload.admission.cel_evaluate"
 	AttrWorkloadName             = "workload.name"

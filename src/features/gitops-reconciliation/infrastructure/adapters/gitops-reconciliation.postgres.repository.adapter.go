@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: GITOPS POSTGRES REPOSITORY ADAPTER
 
 1. Database Adapter:
-   - Implements GitOpsStorePort against PostgreSQL with connection pool safety.
-   - Enforces Tier-4 infrastructure spans for all operations.
-   - Zero inline comments inside method bodies.
+  - Implements GitOpsStorePort against PostgreSQL with connection pool safety.
+  - Enforces Tier-4 infrastructure spans for all operations.
+  - Zero inline comments inside method bodies.
 */
 package adapters
 

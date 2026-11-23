@@ -2,21 +2,21 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS HANDLER
 
 1. Ingress Flow Execution:
-   - Ingests W3C trace context, correlation, causation, and audit headers from HTTP transport.
-   - Decodes closed-schema JSON payload with strict disallowance of unknown fields.
-   - Enforces Tier-2 handler spans ("kubernetes_workload.handler.*") wrapping all endpoint executions.
-   - Enriches command context with tenant ID and idempotency key from headers when omitted in payload.
-   - Dispatches validated command to Domain Service.
-   - Wraps result or typed application errors in RFC-compliant ApiResponse envelopes.
+  - Ingests W3C trace context, correlation, causation, and audit headers from HTTP transport.
+  - Decodes closed-schema JSON payload with strict disallowance of unknown fields.
+  - Enforces Tier-2 handler spans ("kubernetes_workload.handler.*") wrapping all endpoint executions.
+  - Enriches command context with tenant ID and idempotency key from headers when omitted in payload.
+  - Dispatches validated command to Domain Service.
+  - Wraps result or typed application errors in RFC-compliant ApiResponse envelopes.
 
 2. Error Mapping:
-   - ApplicationError instances preserve HTTP status code, canonical code, and error messages.
-   - Unhandled exceptions map to HTTP 500 INTERNAL_SERVER_ERROR.
+  - ApplicationError instances preserve HTTP status code, canonical code, and error messages.
+  - Unhandled exceptions map to HTTP 500 INTERNAL_SERVER_ERROR.
 
 3. Invariants:
-   - Zero inline comments inside function bodies.
-   - All functions strictly maintain a length <= 25 lines.
-   - All headers and content types reference centralized package constants.
+  - Zero inline comments inside function bodies.
+  - All functions strictly maintain a length <= 25 lines.
+  - All headers and content types reference centralized package constants.
 */
 package handlers
 

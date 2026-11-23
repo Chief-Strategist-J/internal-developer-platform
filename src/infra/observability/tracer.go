@@ -129,4 +129,3 @@ func RunTraced[T any](ctx context.Context, spanName string, fn func(ctx context.
 	span.SetStatus(codes.Ok, "")
 	return val, nil
 }
-

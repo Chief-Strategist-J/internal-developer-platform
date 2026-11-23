@@ -45,4 +45,3 @@ func TestTransitionSyncStateInvalidFlow(t *testing.T) {
 		t.Fatalf("expected error on illegal transition from SYNCED via COMPLETE_SYNC")
 	}
 }
-

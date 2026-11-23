@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME POSTGRES REPOSITORY ADAPTER
 
 1. Database Adapter:
-   - Implements PlatformRegimeRepositoryPort against PostgreSQL with connection pool safety.
-   - Enforces transactional supersede on new active policies.
-   - Zero comments inside method bodies.
+  - Implements PlatformRegimeRepositoryPort against PostgreSQL with connection pool safety.
+  - Enforces transactional supersede on new active policies.
+  - Zero comments inside method bodies.
 */
 package adapters
 

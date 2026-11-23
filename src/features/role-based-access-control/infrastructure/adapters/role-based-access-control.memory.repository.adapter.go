@@ -2,10 +2,10 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC MEMORY REPOSITORY ADAPTER
 
 1. Architecture Role:
-   - Outbound infrastructure adapter implementing RevocationRepositoryPort, AccessGrantStorePort, and UserBindingRepositoryPort.
-   - Hermetic thread-safe memory stores for unit/integration testing and runtime fallback.
-   - Enforces Tier-4 infrastructure spans for all operations.
-   - Zero inline comments inside method bodies.
+  - Outbound infrastructure adapter implementing RevocationRepositoryPort, AccessGrantStorePort, and UserBindingRepositoryPort.
+  - Hermetic thread-safe memory stores for unit/integration testing and runtime fallback.
+  - Enforces Tier-4 infrastructure spans for all operations.
+  - Zero inline comments inside method bodies.
 */
 package adapters
 
