@@ -312,6 +312,19 @@
   3. Emit structured audit events (`V-32`) for every ephemeral container attachment and pod exec session, capturing caller identity and target container PID.
 - **Consequences**: Incident debugging remains responsive while ensuring forensic integrity and protecting workload memory from untrusted tooling.
 
+---
+
+## ADR-030: Dynamic Database & Config Platform Regime Governance (B-1 to B-4)
+- **Status**: Accepted
+- **Context**: Government platform baselines cannot hardcode compliance parameters (audit log retention, data residency, KMS key custody mode, RTO/RPO SLAs, GKE cluster topology, and tenancy isolation) into immutable binaries or single static values. Different jurisdictions (e.g. FedRAMP, DoD IL5, EU GDPR) mandate varying compliance floors that must be dynamically configurable per tenant while strictly preventing relaxation below baseline platform floors.
+- **Decision**:
+  1. **Dual-Layer Resolution**: Provide declarative platform baseline floors via `config/regime.yaml` with runtime overrides stored in PostgreSQL table `platform_regime_policies`.
+  2. **Database Invariants & Immutability**: Enforce 4 reference lookup tables (`regime_policy_statuses`, `kms_custody_modes`, `cluster_modes`, `tenancy_modes`), named constraints (`chk_platform_regime_audit_retention_min_floor >= 30`, positive RTO/RPO), and database triggers (`trg_platform_regime_immutability`) preventing in-place mutations of historical records.
+  3. **Admission-Time Verification**: Inject `PlatformRegimeRepositoryPort` into `WorkloadProvisioningService` to dynamically evaluate all incoming workload commands against active tenant regimes. Workloads violating regime floors (e.g. audit retention < floor, unapproved residency regions, missing KMS custody) are rejected immediately at admission.
+  4. **OpenAPI & REST Ingress**: Expose dedicated endpoints `POST /api/v1/regimes` and `GET /api/v1/regimes/active` with W3C distributed tracing and role-based access control.
+- **Consequences**: Eliminates blockers B-1, B-2, B-3, and B-4 from the provisioning tree; enables multi-regime government multi-tenancy while guaranteeing no tenant can circumvent platform security and compliance baselines.
+
+
 
 
 
