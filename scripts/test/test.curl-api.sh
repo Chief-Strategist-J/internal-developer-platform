@@ -250,3 +250,89 @@ else
     echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for workload query"
     exit 1
 fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 10] POST /api/v1/regimes -> Register Platform Regime Policy (B-1 to B-4)"
+echo "--------------------------------------------------------------------------------"
+REGIME_EXT_ID="regime-ext-$(date +%s%N)"
+REGIME_POST_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/regimes" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902c1-01" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"tenantId\": \"fintech-team\",
+    \"externalId\": \"${REGIME_EXT_ID}\",
+    \"jurisdiction\": \"US_FEDRAMP_HIGH\",
+    \"auditRetentionDays\": 365,
+    \"dataResidencyRegions\": [\"us-central1\", \"us-east4\"],
+    \"kmsKeyCustodyMode\": \"CMEK\",
+    \"rtoMinutesTier0\": 15,
+    \"rpoMinutesTier0\": 0,
+    \"rtoMinutesTier1\": 60,
+    \"rpoMinutesTier1\": 15,
+    \"clusterMode\": \"GKE_STANDARD\",
+    \"primaryRegionCount\": 2,
+    \"standbyRegionCount\": 1,
+    \"tenantIsolationMode\": \"INTERNAL_ONLY\"
+  }")
+
+echo "${REGIME_POST_RESP}"
+if echo "${REGIME_POST_RESP}" | grep -q "201 Created" && echo "${REGIME_POST_RESP}" | grep -q "rgm_"; then
+    echo -e "\033[1;32m[PASS]\033[0m /api/v1/regimes successfully registered and activated regime policy"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created with rgm_ publicId"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 11] GET /api/v1/regimes/active -> Fetch Active Regime Policy"
+echo "--------------------------------------------------------------------------------"
+REGIME_GET_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/regimes/active?tenantId=fintech-team" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902c2-01")
+
+echo "${REGIME_GET_RESP}"
+if echo "${REGIME_GET_RESP}" | grep -q "200 OK" && echo "${REGIME_GET_RESP}" | grep -q "US_FEDRAMP_HIGH"; then
+    echo -e "\033[1;32m[PASS]\033[0m /api/v1/regimes/active successfully retrieved active regime policy"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with US_FEDRAMP_HIGH jurisdiction"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 12] POST /api/v1/regimes -> Traced Validation Error Path (Retention < 30)"
+echo "--------------------------------------------------------------------------------"
+REGIME_ERR_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/regimes" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: fintech-team" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902c3-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenantId": "fintech-team",
+    "externalId": "regime-ext-fail",
+    "jurisdiction": "US_FEDRAMP_HIGH",
+    "auditRetentionDays": 10,
+    "dataResidencyRegions": ["us-central1"],
+    "kmsKeyCustodyMode": "CMEK",
+    "rtoMinutesTier0": 15,
+    "rpoMinutesTier0": 0,
+    "rtoMinutesTier1": 60,
+    "rpoMinutesTier1": 15,
+    "clusterMode": "GKE_STANDARD",
+    "primaryRegionCount": 2,
+    "standbyRegionCount": 1,
+    "tenantIsolationMode": "INTERNAL_ONLY"
+  }')
+
+echo "${REGIME_ERR_RESP}"
+if echo "${REGIME_ERR_RESP}" | grep -q "400 Bad Request" && echo "${REGIME_ERR_RESP}" | grep -q "VALIDATION_FAILED"; then
+    echo -e "\033[1;32m[PASS]\033[0m /api/v1/regimes error branch rejected invalid retention < 30 days"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 400 Bad Request with VALIDATION_FAILED code"
+    exit 1
+fi
+
