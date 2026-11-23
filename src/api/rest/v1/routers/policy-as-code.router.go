@@ -37,12 +37,18 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 	collectionHandler := r.buildCollectionHandler()
 	subresourceHandler := r.buildSubresourceHandler()
 	admissionHandler := r.buildAdmissionHandler()
+	auditScanHandler := r.buildAuditScanHandler()
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointPoliciesEvaluate, r.rbacMiddle.RequirePermission(
 			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionRead,
 			admissionHandler,
+		))
+		mux.HandleFunc(constants.EndpointPoliciesAuditScan, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionWrite,
+			auditScanHandler,
 		))
 		mux.HandleFunc(constants.EndpointPolicies, r.rbacMiddle.RequirePermission(
 			rbacContracts.ResourceInfrastructure,
@@ -58,6 +64,7 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 	}
 
 	mux.HandleFunc(constants.EndpointPoliciesEvaluate, admissionHandler)
+	mux.HandleFunc(constants.EndpointPoliciesAuditScan, auditScanHandler)
 	mux.HandleFunc(constants.EndpointPolicies, collectionHandler)
 	mux.HandleFunc(constants.EndpointPoliciesPrefix, subresourceHandler)
 }
@@ -86,6 +93,14 @@ func (r *PolicyAsCodeRouter) buildSubresourceHandler() http.HandlerFunc {
 			r.handler.RequestException(w, req)
 			return
 		}
+		if strings.HasSuffix(path, "/violations") && (req.Method == http.MethodGet) {
+			r.handler.ListViolations(w, req)
+			return
+		}
+		if strings.Contains(path, "/violations/") && strings.HasSuffix(path, "/resolve") && (req.Method == http.MethodPost) {
+			r.handler.ResolveViolation(w, req)
+			return
+		}
 		if req.Method == http.MethodGet {
 			r.handler.GetPolicy(w, req)
 			return
@@ -98,6 +113,16 @@ func (r *PolicyAsCodeRouter) buildAdmissionHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
 			r.handler.EvaluateAdmission(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (r *PolicyAsCodeRouter) buildAuditScanHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.ExecuteAuditScan(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)

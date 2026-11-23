@@ -57,6 +57,34 @@ invariants:
 pii: [none]
 source_of_truth: db
 
+tertiary_entity: policy_violations
+owner: platform-security
+fields:
+  - name: id             type: uuid          null: no   default: uuidv7()            constraint: PK, UNIQUE(tenant_id, id), immutable
+  - name: public_id      type: text          null: no   default: generated          constraint: UNIQUE, immutable, format 'pvl_' + 26 chars
+  - name: tenant_id      type: uuid          null: no   constraint: immutable
+  - name: policy_id      type: uuid          null: no   constraint: FK policies(tenant_id, id) ON DELETE RESTRICT
+  - name: source         type: text          null: no   constraint: CHECK (source IN ('ADMISSION', 'AUDIT_SCAN', 'CI'))
+  - name: external_id    type: text          null: no   normalize: trim            constraint: UNIQUE(tenant_id, source, external_id), length 1..256
+  - name: correlation_id type: uuid          null: no   constraint: immutable, no FK
+  - name: workload_id    type: text          null: no   normalize: trim            constraint: CHECK (workload_id = btrim(workload_id) AND workload_id <> ''), length 1..256
+  - name: namespace      type: text          null: no   normalize: trim            constraint: CHECK (namespace = btrim(namespace) AND namespace <> ''), length 1..256
+  - name: severity       type: text          null: no   constraint: CHECK (severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'ADVISORY'))
+  - name: enforcement_point type: text       null: no   constraint: CHECK (enforcement_point IN ('CEL', 'PSA', 'PC', 'BA', 'ORG', 'CI', 'ACD'))
+  - name: status         type: text          null: no   constraint: FK policy_violation_status(code)
+  - name: message        type: text          null: no   normalize: trim            constraint: CHECK (message = btrim(message) AND message <> ''), length 1..1024
+  - name: detection_pair type: text          null: no   default: "''"              constraint: CHECK (detection_pair = btrim(detection_pair))
+  - name: version        type: bigint        null: no   default: 1
+  - name: created_at     type: timestamptz   null: no   default: now()
+  - name: updated_at     type: timestamptz   null: no   default: now()
+invariants:
+  - tenant isolation via composite foreign key (tenant_id, policy_id)
+  - status lifecycle managed via policy_violation_status lookup (Never both lifecycle status and deleted_at)
+  - immutability of id, public_id, tenant_id, policy_id, correlation_id enforced by trigger
+  - updated_at maintained by trigger, never by app code
+pii: [none]
+source_of_truth: db
+
 error_mapping:
   policies_tenant_id_id_pk: CONFLICT.DUPLICATE_POLICY_ID
   policies_public_id_uk: CONFLICT.DUPLICATE_PUBLIC_ID
@@ -69,6 +97,11 @@ error_mapping:
   policy_exceptions_policy_fk: VALIDATION.POLICY_NOT_FOUND
   policy_exceptions_status_fk: VALIDATION.INVALID_EXCEPTION_STATUS
   policy_exceptions_expires_ck: VALIDATION.EXPIRATION_MUST_BE_FUTURE
+  policy_violations_tenant_id_id_pk: CONFLICT.DUPLICATE_VIOLATION_ID
+  policy_violations_public_id_uk: CONFLICT.DUPLICATE_PUBLIC_ID
+  policy_violations_tenant_source_external_uk: CONFLICT.DUPLICATE_EXTERNAL_ID
+  policy_violations_policy_fk: VALIDATION.POLICY_NOT_FOUND
+  policy_violations_status_fk: VALIDATION.INVALID_VIOLATION_STATUS
 
 invariant_queries:
   FLOW_CHECK_POLICIES_ORPHAN_EXCEPTIONS: >
@@ -82,3 +115,7 @@ invariant_queries:
     SELECT pe.id FROM policy_exceptions pe
     JOIN policies p ON pe.tenant_id = p.tenant_id AND pe.policy_id = p.id
     WHERE p.exceptable = false
+  FLOW_CHECK_POLICY_VIOLATIONS_ORPHAN_POLICIES: >
+    SELECT pv.id FROM policy_violations pv
+    LEFT JOIN policies p ON pv.tenant_id = p.tenant_id AND pv.policy_id = p.id
+    WHERE p.id IS NULL

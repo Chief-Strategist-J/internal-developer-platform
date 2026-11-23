@@ -134,8 +134,10 @@ func ExecuteAdmissionEvaluation(input AdmissionEvaluationInput) AdmissionVerdict
 			verdict.Violations = append(verdict.Violations, violation)
 			verdict.Allowed = false
 		case contracts.LifecycleWarn:
+			verdict.Violations = append(verdict.Violations, violation)
 			verdict.Warnings = append(verdict.Warnings, violation.Message)
 		case contracts.LifecycleAudit:
+			verdict.Violations = append(verdict.Violations, violation)
 			verdict.AuditViolations = append(verdict.AuditViolations, violation)
 		}
 	}

@@ -46,6 +46,7 @@ const (
 	EndpointPolicies              = "/api/v1/policies"
 	EndpointPoliciesPrefix        = "/api/v1/policies/"
 	EndpointPoliciesEvaluate      = "/api/v1/policies/admission/evaluate"
+	EndpointPoliciesAuditScan     = "/api/v1/policies/audit-scan"
 )
 
 const (
