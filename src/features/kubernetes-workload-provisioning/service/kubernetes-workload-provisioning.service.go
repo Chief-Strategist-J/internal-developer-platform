@@ -145,11 +145,15 @@ func (s *WorkloadProvisioningService) advanceStateMachine(ctx context.Context, r
 			return err
 		}
 		record.Status = pStatus
-		record.Version = 2
 		record.UpdatedAt = time.Now().UTC()
-		return s.store.Update(ctx, *record)
+		if err := s.store.Update(ctx, *record); err != nil {
+			return err
+		}
+		record.Version = 2
+		return nil
 	})
 }
+
 
 func (s *WorkloadProvisioningService) applyWorkloadResources(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations, record *contracts.WorkloadProvisionRecord) error {
 	return observability.WithSpan(ctx, "kubernetes.workload.apply_resources", func(ctx context.Context) error {
@@ -197,10 +201,14 @@ func (s *WorkloadProvisioningService) observeWorkloadStatus(ctx context.Context,
 		if ready {
 			if obs, err := machines.TransitionWorkloadState(record.Status, machines.EventReplicasReady); err == nil {
 				record.Status = obs
-				record.Version = 3
 				record.UpdatedAt = time.Now().UTC()
-				return s.store.Update(ctx, *record)
+				if err := s.store.Update(ctx, *record); err != nil {
+					return err
+				}
+				record.Version = 3
+				return nil
 			}
+
 		}
 		return nil
 	})
