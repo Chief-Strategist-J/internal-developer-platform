@@ -242,3 +242,49 @@ func TestMemoryRepository_ReconcileExpiredExceptions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, reconciledSecond)
 }
+
+func TestMemoryRepository_ViolationsLifecycle(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+
+	now := time.Now().UTC()
+	v := contracts.PolicyViolationRecord{
+		ID:               "viol-001",
+		PublicID:         "viol_pub_001",
+		TenantID:         TestTenantA,
+		PolicyID:         TestPolicyID1,
+		Source:           "ADMISSION",
+		ExternalID:       "EXT-VIOL-001",
+		CorrelationID:    TestCorrelationID,
+		WorkloadID:       TestWorkloadID,
+		Namespace:        TestNamespace,
+		Severity:         contracts.SeverityCritical,
+		EnforcementPoint: contracts.EnforcementPointCEL,
+		Status:           contracts.ViolationStatusActive,
+		Message:          "Privileged container detected",
+		DetectionPair:    "PC audit",
+		Version:          1,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	require.NoError(t, repo.SaveViolation(ctx, v))
+
+	list, err := repo.ListActiveViolationsByPolicy(ctx, TestTenantA, TestPolicyID1)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Equal(t, "viol-001", list[0].ID)
+
+	count, err := repo.CountActiveViolationsByPolicy(ctx, TestTenantA, TestPolicyID1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	err = repo.ResolveViolation(ctx, TestTenantA, "viol-001", 999)
+	assert.Error(t, err)
+
+	require.NoError(t, repo.ResolveViolation(ctx, TestTenantA, "viol-001", 1))
+
+	countAfter, err := repo.CountActiveViolationsByPolicy(ctx, TestTenantA, TestPolicyID1)
+	require.NoError(t, err)
+	assert.Equal(t, 0, countAfter)
+}
