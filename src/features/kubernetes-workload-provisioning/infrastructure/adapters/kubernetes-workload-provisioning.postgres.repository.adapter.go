@@ -19,7 +19,9 @@ package adapters
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -268,6 +270,54 @@ func sanitizePagination(limit, offset int) (int, int) {
 		offset = 0
 	}
 	return limit, offset
+}
+
+func (a *PostgresWorkloadRepositoryAdapter) RecordTimelineEvent(ctx context.Context, event contracts.IncidentTimelineEvent) error {
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.record_timeline", "INSERT", event.TenantID, event.WorkloadID)
+	defer span.End()
+
+	metaJSON, _ := json.Marshal(event.Metadata)
+	createdAt := event.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+	_, err := a.db.ExecContext(ctx, queries.FLOW_INSERT_INCIDENT_TIMELINE_EVENT, event.ID, event.TenantID, event.WorkloadID, event.EventType, event.Description, event.Actor, string(metaJSON), createdAt)
+	if err != nil {
+		observability.RecordError(span, err)
+		return err
+	}
+	return nil
+}
+
+func (a *PostgresWorkloadRepositoryAdapter) ListTimelineEvents(ctx context.Context, tenantID string, workloadID string, limit int, offset int) ([]contracts.IncidentTimelineEvent, error) {
+	ctx, span := startWorkloadSpan(ctx, "postgres.workload.list_timeline", "SELECT", tenantID, workloadID)
+	defer span.End()
+
+	limit, offset = sanitizePagination(limit, offset)
+	rows, err := a.db.QueryContext(ctx, queries.FLOW_LIST_INCIDENT_TIMELINE_EVENTS, tenantID, workloadID, limit, offset)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []contracts.IncidentTimelineEvent
+	for rows.Next() {
+		var (
+			ev       contracts.IncidentTimelineEvent
+			metaJSON string
+		)
+		if err := rows.Scan(&ev.ID, &ev.TenantID, &ev.WorkloadID, &ev.EventType, &ev.Description, &ev.Actor, &metaJSON, &ev.CreatedAt); err != nil {
+			observability.RecordError(span, err)
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(metaJSON), &ev.Metadata)
+		events = append(events, ev)
+	}
+	if events == nil {
+		events = []contracts.IncidentTimelineEvent{}
+	}
+	return events, nil
 }
 
 func verifyRowsAffected(res sql.Result, span trace.Span) error {
