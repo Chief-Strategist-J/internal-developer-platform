@@ -97,4 +97,39 @@ WHERE tenant_id = $3 AND id = $4 AND version = $5 AND deleted_at IS NULL
 SELECT 1 FROM policy_state_transitions
 WHERE from_status = $1 AND to_status = $2
 `
+
+	FLOW_INSERT_VIOLATION = `
+INSERT INTO policy_violations (
+    id, public_id, tenant_id, policy_id, source, external_id,
+    correlation_id, workload_id, namespace, severity, enforcement_point,
+    status, message, detection_pair, version, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+ON CONFLICT (tenant_id, source, external_id) DO UPDATE
+SET message = EXCLUDED.message,
+    severity = EXCLUDED.severity,
+    status = EXCLUDED.status,
+    updated_at = EXCLUDED.updated_at,
+    version = policy_violations.version + 1
+`
+
+	FLOW_SELECT_ACTIVE_VIOLATIONS_BY_POLICY = `
+SELECT id, public_id, tenant_id, policy_id, source, external_id,
+       correlation_id, workload_id, namespace, severity, enforcement_point,
+       status, message, detection_pair, version, created_at, updated_at
+FROM policy_violations
+WHERE tenant_id = $1 AND policy_id = $2 AND status = 'ACTIVE'
+ORDER BY created_at DESC
+`
+
+	FLOW_COUNT_ACTIVE_VIOLATIONS_BY_POLICY = `
+SELECT COUNT(*)
+FROM policy_violations
+WHERE tenant_id = $1 AND policy_id = $2 AND status = 'ACTIVE'
+`
+
+	FLOW_RESOLVE_VIOLATION = `
+UPDATE policy_violations
+SET status = 'RESOLVED', version = version + 1, updated_at = $1
+WHERE tenant_id = $2 AND id = $3 AND version = $4
+`
 )

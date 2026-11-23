@@ -583,3 +583,154 @@ func scanExceptionRecord(scanner rowScanner) (*contracts.PolicyExceptionRecord, 
 	rec.Status = contracts.ExceptionStatus(status)
 	return &rec, nil
 }
+
+func (a *PostgresPolicyRepositoryAdapter) SaveViolation(ctx context.Context, v contracts.PolicyViolationRecord) error {
+	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.save_violation",
+		attribute.String(AttrTenantID, v.TenantID),
+		attribute.String(AttrPolicyID, v.PolicyID),
+	)
+	defer span.End()
+
+	if err := v.Validate(); err != nil {
+		observability.RecordError(span, err)
+		return err
+	}
+
+	_, err := a.db.ExecContext(
+		ctx,
+		queries.FLOW_INSERT_VIOLATION,
+		v.ID,
+		v.PublicID,
+		v.TenantID,
+		v.PolicyID,
+		v.Source,
+		v.ExternalID,
+		v.CorrelationID,
+		v.WorkloadID,
+		v.Namespace,
+		string(v.Severity),
+		string(v.EnforcementPoint),
+		string(v.Status),
+		v.Message,
+		v.DetectionPair,
+		v.Version,
+		v.CreatedAt,
+		v.UpdatedAt,
+	)
+	if err != nil {
+		observability.RecordError(span, err)
+		return errors.NewConflictError(err.Error())
+	}
+	return nil
+}
+
+func (a *PostgresPolicyRepositoryAdapter) ListActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) ([]contracts.PolicyViolationRecord, error) {
+	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.list_active_violations",
+		attribute.String(AttrTenantID, tenantID),
+		attribute.String(AttrPolicyID, policyID),
+	)
+	defer span.End()
+
+	rows, err := a.db.QueryContext(ctx, queries.FLOW_SELECT_ACTIVE_VIOLATIONS_BY_POLICY, tenantID, policyID)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []contracts.PolicyViolationRecord
+	for rows.Next() {
+		rec, err := scanViolationRecord(rows)
+		if err != nil {
+			observability.RecordError(span, err)
+			return nil, err
+		}
+		result = append(result, *rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	return result, nil
+}
+
+func (a *PostgresPolicyRepositoryAdapter) CountActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) (int, error) {
+	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.count_active_violations",
+		attribute.String(AttrTenantID, tenantID),
+		attribute.String(AttrPolicyID, policyID),
+	)
+	defer span.End()
+
+	var count int
+	err := a.db.QueryRowContext(ctx, queries.FLOW_COUNT_ACTIVE_VIOLATIONS_BY_POLICY, tenantID, policyID).Scan(&count)
+	if err != nil {
+		observability.RecordError(span, err)
+		return 0, err
+	}
+	return count, nil
+}
+
+func (a *PostgresPolicyRepositoryAdapter) ResolveViolation(ctx context.Context, tenantID string, violationID string, expectedVersion int64) error {
+	ctx, span := observability.GetTracer().StartSpan(ctx, "db.policy.resolve_violation",
+		attribute.String(AttrTenantID, tenantID),
+		attribute.String("db.violation_id", violationID),
+	)
+	defer span.End()
+
+	now := time.Now().UTC()
+	res, err := a.db.ExecContext(ctx, queries.FLOW_RESOLVE_VIOLATION, now, tenantID, violationID, expectedVersion)
+	if err != nil {
+		observability.RecordError(span, err)
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		observability.RecordError(span, err)
+		return err
+	}
+	if rowsAffected == 0 {
+		conflictErr := errors.NewConflictError("violation conflict or not found")
+		observability.RecordError(span, conflictErr)
+		return conflictErr
+	}
+	return nil
+}
+
+func scanViolationRecord(scanner rowScanner) (*contracts.PolicyViolationRecord, error) {
+	var (
+		rec         contracts.PolicyViolationRecord
+		severity    string
+		enforcement string
+		status      string
+	)
+
+	err := scanner.Scan(
+		&rec.ID,
+		&rec.PublicID,
+		&rec.TenantID,
+		&rec.PolicyID,
+		&rec.Source,
+		&rec.ExternalID,
+		&rec.CorrelationID,
+		&rec.WorkloadID,
+		&rec.Namespace,
+		&severity,
+		&enforcement,
+		&status,
+		&rec.Message,
+		&rec.DetectionPair,
+		&rec.Version,
+		&rec.CreatedAt,
+		&rec.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rec.Severity = contracts.PolicySeverity(severity)
+	rec.EnforcementPoint = contracts.EnforcementPoint(enforcement)
+	rec.Status = contracts.PolicyViolationStatus(status)
+	return &rec, nil
+}

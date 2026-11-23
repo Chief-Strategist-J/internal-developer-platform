@@ -201,3 +201,74 @@ type KeysetFilterCriteria struct {
 	CursorID         string
 	PageSize         int
 }
+
+type PolicyViolationStatus string
+
+const (
+	ViolationStatusActive   PolicyViolationStatus = "ACTIVE"
+	ViolationStatusResolved PolicyViolationStatus = "RESOLVED"
+	ViolationStatusExempted PolicyViolationStatus = "EXEMPTED"
+)
+
+type PolicyViolationRecord struct {
+	ID               string                `json:"id"`
+	PublicID         string                `json:"publicId"`
+	TenantID         string                `json:"tenantId"`
+	PolicyID         string                `json:"policyId"`
+	Source           string                `json:"source"`
+	ExternalID       string                `json:"externalId"`
+	CorrelationID    string                `json:"correlationId"`
+	WorkloadID       string                `json:"workloadId"`
+	Namespace        string                `json:"namespace"`
+	Severity         PolicySeverity        `json:"severity"`
+	EnforcementPoint EnforcementPoint      `json:"enforcementPoint"`
+	Status           PolicyViolationStatus `json:"status"`
+	Message          string                `json:"message"`
+	DetectionPair    string                `json:"detectionPair"`
+	Version          int64                 `json:"version"`
+	CreatedAt        time.Time             `json:"createdAt"`
+	UpdatedAt        time.Time             `json:"updatedAt"`
+}
+
+func (v PolicyViolationRecord) Validate() error {
+	if strings.TrimSpace(v.ID) == "" {
+		return errors.NewValidationError("violation id must not be empty")
+	}
+	if strings.TrimSpace(v.PublicID) == "" {
+		return errors.NewValidationError("public id must not be empty")
+	}
+	if strings.TrimSpace(v.TenantID) == "" {
+		return errors.NewValidationError("tenant id must not be empty")
+	}
+	if strings.TrimSpace(v.PolicyID) == "" {
+		return errors.NewValidationError("policy id must not be empty")
+	}
+	trimmedWorkload := strings.TrimSpace(v.WorkloadID)
+	if (trimmedWorkload == "") || (len(trimmedWorkload) > MaxWorkloadIDLength) {
+		return errors.NewValidationError("workload id must be between 1 and 256 characters")
+	}
+	trimmedNamespace := strings.TrimSpace(v.Namespace)
+	if (trimmedNamespace == "") || (len(trimmedNamespace) > MaxNamespaceLength) {
+		return errors.NewValidationError("namespace must be between 1 and 63 characters")
+	}
+	trimmedMsg := strings.TrimSpace(v.Message)
+	if (trimmedMsg == "") || (len(trimmedMsg) > 1024) {
+		return errors.NewValidationError("violation message must be between 1 and 1024 characters")
+	}
+	switch v.Status {
+	case ViolationStatusActive, ViolationStatusResolved, ViolationStatusExempted:
+	default:
+		return errors.NewValidationError("invalid violation status")
+	}
+	switch v.Severity {
+	case SeverityCritical, SeverityHigh, SeverityMedium, SeverityAdvisory:
+	default:
+		return errors.NewValidationError("invalid violation severity")
+	}
+	switch v.EnforcementPoint {
+	case EnforcementPointCEL, EnforcementPointPSA, EnforcementPointPC, EnforcementPointBA, EnforcementPointORG, EnforcementPointCI, EnforcementPointACD:
+	default:
+		return errors.NewValidationError("invalid enforcement point")
+	}
+	return nil
+}

@@ -19,4 +19,8 @@ type PolicyRepositoryPort interface {
 	GetExceptionByID(ctx context.Context, tenantID string, id string) (*contracts.PolicyExceptionRecord, error)
 	GetActiveExceptionsForWorkload(ctx context.Context, tenantID string, namespace string, workloadID string) ([]contracts.PolicyExceptionRecord, error)
 	UpdateExceptionStatus(ctx context.Context, tenantID string, id string, newStatus contracts.ExceptionStatus, expectedVersion int64) error
+	SaveViolation(ctx context.Context, v contracts.PolicyViolationRecord) error
+	ListActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) ([]contracts.PolicyViolationRecord, error)
+	CountActiveViolationsByPolicy(ctx context.Context, tenantID string, policyID string) (int, error)
+	ResolveViolation(ctx context.Context, tenantID string, violationID string, expectedVersion int64) error
 }
