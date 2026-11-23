@@ -215,3 +215,30 @@ func TestMemoryRepository_ExceptionsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, revokedList)
 }
+
+func TestMemoryRepository_ReconcileExpiredExceptions(t *testing.T) {
+	ctx := context.Background()
+	repo := adapters.NewMemoryPolicyRepositoryAdapter()
+
+	now := time.Now().UTC()
+	policy1 := createTestPolicy(TestTenantA, TestPolicyID1, TestPublicID1, TestExternalID1, contracts.LifecycleDraft)
+	require.NoError(t, repo.SavePolicy(ctx, policy1))
+
+	exc := createTestException(TestTenantA, TestExceptionID, TestExcPublicID, TestPolicyID1)
+	exc.CreatedAt = now.Add(-2 * time.Hour)
+	exc.UpdatedAt = now.Add(-2 * time.Hour)
+	exc.ExpiresAt = now.Add(-1 * time.Hour)
+	require.NoError(t, repo.SaveException(ctx, exc))
+
+	reconciled, err := repo.ReconcileExpiredExceptions(ctx, TestTenantA, now)
+	require.NoError(t, err)
+	assert.Equal(t, 1, reconciled)
+
+	foundExc, err := repo.GetExceptionByID(ctx, TestTenantA, TestExceptionID)
+	require.NoError(t, err)
+	assert.Equal(t, contracts.ExceptionStatusExpired, foundExc.Status)
+
+	reconciledSecond, err := repo.ReconcileExpiredExceptions(ctx, TestTenantA, now)
+	require.NoError(t, err)
+	assert.Equal(t, 0, reconciledSecond)
+}

@@ -364,6 +364,27 @@ func (a *MemoryPolicyRepositoryAdapter) UpdateExceptionStatus(ctx context.Contex
 	return nil
 }
 
+func (a *MemoryPolicyRepositoryAdapter) ReconcileExpiredExceptions(ctx context.Context, tenantID string, now time.Time) (int, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return 0, errors.NewValidationError(ErrEmptyTenantIDMsg)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	reconciledCount := 0
+	for key, exc := range a.exceptions {
+		if (exc.TenantID == tenantID) && (exc.Status == contracts.ExceptionStatusActive) && (exc.DeletedAt == nil) && (!exc.ExpiresAt.After(now)) {
+			exc.Status = contracts.ExceptionStatusExpired
+			exc.Version = exc.Version + 1
+			exc.UpdatedAt = now
+			a.exceptions[key] = exc
+			reconciledCount++
+		}
+	}
+	return reconciledCount, nil
+}
+
 func (a *MemoryPolicyRepositoryAdapter) SaveViolation(ctx context.Context, v contracts.PolicyViolationRecord) error {
 	if err := v.Validate(); err != nil {
 		return err
