@@ -562,6 +562,41 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 21] GET /api/v1/clusters/posture -> Scan Cluster Posture Drift"
+echo "--------------------------------------------------------------------------------"
+POSTURE_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/clusters/posture?clusterId=gke-fedramp-prod-01" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}")
+
+echo "${POSTURE_RESP}"
+if echo "${POSTURE_RESP}" | grep -q "200 OK" && echo "${POSTURE_RESP}" | grep -q "compliant\":true"; then
+    echo -e "\033[1;32m[PASS]\033[0m Cluster posture scan returned compliant status and zero drift"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with compliant posture report"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 22] POST /api/v1/cloud-resources/reconcile -> Reconcile Cloud Resource Ledger"
+echo "--------------------------------------------------------------------------------"
+RECON_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources/reconcile" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "activeWorkloadIds": ["non-matching-workload"]
+  }')
+
+echo "${RECON_RESP}"
+if echo "${RECON_RESP}" | grep -q "200 OK" && echo "${RECON_RESP}" | grep -q "orphaned_count"; then
+    echo -e "\033[1;32m[PASS]\033[0m Cloud resource ledger reconciliation identified orphaned resources"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with orphaned resource reconciliation report"
+    exit 1
+fi
+
+
 
 
 
