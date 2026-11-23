@@ -79,3 +79,22 @@
   - Cloud Organization Policies are paired with Security Command Center posture scans.
   CI blocks any rule commit that lacks a registered detection pair mapping.
 - **Consequences**: Eliminates blind spots for long-running workloads deployed prior to policy updates; ensures compliance auditors receive continuous, provable posture evidence.
+
+---
+
+## ADR-008: Policy-as-Code Ingress API & In-Process CEL Admission Evaluation Engine
+- **Status**: Accepted
+- **Context**: While `policy-as-code` had unit-tested domain state machines and PostgreSQL persistence adapters, the platform lacked an HTTP REST ingress router and handler wired in `main.go`. Callers had no way to dynamically register policies, execute lifecycle promotions, request exceptions, or evaluate admission requests over the network.
+- **Decision**:
+  1. Implement `PolicyAsCodeService` orchestrating CRUD, state transitions via `PolicyStateMachine`, exception registration, and evaluation via `AdmissionEvaluationWorkflow`.
+  2. Implement `PolicyAsCodeHandler` and `PolicyAsCodeRouter` in `src/api/rest/v1/handlers/policy-as-code.handler.go` and `src/api/rest/v1/routers/policy-as-code.router.go`.
+  3. Expose endpoints:
+     - `POST /api/v1/policies`: Create policy rules.
+     - `GET /api/v1/policies`: List tenant policies.
+     - `GET /api/v1/policies/{id}`: Retrieve policy details.
+     - `POST /api/v1/policies/{id}/lifecycle`: Promote policy states (`DRAFT` → `CI_ONLY` → `AUDIT` → `WARN` → `DENY`).
+     - `POST /api/v1/policies/{id}/exceptions`: Request policy exceptions with expiration.
+     - `POST /api/v1/policies/admission/evaluate`: In-process CEL admission review returning HTTP 403 when active `DENY` policies are violated.
+  4. Wire `PostgresPolicyRepositoryAdapter` into `src/main.go` when PostgreSQL database pool is active.
+- **Consequences**: Enables dynamic declarative policy governance over HTTP with zero inline comments, full ApiResponse envelope compliance, and automated enforcement at the admission gate.
+

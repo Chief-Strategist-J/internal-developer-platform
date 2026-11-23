@@ -57,3 +57,16 @@ Adopt **Option 3**: Build a hexagonal RBAC Policy Decision Point inside `src/fea
 ## Consequences & Trade-offs
 - **Positive**: Complete security boundary across all platform routes; supports live Redis cache for revocation; 100% testable in unit tests without external services.
 - **Negative**: Platform must manage secret keys or JWKS configuration for signature verification in production environments.
+
+---
+
+## ADR-002: PostgreSQL Persistence for User Role Bindings and Access Grants
+- **Status**: Accepted
+- **Context**: Relying exclusively on in-memory or ephemeral storage for user role bindings (`rbac_user_bindings`) and just-in-time access grants (`access_grants`) resulted in data loss during platform API server restarts. In multi-tenant environments, user permissions must be durably stored in PostgreSQL with strict tenant boundary isolation and foreign key referential integrity.
+- **Decision**:
+  1. Implement `PostgresRBACAdapter` fulfilling `UserBindingRepositoryPort` and `AccessGrantRepositoryPort` in `src/features/role-based-access-control/infrastructure/adapters/role-based-access-control.postgres.repository.adapter.go`.
+  2. Map relational queries to existing database tables `rbac_user_bindings` and `access_grants` adhering to `05-db-writing-rules.md` (filtering by tenant_id, handling optimistic concurrency, enforcing unique constraints).
+  3. Expose REST ingress endpoints in `src/api/rest/v1/handlers/role-based-access-control.handler.go` (`POST /api/v1/auth/bindings`, `DELETE /api/v1/auth/bindings`, `GET /api/v1/auth/bindings`).
+  4. Automatically resolve durable user role bindings in `IssueToken` (`POST /api/v1/auth/token`) when incoming request does not supply explicit roles, minting JWTs containing the persisted roles.
+- **Consequences**: User role assignments and JIT access grants persist durably across restarts, maintain zero cross-tenant leakage via composite primary/foreign keys, and automatically reflect into issued authentication tokens.
+
