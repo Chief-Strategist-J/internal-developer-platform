@@ -21,15 +21,19 @@ import (
 	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 	"internal-developer-platform/src/infra/chassis"
+	"internal-developer-platform/src/infra/clients/cloudresource"
+	"internal-developer-platform/src/infra/clients/cluster"
+	"internal-developer-platform/src/infra/clients/resilience"
 )
 
 type AppServices struct {
-	RBACRouter     *routers.RBACRouter
-	CatalogRouter  *routers.ServiceCatalogRouter
-	GitOpsRouter   *routers.GitOpsReconciliationRouter
-	WorkloadRouter *routers.KubernetesWorkloadRouter
-	RegimeRouter   *routers.PlatformRegimeRouter
-	HealthRouter   *routers.HealthCheckRouter
+	RBACRouter      *routers.RBACRouter
+	CatalogRouter   *routers.ServiceCatalogRouter
+	GitOpsRouter    *routers.GitOpsReconciliationRouter
+	WorkloadRouter  *routers.KubernetesWorkloadRouter
+	RegimeRouter    *routers.PlatformRegimeRouter
+	HealthRouter    *routers.HealthCheckRouter
+	OfferingsRouter *routers.OfferingsRouter
 }
 
 func main() {
@@ -145,13 +149,23 @@ func describeService() chassis.ServiceSpec {
 
 			workloadSvc.WithRegimeRepository(regimeRepo)
 
+			resConfig := resilience.DefaultResilienceConfig()
+			clusterClient := cluster.NewGKEClusterClient(resConfig)
+			clusterHandler := handlers.NewClusterHandler(clusterClient)
+
+			cloudResourceClient := cloudresource.NewCloudResourceClient(resConfig)
+			cloudResourceHandler := handlers.NewCloudResourceHandler(cloudResourceClient)
+
+			offeringsRouter := routers.NewOfferingsRouter(clusterHandler, cloudResourceHandler, rbacMW)
+
 			return &AppServices{
-				RBACRouter:     rbacRouter,
-				CatalogRouter:  catalogRouter,
-				GitOpsRouter:   gitopsRouter,
-				WorkloadRouter: workloadRouter,
-				RegimeRouter:   regimeRouter,
-				HealthRouter:   healthRouter,
+				RBACRouter:      rbacRouter,
+				CatalogRouter:   catalogRouter,
+				GitOpsRouter:    gitopsRouter,
+				WorkloadRouter:  workloadRouter,
+				RegimeRouter:    regimeRouter,
+				HealthRouter:    healthRouter,
+				OfferingsRouter: offeringsRouter,
 			}, nil
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
@@ -161,6 +175,7 @@ func describeService() chassis.ServiceSpec {
 			appServices.GitOpsRouter.RegisterRoutes(mux)
 			appServices.WorkloadRouter.RegisterRoutes(mux)
 			appServices.RegimeRouter.RegisterRoutes(mux)
+			appServices.OfferingsRouter.RegisterRoutes(mux)
 			appServices.HealthRouter.RegisterPublicRoutes(mux)
 		},
 

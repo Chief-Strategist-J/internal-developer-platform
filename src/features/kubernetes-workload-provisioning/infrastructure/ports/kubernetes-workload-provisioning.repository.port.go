@@ -20,6 +20,8 @@ type WorkloadStorePort interface {
 	GetByIdempotencyKey(ctx context.Context, tenantID string, key string) (*contracts.WorkloadProvisionRecord, error)
 	List(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.WorkloadProvisionRecord, error)
 	Update(ctx context.Context, record contracts.WorkloadProvisionRecord) error
+	RecordTimelineEvent(ctx context.Context, event contracts.IncidentTimelineEvent) error
+	ListTimelineEvents(ctx context.Context, tenantID string, workloadID string, limit int, offset int) ([]contracts.IncidentTimelineEvent, error)
 }
 
 type K8sClientPort interface {

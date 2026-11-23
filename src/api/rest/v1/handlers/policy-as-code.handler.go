@@ -1,0 +1,301 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: POLICY-AS-CODE REST INGRESS HANDLER
+
+1. Ingress Flow Execution:
+   - Ingests W3C traceparent, correlation, causation, and tenant headers.
+   - Enforces Tier-2 handler spans ("policy.handler.*") wrapping all endpoint executions.
+   - Dispatches to PolicyAsCodeService under child span.
+   - Returns typed ApiResponse envelopes with no inline comments inside function bodies.
+   - Adheres strictly to 06-writing-conditions.md and 4-performance-and-durability.md.
+*/
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"internal-developer-platform/src/features/policy-as-code/contracts"
+	"internal-developer-platform/src/features/policy-as-code/domain/machines"
+	"internal-developer-platform/src/features/policy-as-code/domain/workflows"
+	"internal-developer-platform/src/features/policy-as-code/service"
+	"internal-developer-platform/src/infra/observability"
+	"internal-developer-platform/src/shared/constants"
+	appErrors "internal-developer-platform/src/shared/errors"
+	"internal-developer-platform/src/shared/types"
+)
+
+type PolicyAsCodeHandler struct {
+	service *service.PolicyAsCodeService
+}
+
+func NewPolicyAsCodeHandler(s *service.PolicyAsCodeService) *PolicyAsCodeHandler {
+	return &PolicyAsCodeHandler{service: s}
+}
+
+type LifecycleTransitionRequest struct {
+	Event            string `json:"event"`
+	ActiveViolations int    `json:"activeViolations"`
+}
+
+func (h *PolicyAsCodeHandler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.create_policy", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		var p contracts.PolicyRecord
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&p); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		if (p.TenantID == "") && (meta.TenantID != "") {
+			p.TenantID = meta.TenantID
+		}
+		if (p.CorrelationID == "") && (meta.CorrelationID != "") {
+			p.CorrelationID = meta.CorrelationID
+		}
+
+		created, err := h.service.CreatePolicy(ctx, p)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusCreated, created, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.get_policy", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId query parameter or header is required")
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		policyID, err := extractPolicyID(r.URL.Path)
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		record, err := h.service.GetPolicy(ctx, tenantID, policyID)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, record, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) ListActivePolicies(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.list_active", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId query parameter or header is required")
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		records, err := h.service.ListActivePolicies(ctx, tenantID)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, records, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) TransitionLifecycle(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.transition_lifecycle", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		tenantID := r.URL.Query().Get("tenantId")
+		if tenantID == "" {
+			tenantID = meta.TenantID
+		}
+		if tenantID == "" {
+			err := appErrors.NewValidationError("tenantId is required")
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		policyID, err := extractPolicySubID(r.URL.Path, "lifecycle")
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		var req LifecycleTransitionRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		event := machines.PolicyLifecycleEvent(strings.ToUpper(strings.TrimSpace(req.Event)))
+		updated, err := h.service.TransitionPolicyLifecycle(ctx, tenantID, policyID, event, req.ActiveViolations)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusOK, updated, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) RequestException(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.request_exception", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		policyID, err := extractPolicySubID(r.URL.Path, "exceptions")
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		var exc contracts.PolicyExceptionRecord
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&exc); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		exc.PolicyID = policyID
+		if (exc.TenantID == "") && (meta.TenantID != "") {
+			exc.TenantID = meta.TenantID
+		}
+
+		saved, err := h.service.RequestException(ctx, exc)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccessResponse(w, http.StatusCreated, saved, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) EvaluateAdmission(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "policy.handler.evaluate_admission", func(ctx context.Context) error {
+		meta := extractIngressMetadata(r)
+		var input workflows.AdmissionEvaluationInput
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+
+		if (input.TenantID == "") && (meta.TenantID != "") {
+			input.TenantID = meta.TenantID
+		}
+
+		verdict, err := h.service.EvaluateAdmission(ctx, input)
+		if err != nil {
+			h.handleError(w, meta, err)
+			return err
+		}
+
+		status := http.StatusOK
+		if !verdict.Allowed {
+			status = http.StatusForbidden
+		}
+
+		h.writeSuccessResponse(w, status, verdict, meta)
+		return nil
+	})
+}
+
+func (h *PolicyAsCodeHandler) handleError(w http.ResponseWriter, meta IngressMetadata, err error) {
+	var appErr *appErrors.ApplicationError
+	if errors.As(err, &appErr) {
+		h.writeErrorResponse(w, appErr.StatusCode, appErr.CanonicalCode, appErr.Message, meta)
+		return
+	}
+	h.writeErrorResponse(w, http.StatusInternalServerError, constants.ErrCodeInternalError, "internal error", meta)
+}
+
+func (h *PolicyAsCodeHandler) writeSuccessResponse(w http.ResponseWriter, status int, data any, meta IngressMetadata) {
+	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	if meta.Traceparent != "" {
+		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+	}
+	if meta.RequestID != "" {
+		w.Header().Set(constants.HeaderXRequestID, meta.RequestID)
+	}
+	w.WriteHeader(status)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: status,
+		Data:       data,
+		Meta:       buildMeta(meta),
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *PolicyAsCodeHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta IngressMetadata) {
+	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	if meta.Traceparent != "" {
+		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+	}
+	if meta.RequestID != "" {
+		w.Header().Set(constants.HeaderXRequestID, meta.RequestID)
+	}
+	w.WriteHeader(status)
+	resp := types.ApiResponse{
+		Success:    false,
+		StatusCode: status,
+		Error:      &types.ResponseError{Code: code, Message: msg},
+		Meta:       buildMeta(meta),
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func extractPolicyID(urlPath string) (string, error) {
+	trimmed := strings.Trim(urlPath, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 4 {
+		return "", errors.New("missing policy id in path")
+	}
+	id := parts[len(parts)-1]
+	if id == "" {
+		return "", errors.New("invalid policy id in path")
+	}
+	return id, nil
+}
+
+func extractPolicySubID(urlPath string, expectedSub string) (string, error) {
+	trimmed := strings.Trim(urlPath, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 5 {
+		return "", errors.New("missing policy id in path")
+	}
+	if parts[len(parts)-1] != expectedSub {
+		return "", errors.New("invalid sub-resource path")
+	}
+	id := parts[len(parts)-2]
+	if id == "" {
+		return "", errors.New("invalid policy id in path")
+	}
+	return id, nil
+}

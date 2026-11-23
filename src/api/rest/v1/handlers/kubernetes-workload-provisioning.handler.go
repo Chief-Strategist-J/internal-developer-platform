@@ -197,6 +197,54 @@ func (h *KubernetesWorkloadHandler) writeErrorResponse(w http.ResponseWriter, st
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (h *KubernetesWorkloadHandler) RecordTimelineEvent(w http.ResponseWriter, r *http.Request) {
+	meta := extractIngressMetadata(r)
+	_ = observability.WithSpan(r.Context(), "kubernetes_workload.handler.record_timeline", func(ctx context.Context) error {
+		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+		var ev contracts.IncidentTimelineEvent
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&ev); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", meta)
+			return err
+		}
+		if ev.TenantID == "" {
+			ev.TenantID = meta.TenantID
+		}
+		if err := h.service.RecordIncidentTimelineEvent(ctx, ev); err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(types.ApiResponse{
+			Success:    true,
+			StatusCode: http.StatusCreated,
+			Data:       ev,
+			Meta:       buildMeta(meta),
+		})
+	})
+}
+
+func (h *KubernetesWorkloadHandler) ListTimelineEvents(w http.ResponseWriter, r *http.Request) {
+	meta := extractIngressMetadata(r)
+	_ = observability.WithSpan(r.Context(), "kubernetes_workload.handler.list_timeline", func(ctx context.Context) error {
+		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+		workloadID := r.URL.Query().Get("workloadId")
+		events, err := h.service.ListIncidentTimelineEvents(ctx, meta.TenantID, workloadID, 50, 0)
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
+			return err
+		}
+		w.WriteHeader(http.StatusOK)
+		return json.NewEncoder(w).Encode(types.ApiResponse{
+			Success:    true,
+			StatusCode: http.StatusOK,
+			Data:       events,
+			Meta:       buildMeta(meta),
+		})
+	})
+}
+
 func buildMeta(meta IngressMetadata) types.ResponseMeta {
 	apiVer := meta.APIVersion
 	if apiVer == "" {

@@ -38,6 +38,14 @@ const (
 	EndpointRegimesActive         = "/api/v1/regimes/active"
 	EndpointAuthBindings          = "/api/v1/auth/bindings"
 	EndpointAuthBindingsPrefix    = "/api/v1/auth/bindings/"
+	EndpointClusters              = "/api/v1/clusters"
+	EndpointClustersPrefix        = "/api/v1/clusters/"
+	EndpointCloudResources        = "/api/v1/cloud-resources"
+	EndpointCloudResourcesPrefix  = "/api/v1/cloud-resources/"
+	EndpointTimelinePrefix        = "/api/v1/workloads/timeline"
+	EndpointPolicies              = "/api/v1/policies"
+	EndpointPoliciesPrefix        = "/api/v1/policies/"
+	EndpointPoliciesEvaluate      = "/api/v1/policies/admission/evaluate"
 )
 
 const (
