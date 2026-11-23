@@ -526,6 +526,11 @@ else
     exit 1
 fi
 
+POL_ID=$(echo "${POL_RESP}" | grep -o '"ID":"[^"]*"' | head -n 1 | cut -d'"' -f4)
+if [ -z "${POL_ID}" ]; then
+    POL_ID=$(echo "${POL_RESP}" | grep -o '"id":"[^"]*"' | head -n 1 | cut -d'"' -f4)
+fi
+
 echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 20] POST /api/v1/policies/admission/evaluate -> Evaluate Admission"
@@ -542,7 +547,7 @@ EVAL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies/adm
     \"resourceJson\": \"{\\\"privileged\\\":true}\",
     \"policies\": [
       {
-        \"id\": \"${POL_TENANT}\",
+        \"id\": \"${POL_ID}\",
         \"externalId\": \"SEC-01\",
         \"severity\": \"CRITICAL\",
         \"enforcementPoint\": \"CEL\",

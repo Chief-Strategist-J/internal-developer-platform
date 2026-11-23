@@ -199,6 +199,13 @@ func (s *PolicyAsCodeService) EvaluateAdmission(ctx context.Context, input workf
 
 		if (s.repo != nil) && (len(verdict.Violations) > 0) {
 			for _, v := range verdict.Violations {
+				if v.PolicyID == "" {
+					continue
+				}
+				existingPol, err := s.repo.GetPolicyByID(ctx, input.TenantID, v.PolicyID)
+				if err != nil || existingPol == nil {
+					continue
+				}
 				if err := s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
 					ID:               uuid.New().String(),
 					PublicID:         "viol_" + uuid.New().String()[:12],
@@ -291,6 +298,13 @@ func (s *PolicyAsCodeService) ExecuteAuditScan(ctx context.Context, input workfl
 
 		if s.repo != nil && len(report.Findings) > 0 {
 			for _, f := range report.Findings {
+				if f.PolicyID == "" {
+					continue
+				}
+				existingPol, err := s.repo.GetPolicyByID(ctx, input.TenantID, f.PolicyID)
+				if err != nil || existingPol == nil {
+					continue
+				}
 				if err := s.repo.SaveViolation(ctx, contracts.PolicyViolationRecord{
 					ID:               uuid.New().String(),
 					PublicID:         "viol_" + uuid.New().String()[:12],
