@@ -15,6 +15,9 @@ import (
 	workloadAdapters "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
+	policyAdapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
+	policyPorts "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
+	policyService "internal-developer-platform/src/features/policy-as-code/service"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
@@ -34,6 +37,7 @@ type AppServices struct {
 	RegimeRouter    *routers.PlatformRegimeRouter
 	HealthRouter    *routers.HealthCheckRouter
 	OfferingsRouter *routers.OfferingsRouter
+	PolicyRouter    *routers.PolicyAsCodeRouter
 }
 
 func main() {
@@ -158,6 +162,16 @@ func describeService() chassis.ServiceSpec {
 
 			offeringsRouter := routers.NewOfferingsRouter(clusterHandler, cloudResourceHandler, rbacMW)
 
+			var policyRepo policyPorts.PolicyRepositoryPort
+			if deps.DB != nil {
+				policyRepo = policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
+			} else {
+				policyRepo = policyAdapters.NewMemoryPolicyRepositoryAdapter()
+			}
+			policySvc := policyService.NewPolicyAsCodeService(policyRepo)
+			policyHandler := handlers.NewPolicyAsCodeHandler(policySvc)
+			policyRouter := routers.NewPolicyAsCodeRouter(policyHandler, rbacMW)
+
 			return &AppServices{
 				RBACRouter:      rbacRouter,
 				CatalogRouter:   catalogRouter,
@@ -166,6 +180,7 @@ func describeService() chassis.ServiceSpec {
 				RegimeRouter:    regimeRouter,
 				HealthRouter:    healthRouter,
 				OfferingsRouter: offeringsRouter,
+				PolicyRouter:    policyRouter,
 			}, nil
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
@@ -176,6 +191,7 @@ func describeService() chassis.ServiceSpec {
 			appServices.WorkloadRouter.RegisterRoutes(mux)
 			appServices.RegimeRouter.RegisterRoutes(mux)
 			appServices.OfferingsRouter.RegisterRoutes(mux)
+			appServices.PolicyRouter.RegisterRoutes(mux)
 			appServices.HealthRouter.RegisterPublicRoutes(mux)
 		},
 

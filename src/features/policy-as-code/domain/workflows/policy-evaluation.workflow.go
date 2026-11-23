@@ -39,22 +39,22 @@ type AdmissionEvaluationInput struct {
 }
 
 type PolicyViolation struct {
-	PolicyID      string
-	ExternalID    string
-	Severity      contracts.PolicySeverity
-	Enforcement   contracts.EnforcementPoint
-	Message       string
-	DetectionPair string
+	PolicyID      string                     `json:"policyId"`
+	ExternalID    string                     `json:"externalId"`
+	Severity      contracts.PolicySeverity   `json:"severity"`
+	Enforcement   contracts.EnforcementPoint `json:"enforcement"`
+	Message       string                     `json:"message"`
+	DetectionPair string                     `json:"detectionPair"`
 }
 
 type AdmissionVerdict struct {
-	Allowed            bool
-	DenialReason       string
-	Violations         []PolicyViolation
-	Warnings           []string
-	AuditViolations    []PolicyViolation
-	AppliedExceptions  []string
-	EvaluatedRuleCount int
+	Allowed            bool              `json:"allowed"`
+	DenialReason       string            `json:"denialReason,omitempty"`
+	Violations         []PolicyViolation `json:"violations"`
+	Warnings           []string          `json:"warnings"`
+	AuditViolations    []PolicyViolation `json:"auditViolations"`
+	AppliedExceptions  []string          `json:"appliedExceptions"`
+	EvaluatedRuleCount int               `json:"evaluatedRuleCount"`
 }
 
 var platformNamespaces = map[string]bool{
