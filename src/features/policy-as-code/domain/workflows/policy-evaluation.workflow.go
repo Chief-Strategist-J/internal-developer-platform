@@ -162,7 +162,31 @@ func evaluateManifestViolation(ruleExpression, resourceJSON string) bool {
 	if strings.Contains(ruleExpression, "readOnlyRootFilesystem == true") && strings.Contains(resourceJSON, `"readOnlyRootFilesystem":false`) {
 		return true
 	}
-	if strings.Contains(ruleExpression, "hostNetwork == false") && strings.Contains(resourceJSON, `"hostNetwork":true`) {
+	if strings.Contains(ruleExpression, "hostNetwork == false") && (strings.Contains(resourceJSON, `"hostNetwork":true`) || strings.Contains(resourceJSON, `"hostPID":true`) || strings.Contains(resourceJSON, `"hostIPC":true`)) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "hostPath == false") && strings.Contains(resourceJSON, `"hostPath"`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "capabilities.drop") && !strings.Contains(resourceJSON, `"drop":["ALL"]`) && strings.Contains(resourceJSON, `"capabilities"`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "seccompProfile") && strings.Contains(resourceJSON, `"type":"Unconfined"`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "imagePullPolicy") && strings.Contains(resourceJSON, `"imagePullPolicy":""`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "approved_registries") && !strings.Contains(resourceJSON, "gcr.io") && !strings.Contains(resourceJSON, "pkg.dev") && strings.Contains(resourceJSON, `"image"`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "labels.owner") && !strings.Contains(resourceJSON, `"owner"`) && !strings.Contains(resourceJSON, `"platform.gov/owner"`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "mTLS == STRICT") && strings.Contains(resourceJSON, `"mtls":"PERMISSIVE"`) {
+		return true
+	}
+	if strings.Contains(ruleExpression, "cluster_scoped == false") && (strings.Contains(resourceJSON, `"ClusterRole"`) || strings.Contains(resourceJSON, `"ClusterRoleBinding"`) || strings.Contains(resourceJSON, `"CustomResourceDefinition"`)) {
 		return true
 	}
 	return false
