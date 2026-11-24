@@ -1,9 +1,14 @@
 package rules
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"sort"
+	"strings"
 
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/shared/errors"
 )
 
 type ResourceManifest struct {
@@ -98,4 +103,83 @@ func CanInitiateSync(current contracts.SyncPhase) bool {
 	default:
 		return true
 	}
+}
+
+func VerifyWebhookHMAC(payload []byte, signatureHeader string, secretKey string) bool {
+	if secretKey == "" {
+		return true
+	}
+	if signatureHeader == "" {
+		return false
+	}
+
+	sig := strings.TrimPrefix(signatureHeader, "sha256=")
+	sigBytes, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac.Write(payload)
+	expectedMAC := mac.Sum(nil)
+
+	return hmac.Equal(sigBytes, expectedMAC)
+}
+
+func IsRuntimeIgnoredField(resourceKind, fieldPath string) bool {
+	if resourceKind == "Deployment" && (fieldPath == "spec.replicas" || strings.HasPrefix(fieldPath, "spec.replicas")) {
+		return true
+	}
+	if strings.Contains(fieldPath, "traffic-split") || strings.Contains(fieldPath, "mesh.route.weight") {
+		return true
+	}
+	if strings.Contains(fieldPath, "sidecar.istio.io") || strings.Contains(fieldPath, "linkerd.io") {
+		return true
+	}
+	return false
+}
+
+func ValidateTenantProjectGuardrails(isTenantScope bool, kind string) error {
+	if !isTenantScope {
+		return nil
+	}
+
+	clusterScoped := map[string]bool{
+		"CustomResourceDefinition":      true,
+		"ClusterRole":                   true,
+		"ClusterRoleBinding":            true,
+		"ValidatingWebhookConfiguration": true,
+		"MutatingWebhookConfiguration":   true,
+	}
+
+	if clusterScoped[kind] {
+		return errors.NewForbiddenError("tenants are prohibited from creating cluster-scoped object: " + kind)
+	}
+
+	blacklistedGuardrails := map[string]bool{
+		"ResourceQuota": true,
+		"LimitRange":    true,
+		"NetworkPolicy": true,
+	}
+
+	if blacklistedGuardrails[kind] {
+		return errors.NewForbiddenError("tenants are prohibited from modifying platform guardrail object: " + kind)
+	}
+
+	return nil
+}
+
+func ValidatePruneSafety(kind string, annotations map[string]string) error {
+	dataBearing := map[string]bool{
+		"PersistentVolumeClaim": true,
+		"Secret":                true,
+		"StatefulSet":           true,
+	}
+
+	if dataBearing[kind] {
+		if annotations == nil || annotations["argocd.argoproj.io/deletion-approved"] != "true" {
+			return errors.NewConflictError("data-bearing resource " + kind + " cannot be pruned without deletion-approved annotation")
+		}
+	}
+	return nil
 }

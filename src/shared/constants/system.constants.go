@@ -31,6 +31,7 @@ const (
 	EndpointAuthJITGrantsPrefix   = "/api/v1/auth/jit/grants/"
 	EndpointReconciliations       = "/api/v1/reconciliations"
 	EndpointReconciliationsPrefix = "/api/v1/reconciliations/"
+	EndpointGitOpsWebhook         = "/api/v1/webhooks/gitops"
 	EndpointServices              = "/api/v1/services"
 	EndpointWorkloads             = "/api/v1/workloads"
 	EndpointWorkloadsPrefix       = "/api/v1/workloads/"

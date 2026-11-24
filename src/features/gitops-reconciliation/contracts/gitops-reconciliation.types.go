@@ -23,6 +23,15 @@ const (
 	HealthStatusUnknown     HealthStatus = "UNKNOWN"
 )
 
+type DriftClassificationType string
+
+const (
+	DriftTypeAModified   DriftClassificationType = "TYPE_A_MODIFIED"
+	DriftTypeBMissing    DriftClassificationType = "TYPE_B_MISSING"
+	DriftTypeCExtraneous DriftClassificationType = "TYPE_C_EXTRANEOUS"
+	DriftTypeDOrphaned   DriftClassificationType = "TYPE_D_ORPHANED"
+)
+
 type SyncCommand struct {
 	ID                    string `json:"id"`
 	TenantID              string `json:"tenantId"`
@@ -72,4 +81,40 @@ type FilterCriteria struct {
 	SyncPhase SyncPhase
 	Limit     int
 	Offset    int
+}
+
+type GitOpsWebhookPayload struct {
+	RepositoryURL string `json:"repositoryUrl"`
+	Branch        string `json:"branch"`
+	CommitSHA     string `json:"commitSha"`
+	Author        string `json:"author"`
+	EventType     string `json:"eventType"`
+}
+
+type GitOpsWebhookResult struct {
+	Accepted       bool     `json:"accepted"`
+	RefreshedApps  []string `json:"refreshedApps"`
+	TriggeredSyncs []string `json:"triggeredSyncs"`
+	Message        string   `json:"message"`
+}
+
+type ClassifiedDriftItem struct {
+	ResourceKind     string                  `json:"resourceKind"`
+	ResourceName     string                  `json:"resourceName"`
+	Namespace        string                  `json:"namespace"`
+	Classification   DriftClassificationType `json:"classification"`
+	LiveValue        string                  `json:"liveValue,omitempty"`
+	DesiredValue     string                  `json:"desiredValue,omitempty"`
+	FieldPath        string                  `json:"fieldPath,omitempty"`
+	IsRuntimeIgnored bool                    `json:"isRuntimeIgnored"`
+}
+
+type DetailedDriftReport struct {
+	AppName         string                `json:"appName"`
+	TargetRevision  string                `json:"targetRevision"`
+	HasDrift        bool                  `json:"hasDrift"`
+	Items           []ClassifiedDriftItem `json:"items"`
+	TotalDriftCount int                   `json:"totalDriftCount"`
+	IgnoredCount    int                   `json:"ignoredCount"`
+	CanAutoSync     bool                  `json:"canAutoSync"`
 }
