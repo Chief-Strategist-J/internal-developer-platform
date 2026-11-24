@@ -20,23 +20,36 @@ import (
 
 	"internal-developer-platform/src/features/disaster-recovery/contracts"
 	"internal-developer-platform/src/infra/clients/backup"
+	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
 )
 
 type GoogleCloudDRAdapter struct {
-	projectID  string
-	httpClient *http.Client
+	projectID       string
+	sqlAdminBaseURL string
+	dnsBaseURL      string
+	httpClient      *http.Client
 }
 
 func NewGoogleCloudDRAdapter(projectID string) *GoogleCloudDRAdapter {
 	if projectID == "" {
-		projectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
-		if projectID == "" {
-			projectID = "llm-obs-web-app-9664"
-		}
+		projectID = os.Getenv(constants.EnvGoogleCloudProject)
 	}
+
+	sqlBase := os.Getenv(constants.EnvCloudSQLAdminBaseURL)
+	if sqlBase == "" {
+		sqlBase = constants.DefaultCloudSQLAdminBaseURL
+	}
+
+	dnsBase := os.Getenv(constants.EnvCloudDNSBaseURL)
+	if dnsBase == "" {
+		dnsBase = constants.DefaultCloudDNSBaseURL
+	}
+
 	return &GoogleCloudDRAdapter{
-		projectID: projectID,
+		projectID:       projectID,
+		sqlAdminBaseURL: strings.TrimRight(sqlBase, "/"),
+		dnsBaseURL:      strings.TrimRight(dnsBase, "/"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -44,7 +57,7 @@ func NewGoogleCloudDRAdapter(projectID string) *GoogleCloudDRAdapter {
 }
 
 func (g *GoogleCloudDRAdapter) getAccessToken(ctx context.Context) (string, error) {
-	token := os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+	token := os.Getenv(constants.EnvGoogleOAuthAccessToken)
 	if token != "" {
 		return token, nil
 	}
@@ -58,18 +71,22 @@ func (g *GoogleCloudDRAdapter) getAccessToken(ctx context.Context) (string, erro
 }
 
 func (g *GoogleCloudDRAdapter) GetReplicationLag(ctx context.Context, storeType contracts.DRDataStoreType, primaryRegion, drRegion, dbInstance string) (int, error) {
+	if g.projectID == "" {
+		return 0, nil
+	}
+
 	token, err := g.getAccessToken(ctx)
 	if err != nil {
 		return 0, nil
 	}
 
-	reqURL := fmt.Sprintf("https://sqladmin.googleapis.com/sql/v1beta4/projects/%s/instances/%s", g.projectID, dbInstance)
+	reqURL := fmt.Sprintf("%s/projects/%s/instances/%s", g.sqlAdminBaseURL, g.projectID, dbInstance)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(constants.HeaderAuthorization, fmt.Sprintf("Bearer %s", token))
+	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
@@ -84,18 +101,22 @@ func (g *GoogleCloudDRAdapter) GetReplicationLag(ctx context.Context, storeType 
 }
 
 func (g *GoogleCloudDRAdapter) InitiateSwitchover(ctx context.Context, storeType contracts.DRDataStoreType, drRegion, dbInstance string) error {
+	if g.projectID == "" {
+		return errors.NewValidationError("GCP project ID is not configured (set GOOGLE_CLOUD_PROJECT)")
+	}
+
 	token, err := g.getAccessToken(ctx)
 	if err != nil {
 		return err
 	}
 
-	reqURL := fmt.Sprintf("https://sqladmin.googleapis.com/sql/v1beta4/projects/%s/instances/%s/switchover", g.projectID, dbInstance)
+	reqURL := fmt.Sprintf("%s/projects/%s/instances/%s/switchover", g.sqlAdminBaseURL, g.projectID, dbInstance)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(constants.HeaderAuthorization, fmt.Sprintf("Bearer %s", token))
+	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
@@ -112,18 +133,22 @@ func (g *GoogleCloudDRAdapter) InitiateSwitchover(ctx context.Context, storeType
 }
 
 func (g *GoogleCloudDRAdapter) InitiateReplicaFailover(ctx context.Context, storeType contracts.DRDataStoreType, drRegion, dbInstance string) error {
+	if g.projectID == "" {
+		return errors.NewValidationError("GCP project ID is not configured (set GOOGLE_CLOUD_PROJECT)")
+	}
+
 	token, err := g.getAccessToken(ctx)
 	if err != nil {
 		return err
 	}
 
-	reqURL := fmt.Sprintf("https://sqladmin.googleapis.com/sql/v1beta4/projects/%s/instances/%s/failover", g.projectID, dbInstance)
+	reqURL := fmt.Sprintf("%s/projects/%s/instances/%s/failover", g.sqlAdminBaseURL, g.projectID, dbInstance)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(constants.HeaderAuthorization, fmt.Sprintf("Bearer %s", token))
+	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
@@ -138,12 +163,16 @@ func (g *GoogleCloudDRAdapter) InitiateReplicaFailover(ctx context.Context, stor
 }
 
 func (g *GoogleCloudDRAdapter) FenceOldPrimary(ctx context.Context, storeType contracts.DRDataStoreType, primaryRegion, dbInstance string) error {
+	if g.projectID == "" {
+		return errors.NewValidationError("GCP project ID is not configured (set GOOGLE_CLOUD_PROJECT)")
+	}
+
 	token, err := g.getAccessToken(ctx)
 	if err != nil {
 		return err
 	}
 
-	reqURL := fmt.Sprintf("https://sqladmin.googleapis.com/sql/v1beta4/projects/%s/instances/%s", g.projectID, dbInstance)
+	reqURL := fmt.Sprintf("%s/projects/%s/instances/%s", g.sqlAdminBaseURL, g.projectID, dbInstance)
 	body := map[string]interface{}{
 		"settings": map[string]interface{}{
 			"activationPolicy": "NEVER",
@@ -154,8 +183,8 @@ func (g *GoogleCloudDRAdapter) FenceOldPrimary(ctx context.Context, storeType co
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(constants.HeaderAuthorization, fmt.Sprintf("Bearer %s", token))
+	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
@@ -219,3 +248,4 @@ func (g *GoogleCloudDRAdapter) VerifySecretParity(ctx context.Context, source co
 func (g *GoogleCloudDRAdapter) SyncSecretsToDR(ctx context.Context, source contracts.DRSecretSyncSource, primaryRegion, drRegion string) error {
 	return nil
 }
+
