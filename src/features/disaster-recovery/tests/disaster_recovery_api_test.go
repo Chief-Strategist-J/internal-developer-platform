@@ -32,7 +32,7 @@ import (
 func TestDisasterRecoveryAPIRoutes(t *testing.T) {
 	store := adapters.NewMemoryDRStoreAdapter()
 	cloud := adapters.NewCloudProviderDRAdapter()
-	svc := service.NewDisasterRecoveryService(store, cloud, cloud, cloud, cloud)
+	svc := service.NewDisasterRecoveryService(store, cloud, cloud, cloud, cloud, cloud)
 	h := handlers.NewDisasterRecoveryHandler(svc)
 	router := routers.NewDisasterRecoveryRouter(h, nil)
 

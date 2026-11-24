@@ -46,6 +46,12 @@ type ArgoCDConfig struct {
 	Token    string `yaml:"token"`
 }
 
+type GCPConfig struct {
+	ProjectID        string `yaml:"project_id"`
+	CloudSQLAdminURL string `yaml:"cloud_sql_admin_url"`
+	CloudDNSURL      string `yaml:"cloud_dns_url"`
+}
+
 type FeatureFlags struct {
 	EnableStatefulRollback bool `yaml:"enable_stateful_rollback"`
 	EnableStrictWaveGating bool `yaml:"enable_strict_wave_gating"`
@@ -75,6 +81,7 @@ type AppConfig struct {
 	Auth         AuthConfig       `yaml:"auth"`
 	Kubernetes   KubernetesConfig `yaml:"kubernetes"`
 	ArgoCD       ArgoCDConfig     `yaml:"argocd"`
+	GCP          GCPConfig        `yaml:"gcp"`
 	FeatureFlags FeatureFlags     `yaml:"feature_flags"`
 	Endpoints    EndpointsConfig  `yaml:"endpoints"`
 }
@@ -160,6 +167,18 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 
 	if argoToken := os.Getenv("ARGOCD_TOKEN"); argoToken != "" {
 		cfg.ArgoCD.Token = argoToken
+	}
+
+	if gcpProject := os.Getenv("GOOGLE_CLOUD_PROJECT"); gcpProject != "" {
+		cfg.GCP.ProjectID = gcpProject
+	}
+
+	if sqlAdminURL := os.Getenv("CLOUD_SQL_ADMIN_BASE_URL"); sqlAdminURL != "" {
+		cfg.GCP.CloudSQLAdminURL = sqlAdminURL
+	}
+
+	if dnsURL := os.Getenv("CLOUD_DNS_BASE_URL"); dnsURL != "" {
+		cfg.GCP.CloudDNSURL = dnsURL
 	}
 }
 

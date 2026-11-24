@@ -30,6 +30,8 @@ const (
 type bootContext struct {
 	configPath   string
 	validateOnly bool
+	command      string
+	cmdArgs      []string
 	rootCtx      context.Context
 	cancel       context.CancelFunc
 }
@@ -70,6 +72,16 @@ func Run(spec ServiceSpec, args []string, env []string) int {
 		}()
 	}
 
+	if bootCtx.command != "" && spec.ExecuteCommand != nil {
+		if code, handled := spec.ExecuteCommand(bootCtx.rootCtx, bootCtx.command, bootCtx.cmdArgs, app.services); handled {
+			return code
+		}
+	}
+
+	if spec.StartBackgroundWorkers != nil {
+		spec.StartBackgroundWorkers(bootCtx.rootCtx, app.services)
+	}
+
 	publicServer, adminServer := wireCommand(app, cfg, spec)
 
 	stopReason := runLongLived(bootCtx.rootCtx, publicServer, adminServer, cfg, logger)
@@ -78,6 +90,18 @@ func Run(spec ServiceSpec, args []string, env []string) int {
 }
 
 func preflight(args []string) (*bootContext, int) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		return &bootContext{
+			configPath:   "config/default.yaml",
+			validateOnly: false,
+			command:      args[0],
+			cmdArgs:      args[1:],
+			rootCtx:      rootCtx,
+			cancel:       cancel,
+		}, ExitSuccess
+	}
+
 	fs := flag.NewFlagSet("chassis", flag.ContinueOnError)
 	var configPath string
 	var validateOnly bool
@@ -92,6 +116,8 @@ func preflight(args []string) (*bootContext, int) {
 	return &bootContext{
 		configPath:   configPath,
 		validateOnly: validateOnly,
+		command:      "",
+		cmdArgs:      nil,
 		rootCtx:      rootCtx,
 		cancel:       cancel,
 	}, ExitSuccess

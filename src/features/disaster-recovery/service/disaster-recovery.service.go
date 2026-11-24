@@ -29,6 +29,7 @@ type DisasterRecoveryService struct {
 	trafficPort  ports.TrafficRoutingPort
 	clusterPort  ports.ClusterFailoverPort
 	secretPort   ports.SecretReplicationPort
+	probePort    ports.DependencyProbePort
 	workflow     *workflows.DRFailoverWorkflow
 }
 
@@ -38,6 +39,7 @@ func NewDisasterRecoveryService(
 	traffic ports.TrafficRoutingPort,
 	cluster ports.ClusterFailoverPort,
 	secret ports.SecretReplicationPort,
+	probe ports.DependencyProbePort,
 ) *DisasterRecoveryService {
 	wf := workflows.NewDRFailoverWorkflow(store, db, cluster, traffic)
 	return &DisasterRecoveryService{
@@ -46,8 +48,31 @@ func NewDisasterRecoveryService(
 		trafficPort: traffic,
 		clusterPort: cluster,
 		secretPort:  secret,
+		probePort:   probe,
 		workflow:    wf,
 	}
+}
+
+func (s *DisasterRecoveryService) StartBackgroundProber(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				plans, err := s.storePort.ListPlans(ctx, "")
+				if err != nil {
+					continue
+				}
+				for _, p := range plans {
+					_, _ = s.CheckReadiness(ctx, p.TenantID, p.ID)
+				}
+			}
+		}
+	}()
 }
 
 func (s *DisasterRecoveryService) CreatePlan(ctx context.Context, cmd contracts.CreateDRPlanCommand) (*contracts.DRPlanRecord, error) {
@@ -187,6 +212,96 @@ func (s *DisasterRecoveryService) CheckReadiness(ctx context.Context, tenantID s
 			Message:        dbMsg,
 			LatencyMs:      25,
 		})
+
+		if s.probePort != nil {
+			capOk, capMsg, capLat, _ := s.probePort.CheckCapacityReservation(spanCtx, plan.DRRegion, plan.DRClusterID)
+			if !capOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "CAPACITY_RESERVATION",
+				Status:         boolToStatus(capOk),
+				Message:        capMsg,
+				LatencyMs:      capLat,
+			})
+
+			regOk, regMsg, regLat, _ := s.probePort.CheckRegistryReachability(spanCtx, plan.DRRegion)
+			if !regOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "CONTAINER_REGISTRY",
+				Status:         boolToStatus(regOk),
+				Message:        regMsg,
+				LatencyMs:      regLat,
+			})
+
+			baOk, baMsg, baLat, _ := s.probePort.CheckBinaryAuthorization(spanCtx, plan.DRRegion)
+			if !baOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "BINARY_AUTHORIZATION",
+				Status:         boolToStatus(baOk),
+				Message:        baMsg,
+				LatencyMs:      baLat,
+			})
+
+			kmsOk, kmsMsg, kmsLat, _ := s.probePort.CheckKMSKeyAvailability(spanCtx, plan.DRRegion)
+			if !kmsOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "KMS_KEYS_AND_CMEK",
+				Status:         boolToStatus(kmsOk),
+				Message:        kmsMsg,
+				LatencyMs:      kmsLat,
+			})
+
+			gitOk, gitMsg, gitLat, _ := s.probePort.CheckGitOpsHealth(spanCtx, plan.DRRegion)
+			if !gitOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "GITOPS_RECONCILIATION",
+				Status:         boolToStatus(gitOk),
+				Message:        gitMsg,
+				LatencyMs:      gitLat,
+			})
+
+			dnsOk, dnsMsg, dnsLat, _ := s.probePort.CheckDNSRoutingPrecreated(spanCtx, plan.PlanName)
+			if !dnsOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "TRAFFIC_ROUTING_PRECREATED",
+				Status:         boolToStatus(dnsOk),
+				Message:        dnsMsg,
+				LatencyMs:      dnsLat,
+			})
+
+			certOk, certMsg, certLat, _ := s.probePort.CheckCertificateValidity(spanCtx, plan.PlanName, plan.DRRegion)
+			if !certOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "CERTIFICATES_AND_TLS",
+				Status:         boolToStatus(certOk),
+				Message:        certMsg,
+				LatencyMs:      certLat,
+			})
+
+			obsOk, obsMsg, obsLat, _ := s.probePort.CheckObservabilitySink(spanCtx, plan.DRRegion)
+			if !obsOk {
+				allReady = false
+			}
+			probes = append(probes, contracts.DependencyProbeResult{
+				DependencyName: "OBSERVABILITY_AUDIT_SINK",
+				Status:         boolToStatus(obsOk),
+				Message:        obsMsg,
+				LatencyMs:      obsLat,
+			})
+		}
 
 		newStatus := contracts.StatusReady
 		if !allReady {

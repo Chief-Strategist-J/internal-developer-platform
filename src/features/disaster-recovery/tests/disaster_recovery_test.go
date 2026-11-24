@@ -105,7 +105,7 @@ func TestEndToEndDisasterRecoveryWorkflow(t *testing.T) {
 	store := adapters.NewMemoryDRStoreAdapter()
 	cloud := adapters.NewCloudProviderDRAdapter()
 
-	svc := service.NewDisasterRecoveryService(store, cloud, cloud, cloud, cloud)
+	svc := service.NewDisasterRecoveryService(store, cloud, cloud, cloud, cloud, cloud)
 
 	cmd := contracts.CreateDRPlanCommand{
 		TenantID:         "tenant-beta",

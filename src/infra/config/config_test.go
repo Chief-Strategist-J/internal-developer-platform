@@ -47,6 +47,9 @@ func TestLoadConfigEnvironmentOverrides(t *testing.T) {
 	t.Setenv("KUBERNETES_API_URL", "https://k8s-prod.gke:443")
 	t.Setenv("ARGOCD_SERVER_URL", "https://argo-prod.internal:443")
 	t.Setenv("ARGOCD_TOKEN", "secret-token-12345")
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "custom-gcp-project")
+	t.Setenv("CLOUD_SQL_ADMIN_BASE_URL", "https://custom-sqladmin.internal")
+	t.Setenv("CLOUD_DNS_BASE_URL", "https://custom-dns.internal")
 
 	configPath := filepath.Join(wd, "../../../config/default.yaml")
 	cfg, err := LoadConfig(configPath)
@@ -68,6 +71,16 @@ func TestLoadConfigEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.ArgoCD.Token != "secret-token-12345" {
 		t.Errorf("expected overridden argocd token, got %s", cfg.ArgoCD.Token)
+	}
+
+	if cfg.GCP.ProjectID != "custom-gcp-project" {
+		t.Errorf("expected overridden gcp project_id, got %s", cfg.GCP.ProjectID)
+	}
+	if cfg.GCP.CloudSQLAdminURL != "https://custom-sqladmin.internal" {
+		t.Errorf("expected overridden cloud sql url, got %s", cfg.GCP.CloudSQLAdminURL)
+	}
+	if cfg.GCP.CloudDNSURL != "https://custom-dns.internal" {
+		t.Errorf("expected overridden cloud dns url, got %s", cfg.GCP.CloudDNSURL)
 	}
 }
 

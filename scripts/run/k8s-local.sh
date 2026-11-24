@@ -198,8 +198,14 @@ main() {
         port-forward)
             start_port_forward
             ;;
+        reload|rebuild)
+            build_and_load_platform_api
+            kubectl rollout restart deployment/platform-api -n "${DEV_NAMESPACE}"
+            kubectl rollout status deployment/platform-api -n "${DEV_NAMESPACE}" --timeout=60s
+            log_success "platform-api reloaded successfully."
+            ;;
         *)
-            echo "Usage: $0 [up|down|status|port-forward]"
+            echo "Usage: $0 [up|down|status|port-forward|reload]"
             exit 1
             ;;
     esac

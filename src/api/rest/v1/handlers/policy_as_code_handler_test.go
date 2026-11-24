@@ -149,8 +149,8 @@ func TestPolicyHttpAdmissionEvaluation(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.EvaluateAdmission(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected HTTP 403 Forbidden for DENY violation, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for DENY verdict (policy decision in body), got %d", rec.Code)
 	}
 
 	var resp types.ApiResponse

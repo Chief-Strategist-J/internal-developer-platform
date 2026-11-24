@@ -30,6 +30,7 @@ type DatabaseFailoverPort = ports.DatabaseFailoverPort
 type TrafficRoutingPort = ports.TrafficRoutingPort
 type ClusterFailoverPort = ports.ClusterFailoverPort
 type SecretReplicationPort = ports.SecretReplicationPort
+type DependencyProbePort = ports.DependencyProbePort
 
 var NewService = service.NewDisasterRecoveryService
 

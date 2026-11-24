@@ -1,6 +1,7 @@
 package chassis
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -54,6 +55,8 @@ type ServiceSpec struct {
 	DependsOn           func() []DownstreamDependency
 	Contracts           func() ServiceContracts
 	BuildServices       func(deps Dependencies) (interface{}, error)
-	RegisterApiRoutes   func(mux *http.ServeMux, services interface{})
-	RegisterAdminRoutes func(mux *http.ServeMux, services interface{})
+	RegisterApiRoutes        func(mux *http.ServeMux, services interface{})
+	RegisterAdminRoutes      func(mux *http.ServeMux, services interface{})
+	StartBackgroundWorkers   func(ctx context.Context, services interface{})
+	ExecuteCommand           func(ctx context.Context, command string, args []string, services interface{}) (int, bool)
 }
