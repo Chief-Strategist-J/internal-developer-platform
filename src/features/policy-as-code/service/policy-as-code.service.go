@@ -148,6 +148,9 @@ func (s *PolicyAsCodeService) RequestException(ctx context.Context, exc contract
 		if exc.PublicID == "" {
 			exc.PublicID = "exc_" + uuid.New().String()[:12]
 		}
+		if exc.CorrelationID == "" {
+			exc.CorrelationID = uuid.New().String()
+		}
 		if exc.Status == "" {
 			exc.Status = contracts.ExceptionStatusActive
 		}
