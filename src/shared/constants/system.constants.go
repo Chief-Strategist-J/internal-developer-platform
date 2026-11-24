@@ -91,4 +91,11 @@ const (
 	DefaultMeshRevision = "asm-managed"
 	DefaultCapabilityDropAll = "ALL"
 	DefaultPDBNameSuffix = "-pdb"
+
+	DefaultCloudSQLAdminBaseURL = "https://sqladmin.googleapis.com/sql/v1beta4"
+	DefaultCloudDNSBaseURL      = "https://dns.googleapis.com/dns/v1"
+	EnvGoogleCloudProject       = "GOOGLE_CLOUD_PROJECT"
+	EnvGoogleOAuthAccessToken   = "GOOGLE_OAUTH_ACCESS_TOKEN"
+	EnvCloudSQLAdminBaseURL     = "CLOUD_SQL_ADMIN_BASE_URL"
+	EnvCloudDNSBaseURL          = "CLOUD_DNS_BASE_URL"
 )
