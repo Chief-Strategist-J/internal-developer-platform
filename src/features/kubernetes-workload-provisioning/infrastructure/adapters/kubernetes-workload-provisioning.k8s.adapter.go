@@ -12,6 +12,13 @@ import (
 	"strings"
 	"sync"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
@@ -23,6 +30,7 @@ import (
 	"internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/rollouts"
 	"internal-developer-platform/src/infra/observability"
+	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
 )
 
@@ -413,40 +421,177 @@ func (k *KubernetesClientAdapter) GenerateManifestBundle(ctx context.Context, cm
 }
 
 func (k *KubernetesClientAdapter) ApplyDeployment(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) error {
-	bundle, err := k.GenerateManifestBundle(ctx, cmd, mutations)
-	if err != nil {
+	return observability.WithSpan(ctx, "k8s.adapter.apply_deployment", func(ctx context.Context) error {
+		bundle, err := k.GenerateManifestBundle(ctx, cmd, mutations)
+		if err != nil {
+			return err
+		}
+		key := fmt.Sprintf("%s/%s", cmd.Namespace, cmd.WorkloadName)
+		k.mu.Lock()
+		k.appliedBundles[key] = *bundle
+		k.observedReplicas[key] = cmd.Replicas
+		k.mu.Unlock()
+
+		if k.client != nil {
+			if err := k.applyLiveNamespace(ctx, cmd.Namespace, mutations.NamespaceLabels); err != nil {
+				return err
+			}
+			if err := k.applyLiveDeployment(ctx, cmd, mutations); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, attribute.String("workload.name", cmd.WorkloadName), attribute.String("namespace", cmd.Namespace), attribute.String("tenant.id", cmd.TenantID))
+}
+
+func (k *KubernetesClientAdapter) applyLiveNamespace(ctx context.Context, namespace string, labels map[string]string) error {
+	return observability.WithSpan(ctx, "k8s.adapter.apply_live_namespace", func(ctx context.Context) error {
+		_, err := k.client.CreateOrUpdateNamespace(ctx, namespace, labels)
 		return err
+	}, attribute.String("namespace", namespace))
+}
+
+func (k *KubernetesClientAdapter) applyLiveDeployment(ctx context.Context, cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) error {
+	return observability.WithSpan(ctx, "k8s.adapter.apply_live_deployment", func(ctx context.Context) error {
+		deploy := buildDeploymentObject(cmd, mutations)
+		_, err := k.client.CreateOrUpdateDeployment(ctx, cmd.Namespace, deploy)
+		return err
+	}, attribute.String("workload.name", cmd.WorkloadName), attribute.String("namespace", cmd.Namespace))
+}
+
+func buildDeploymentObject(cmd contracts.WorkloadProvisionCommand, mutations rules.WorkloadMutations) *appsv1.Deployment {
+	replicasInt32 := int32(cmd.Replicas)
+	runAsNonRoot := mutations.SecurityContext.RunAsNonRoot
+	allowPrivilegeEscalation := mutations.SecurityContext.AllowPrivilegeEscalation
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cmd.WorkloadName,
+			Namespace: cmd.Namespace,
+			Labels: map[string]string{
+				constants.LabelAppName:      cmd.WorkloadName,
+				constants.LabelAppPartOf:    cmd.TenantID,
+				constants.LabelAppManagedBy: constants.DefaultManagerValue,
+			},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicasInt32,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					constants.LabelAppName: cmd.WorkloadName,
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.LabelAppName: cmd.WorkloadName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: &runAsNonRoot,
+					},
+					Containers: []corev1.Container{
+						{
+							Name:  cmd.WorkloadName,
+							Image: cmd.Image,
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+								RunAsNonRoot:             &runAsNonRoot,
+								ReadOnlyRootFilesystem:   &mutations.SecurityContext.ReadOnlyRootFilesystem,
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{constants.DefaultCapabilityDropAll},
+								},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse(mutations.CPURequest),
+									corev1.ResourceMemory: resource.MustParse(mutations.MemoryRequest),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse(mutations.CPULimit),
+									corev1.ResourceMemory: resource.MustParse(mutations.MemoryLimit),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
-	key := fmt.Sprintf("%s/%s", cmd.Namespace, cmd.WorkloadName)
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.appliedBundles[key] = *bundle
-	k.observedReplicas[key] = cmd.Replicas
-	return nil
 }
 
 func (k *KubernetesClientAdapter) ApplyPDB(ctx context.Context, namespace string, workloadName string, minAvailable int) error {
-	key := fmt.Sprintf("%s/%s", namespace, workloadName)
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	bundle, exists := k.appliedBundles[key]
-	if !exists {
-		return errors.NewNotFoundError("target deployment for pdb does not exist")
+	return observability.WithSpan(ctx, "k8s.adapter.apply_pdb", func(ctx context.Context) error {
+		key := fmt.Sprintf("%s/%s", namespace, workloadName)
+		k.mu.Lock()
+		bundle, exists := k.appliedBundles[key]
+		if !exists {
+			k.mu.Unlock()
+			return errors.NewNotFoundError("target deployment for pdb does not exist")
+		}
+		bundle.PDBYAML = buildPDBYAML(workloadName, namespace, minAvailable)
+		k.appliedBundles[key] = bundle
+		k.mu.Unlock()
+
+		if k.client != nil {
+			return k.applyLivePDB(ctx, namespace, workloadName, minAvailable)
+		}
+
+		return nil
+	}, attribute.String("workload.name", workloadName), attribute.String("namespace", namespace))
+}
+
+func (k *KubernetesClientAdapter) applyLivePDB(ctx context.Context, namespace, workloadName string, minAvailable int) error {
+	return observability.WithSpan(ctx, "k8s.adapter.apply_live_pdb", func(ctx context.Context) error {
+		pdb := buildPDBObject(workloadName, namespace, minAvailable)
+		_, err := k.client.CreateOrUpdatePDB(ctx, namespace, pdb)
+		return err
+	}, attribute.String("workload.name", workloadName), attribute.String("namespace", namespace))
+}
+
+func buildPDBObject(workloadName, namespace string, minAvailable int) *policyv1.PodDisruptionBudget {
+	minAvail := intstr.FromInt(minAvailable)
+	return &policyv1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s%s", workloadName, constants.DefaultPDBNameSuffix),
+			Namespace: namespace,
+			Labels: map[string]string{
+				constants.LabelAppName:      workloadName,
+				constants.LabelAppManagedBy: constants.DefaultManagerValue,
+			},
+		},
+		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable: &minAvail,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					constants.LabelAppName: workloadName,
+				},
+			},
+		},
 	}
-	bundle.PDBYAML = buildPDBYAML(workloadName, namespace, minAvailable)
-	k.appliedBundles[key] = bundle
-	return nil
 }
 
 func (k *KubernetesClientAdapter) GetWorkloadHealth(ctx context.Context, namespace string, workloadName string) (contracts.WorkloadStatus, error) {
-	key := fmt.Sprintf("%s/%s", namespace, workloadName)
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-	replicas, exists := k.observedReplicas[key]
-	if !exists || replicas == 0 {
-		return contracts.StatusRejected, errors.NewNotFoundError("workload not found or zero replicas observed")
-	}
-	return contracts.StatusObservedReady, nil
+	return observability.RunTraced(ctx, "k8s.adapter.get_workload_health", func(ctx context.Context) (contracts.WorkloadStatus, error) {
+		if k.client != nil {
+			ready, err := k.client.GetDeploymentReadyReplicas(ctx, namespace, workloadName)
+			if err == nil {
+				if ready > 0 {
+					return contracts.StatusObservedReady, nil
+				}
+				return contracts.StatusDegraded, nil
+			}
+		}
+		key := fmt.Sprintf("%s/%s", namespace, workloadName)
+		k.mu.RLock()
+		defer k.mu.RUnlock()
+		replicas, exists := k.observedReplicas[key]
+		if !exists || replicas == 0 {
+			return contracts.StatusRejected, errors.NewNotFoundError("workload not found or zero replicas observed")
+		}
+		return contracts.StatusObservedReady, nil
+	}, attribute.String("workload.name", workloadName), attribute.String("namespace", namespace))
 }
 
 func (k *KubernetesClientAdapter) GetAppliedManifests(ctx context.Context, namespace string, workloadName string) (*contracts.ManifestBundle, error) {

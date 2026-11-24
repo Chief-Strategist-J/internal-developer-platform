@@ -13,6 +13,7 @@ import (
 	healthService "internal-developer-platform/src/features/health-checks/service"
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	workloadAdapters "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
+	workloadPorts "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
 	policyAdapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
@@ -26,6 +27,7 @@ import (
 	"internal-developer-platform/src/infra/chassis"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/cluster"
+	k8sClientPkg "internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/resilience"
 )
 
@@ -120,7 +122,13 @@ func describeService() chassis.ServiceSpec {
 			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
 			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
 
-			k8sClient := workloadAdapters.NewKubernetesClientAdapter(deps.Config.Kubernetes.Endpoint)
+			resConfig := resilience.DefaultResilienceConfig()
+			var k8sClient workloadPorts.K8sClientPort
+			if realK8s, err := k8sClientPkg.NewKubernetesClientFromConfig("", deps.Config.Kubernetes.Endpoint, resConfig); err == nil && realK8s != nil {
+				k8sClient = workloadAdapters.NewLiveKubernetesClientAdapter(realK8s)
+			} else {
+				k8sClient = workloadAdapters.NewKubernetesClientAdapter(deps.Config.Kubernetes.Endpoint)
+			}
 			workloadSvc := kubernetesworkloadprovisioning.NewService(workloadStore, k8sClient)
 			workloadHandler := handlers.NewKubernetesWorkloadHandler(workloadSvc)
 			workloadRouter := routers.NewKubernetesWorkloadRouter(workloadHandler, rbacMW)
@@ -153,7 +161,6 @@ func describeService() chassis.ServiceSpec {
 
 			workloadSvc.WithRegimeRepository(regimeRepo)
 
-			resConfig := resilience.DefaultResilienceConfig()
 			clusterClient := cluster.NewGKEClusterClient(resConfig)
 			clusterHandler := handlers.NewClusterHandler(clusterClient)
 
