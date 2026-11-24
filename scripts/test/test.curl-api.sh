@@ -19,6 +19,17 @@ export ADMIN_PORT="${CLI_ADMIN_PORT}"
 export JWT_SECRET="${SECRET}"
 export REDIS_ADDR="127.0.0.1:6379"
 
+if [ -f "${PROJECT_ROOT}/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${PROJECT_ROOT}/.env"
+    set +a
+    export PORT="${CLI_PORT}"
+    export ADMIN_PORT="${CLI_ADMIN_PORT}"
+    export JWT_SECRET="${SECRET}"
+    export REDIS_ADDR="127.0.0.1:6379"
+fi
+
 echo -e "\033[1;34m[BUILD]\033[0m Compiling platform binary..."
 go build -o /tmp/platform-api-server ./src/main.go
 

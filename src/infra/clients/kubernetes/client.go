@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,6 +35,10 @@ func NewKubernetesClientFromConfig(kubeconfigPath string, masterURL string, conf
 	var restConfig *rest.Config
 	var err error
 
+	if envKube := os.Getenv("KUBECONFIG"); envKube != "" && kubeconfigPath == "" {
+		kubeconfigPath = envKube
+	}
+
 	if kubeconfigPath == "" && masterURL == "" {
 		restConfig, err = rest.InClusterConfig()
 		if err != nil {
@@ -42,8 +47,19 @@ func NewKubernetesClientFromConfig(kubeconfigPath string, masterURL string, conf
 				restConfig, err = clientcmd.BuildConfigFromFlags("", defaultPath)
 			}
 		}
-	} else {
+	} else if kubeconfigPath != "" {
 		restConfig, err = clientcmd.BuildConfigFromFlags(masterURL, kubeconfigPath)
+	} else {
+		restConfig, err = clientcmd.BuildConfigFromFlags(masterURL, "")
+		if err != nil || restConfig != nil {
+			if home := homedir.HomeDir(); home != "" {
+				defaultPath := filepath.Join(home, ".kube", "config")
+				if fallbackConfig, fallbackErr := clientcmd.BuildConfigFromFlags(masterURL, defaultPath); fallbackErr == nil {
+					restConfig = fallbackConfig
+					err = nil
+				}
+			}
+		}
 	}
 
 	if err != nil {
