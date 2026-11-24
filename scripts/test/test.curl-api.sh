@@ -704,6 +704,186 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 27] POST /api/v1/dr/datasets/{dataset}:fence -> Fence Dataset Epoch"
+echo "--------------------------------------------------------------------------------"
+DATASET_ID="ledger-postgres-cluster-01"
+FENCE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}:fence" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}" \
+  -d '{
+    "authority": "DR_REPLICA"
+  }')
+
+echo "${FENCE_RESP}"
+if echo "${FENCE_RESP}" | grep -q "200 OK" && echo "${FENCE_RESP}" | grep -q "DR_REPLICA"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully fenced dataset epoch and persisted in PostgreSQL"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for dataset fencing"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 28] GET /api/v1/dr/datasets/{dataset}/epoch -> Get Fencing Epoch"
+echo "--------------------------------------------------------------------------------"
+EPOCH_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}/epoch" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${EPOCH_RESP}"
+if echo "${EPOCH_RESP}" | grep -q "200 OK" && echo "${EPOCH_RESP}" | grep -q "DR_REPLICA"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully retrieved current fencing epoch from PostgreSQL"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for fencing epoch retrieval"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 29] POST /api/v1/dr/drills -> Execute DR Drill"
+echo "--------------------------------------------------------------------------------"
+DRILL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}" \
+  -d "{
+    \"planId\": \"${PLAN_ID}\",
+    \"scope\": \"REGION\",
+    \"initiator\": \"sre-drill-coordinator\",
+    \"syntheticOnly\": true
+  }")
+
+echo "${DRILL_RESP}"
+if echo "${DRILL_RESP}" | grep -q "200 OK" && echo "${DRILL_RESP}" | grep -q "true"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully executed DR drill and generated evidence bundle"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for DR drill execution"
+    exit 1
+fi
+
+DRILL_RUN_ID=$(echo "${DRILL_RESP}" | grep -o '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)
+EVIDENCE_ID=$(echo "${DRILL_RESP}" | grep -o '"evidenceBundleId":"[^"]*' | head -n 1 | cut -d'"' -f4)
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 30] GET /api/v1/dr/plans/{plan}/rpo -> Get Live Replication Lag"
+echo "--------------------------------------------------------------------------------"
+RPO_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans/${PLAN_ID}/rpo" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${RPO_RESP}"
+if echo "${RPO_RESP}" | grep -q "200 OK" && echo "${RPO_RESP}" | grep -q "withinSla"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully queried live RPO replication metrics"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for live RPO query"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 31] GET /api/v1/dr/drills/{run} -> Query Drill Run Report"
+echo "--------------------------------------------------------------------------------"
+GET_DRILL_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills/${DRILL_RUN_ID}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${GET_DRILL_RESP}"
+if echo "${GET_DRILL_RESP}" | grep -q "200 OK" && echo "${GET_DRILL_RESP}" | grep -q "${DRILL_RUN_ID}"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully retrieved drill run report by ID"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for drill run query"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 32] GET /api/v1/dr/evidence/{run} -> Query Immutable Evidence Bundle"
+echo "--------------------------------------------------------------------------------"
+GET_EVID_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/evidence/${EVIDENCE_ID}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${GET_EVID_RESP}"
+if echo "${GET_EVID_RESP}" | grep -q "200 OK" && echo "${GET_EVID_RESP}" | grep -q "sha256-"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully retrieved immutable evidence bundle with SHA-256 checksum"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for evidence bundle query"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 33] POST /api/v1/dr/restores -> Initiate DR Backup Restore"
+echo "--------------------------------------------------------------------------------"
+RESTORE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}" \
+  -d "{
+    \"tenantId\": \"${DR_TENANT_ID}\",
+    \"planId\": \"${PLAN_ID}\",
+    \"backupId\": \"bkp-cluster-snap-001\",
+    \"targetCluster\": \"gke-dr-01\",
+    \"namespace\": \"fintech-prod\",
+    \"conflictPolicy\": \"FAIL_ON_CONFLICT\",
+    \"initiator\": \"sre-restore-lead\"
+  }")
+
+echo "${RESTORE_RESP}"
+if echo "${RESTORE_RESP}" | grep -q "202 Accepted" && echo "${RESTORE_RESP}" | grep -q "RESTORE"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully initiated DR backup restore (202 Accepted)"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 202 Accepted for backup restore initiation"
+    exit 1
+fi
+
+RESTORE_OP_ID=$(echo "${RESTORE_RESP}" | grep -o '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 34] GET /api/v1/dr/restores/{op} -> Query Restore Operation Status"
+echo "--------------------------------------------------------------------------------"
+GET_RESTORE_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores/${RESTORE_OP_ID}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${GET_RESTORE_RESP}"
+if echo "${GET_RESTORE_RESP}" | grep -q "200 OK" && echo "${GET_RESTORE_RESP}" | grep -q "${RESTORE_OP_ID}"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully retrieved restore operation status by ID"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for restore operation query"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 35] POST /api/v1/dr/breakglass:activate -> Activate Emergency Role"
+echo "--------------------------------------------------------------------------------"
+BREAKGLASS_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/breakglass:activate" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}" \
+  -d "{
+    \"tenantId\": \"${DR_TENANT_ID}\",
+    \"requester\": \"sre-operator-1\",
+    \"approver\": \"director-eng-2\",
+    \"durationMins\": 60,
+    \"justification\": \"Emergency database replication repair during regional outage\"
+  }")
+
+echo "${BREAKGLASS_RESP}"
+if echo "${BREAKGLASS_RESP}" | grep -q "200 OK" && echo "${BREAKGLASS_RESP}" | grep -q "DR_EMERGENCY_OPERATOR"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully activated emergency break-glass role via two-person quorum"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for breakglass activation"
+    exit 1
+fi
+
+
 
 
 

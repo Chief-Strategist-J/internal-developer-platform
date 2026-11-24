@@ -31,7 +31,7 @@ const (
 			last_drill_at, last_drill_result, idempotency_key, version,
 			created_at, updated_at
 		FROM dr_plans
-		WHERE tenant_id = $1 AND (id = $2 OR public_id = $2);`
+		WHERE tenant_id = $1 AND (id::text = $2 OR public_id = $2);`
 
 	FlowSelectDRPlanByIdempotencyKey = `
 		SELECT
@@ -71,5 +71,81 @@ const (
 		SELECT dataset_id, authority, epoch, fenced_at
 		FROM dr_fencing_epochs
 		WHERE dataset_id = $1;`
+
+	FlowInsertIncident = `
+		INSERT INTO dr_incidents (
+			id, public_id, tenant_id, plan_id, scope, declared_by, approved_by, evidence_links, state, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
+
+	FlowSelectIncidentByID = `
+		SELECT id, public_id, tenant_id, plan_id, scope, declared_by, approved_by, evidence_links, state, created_at
+		FROM dr_incidents
+		WHERE tenant_id = $1 AND (id::text = $2 OR public_id = $2);`
+
+	FlowUpdateIncidentState = `
+		UPDATE dr_incidents
+		SET state = $1, approved_by = $2
+		WHERE tenant_id = $3 AND (id::text = $4 OR public_id = $4);`
+
+	FlowInsertFailoverOp = `
+		INSERT INTO dr_failover_operations (
+			id, public_id, tenant_id, plan_id, incident_id, mode, initiator, approver,
+			state, projected_rpo_seconds, measured_rto_seconds, step_results, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);`
+
+	FlowSelectFailoverOpByID = `
+		SELECT id, public_id, tenant_id, plan_id, incident_id, mode, initiator, approver,
+			state, projected_rpo_seconds, measured_rto_seconds, step_results, created_at, updated_at
+		FROM dr_failover_operations
+		WHERE tenant_id = $1 AND (id::text = $2 OR public_id = $2);`
+
+	FlowInsertDrillRun = `
+		INSERT INTO dr_drill_runs (
+			id, public_id, tenant_id, plan_id, scope, measured_rto_seconds,
+			measured_rpo_seconds, target_rto_seconds, target_rpo_seconds, passed, evidence_bundle_id, executed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
+
+	FlowSelectDrillRunByID = `
+		SELECT id, public_id, tenant_id, plan_id, scope, measured_rto_seconds,
+			measured_rpo_seconds, target_rto_seconds, target_rpo_seconds, passed, evidence_bundle_id, executed_at
+		FROM dr_drill_runs
+		WHERE id::text = $1 OR public_id = $1;`
+
+	FlowInsertDrillEvidence = `
+		INSERT INTO dr_drill_evidence (
+			id, public_id, tenant_id, drill_run_id, plan_id, executed_by, scope,
+			measured_rto_seconds, measured_rpo_seconds, passed, verification_logs,
+			audit_sink_region, checksum_sha256, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);`
+
+	FlowSelectDrillEvidenceByID = `
+		SELECT id, public_id, tenant_id, drill_run_id, plan_id, executed_by, scope,
+			measured_rto_seconds, measured_rpo_seconds, passed, verification_logs,
+			audit_sink_region, checksum_sha256, created_at
+		FROM dr_drill_evidence
+		WHERE id = $1 OR public_id = $1;`
+
+	FlowInsertRestoreOp = `
+		INSERT INTO dr_restore_operations (
+			id, public_id, tenant_id, plan_id, backup_id, target_cluster, namespace,
+			state, data_validated, validation_note, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
+
+	FlowSelectRestoreOpByID = `
+		SELECT id, public_id, tenant_id, plan_id, backup_id, target_cluster, namespace,
+			state, data_validated, validation_note, created_at, updated_at
+		FROM dr_restore_operations
+		WHERE tenant_id = $1 AND (id::text = $2 OR public_id = $2);`
+
+	FlowInsertBreakglassGrant = `
+		INSERT INTO dr_breakglass_grants (
+			id, public_id, tenant_id, requester, approver, role, expires_at, justification, active, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
+
+	FlowSelectBreakglassGrantByID = `
+		SELECT id, public_id, tenant_id, requester, approver, role, expires_at, justification, active, created_at
+		FROM dr_breakglass_grants
+		WHERE tenant_id = $1 AND (id::text = $2 OR public_id = $2);`
 )
+
 

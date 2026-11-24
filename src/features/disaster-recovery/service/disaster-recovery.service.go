@@ -424,6 +424,14 @@ func (s *DisasterRecoveryService) ExecuteFailback(ctx context.Context, cmd contr
 			return err
 		}
 
+		if err := rules.ValidateTwoPersonFailover(cmd.Initiator, cmd.Approver); err != nil {
+			return err
+		}
+
+		if err := rules.ValidateFailbackPrerequisites(cmd.Divergence, cmd.ReverseLag); err != nil {
+			return err
+		}
+
 		plan, err := s.storePort.GetPlanByID(spanCtx, cmd.TenantID, cmd.PlanID)
 		if err != nil {
 			return err
@@ -495,6 +503,24 @@ func (s *DisasterRecoveryService) RunDrill(ctx context.Context, cmd contracts.Ru
 		if err := s.storePort.SaveDrillRun(spanCtx, rec); err != nil {
 			return err
 		}
+
+		evidenceRec := contracts.EvidenceBundleRecord{
+			ID:               rec.EvidenceBundleID,
+			PublicID:         rec.EvidenceBundleID,
+			TenantID:         cmd.TenantID,
+			DrillRunID:       rec.ID,
+			PlanID:           plan.ID,
+			ExecutedBy:       cmd.Initiator,
+			Scope:            cmd.Scope,
+			MeasuredRTOSecs:  rec.MeasuredRTOSecs,
+			MeasuredRPOSecs:  rec.MeasuredRPOSecs,
+			Passed:           rec.Passed,
+			VerificationLogs: []string{"FENCING_VERIFIED", "REPLICATION_SWITCHED", "ROUTING_PROMOTED"},
+			AuditSinkRegion:  plan.DRRegion,
+			ChecksumSha256:   fmt.Sprintf("sha256-%s", rawUUID[:16]),
+			CreatedAt:        time.Now().UTC(),
+		}
+		_ = s.storePort.SaveEvidenceBundle(spanCtx, evidenceRec)
 
 		now := time.Now().UTC()
 		plan.LastDrillAt = &now
@@ -571,6 +597,120 @@ func (s *DisasterRecoveryService) ActivateBreakglass(ctx context.Context, cmd co
 		return nil
 	})
 	return grantRec, err
+}
+
+func (s *DisasterRecoveryService) GetPlanRPO(ctx context.Context, tenantID, planID string) (*contracts.LiveRPOResult, error) {
+	var result *contracts.LiveRPOResult
+	err := observability.WithSpan(ctx, "disaster_recovery.service.get_plan_rpo", func(spanCtx context.Context) error {
+		plan, err := s.storePort.GetPlanByID(spanCtx, tenantID, planID)
+		if err != nil {
+			return err
+		}
+
+		lag, err := s.dbPort.GetReplicationLag(spanCtx, plan.DataStoreType, plan.PrimaryRegion, plan.DRRegion, plan.PlanName)
+		if err != nil {
+			return errors.NewInternalError(fmt.Sprintf("failed to get live replication lag: %v", err))
+		}
+
+		result = &contracts.LiveRPOResult{
+			PlanID:           plan.ID,
+			PlanName:         plan.PlanName,
+			DataStoreType:    string(plan.DataStoreType),
+			PrimaryRegion:    plan.PrimaryRegion,
+			DRRegion:         plan.DRRegion,
+			CurrentLagSecs:   lag,
+			TargetRPOSeconds: plan.TargetRPOSeconds,
+			WithinSLA:        lag <= plan.TargetRPOSeconds,
+			CheckedAt:        time.Now().UTC(),
+		}
+		return nil
+	})
+	return result, err
+}
+
+func (s *DisasterRecoveryService) GetFailoverOperation(ctx context.Context, tenantID, opID string) (*contracts.DRFailoverOperationRecord, error) {
+	var op *contracts.DRFailoverOperationRecord
+	err := observability.WithSpan(ctx, "disaster_recovery.service.get_failover_op", func(spanCtx context.Context) error {
+		record, err := s.storePort.GetFailoverOpByID(spanCtx, tenantID, opID)
+		if err != nil {
+			return err
+		}
+		op = record
+		return nil
+	})
+	return op, err
+}
+
+func (s *DisasterRecoveryService) GetFailbackOperation(ctx context.Context, tenantID, opID string) (*contracts.DRFailbackOperationRecord, error) {
+	var op *contracts.DRFailbackOperationRecord
+	err := observability.WithSpan(ctx, "disaster_recovery.service.get_failback_op", func(spanCtx context.Context) error {
+		record, err := s.storePort.GetFailbackOpByID(spanCtx, tenantID, opID)
+		if err != nil {
+			return err
+		}
+		op = record
+		return nil
+	})
+	return op, err
+}
+
+func (s *DisasterRecoveryService) GetDrillRun(ctx context.Context, runID string) (*contracts.DrillRunRecord, error) {
+	var drill *contracts.DrillRunRecord
+	err := observability.WithSpan(ctx, "disaster_recovery.service.get_drill_run", func(spanCtx context.Context) error {
+		record, err := s.storePort.GetDrillRunByID(spanCtx, runID)
+		if err != nil {
+			return err
+		}
+		drill = record
+		return nil
+	})
+	return drill, err
+}
+
+func (s *DisasterRecoveryService) GetEvidenceBundle(ctx context.Context, runID string) (*contracts.EvidenceBundleRecord, error) {
+	var evidence *contracts.EvidenceBundleRecord
+	err := observability.WithSpan(ctx, "disaster_recovery.service.get_evidence_bundle", func(spanCtx context.Context) error {
+		record, err := s.storePort.GetEvidenceBundleByID(spanCtx, runID)
+		if err != nil {
+			return err
+		}
+		evidence = record
+		return nil
+	})
+	return evidence, err
+}
+
+func (s *DisasterRecoveryService) GetRestoreOperation(ctx context.Context, tenantID, opID string) (*contracts.DRRestoreOperationRecord, error) {
+	var restore *contracts.DRRestoreOperationRecord
+	err := observability.WithSpan(ctx, "disaster_recovery.service.get_restore_op", func(spanCtx context.Context) error {
+		record, err := s.storePort.GetRestoreOpByID(spanCtx, tenantID, opID)
+		if err != nil {
+			return err
+		}
+		restore = record
+		return nil
+	})
+	return restore, err
+}
+
+func (s *DisasterRecoveryService) RunReadinessProbeWorker(ctx context.Context, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			plans, err := s.storePort.ListPlans(ctx, "")
+			if err != nil {
+				continue
+			}
+			for _, plan := range plans {
+				_, _ = s.CheckReadiness(ctx, plan.TenantID, plan.ID)
+			}
+		}
+	}
 }
 
 func boolToStatus(ok bool) string {

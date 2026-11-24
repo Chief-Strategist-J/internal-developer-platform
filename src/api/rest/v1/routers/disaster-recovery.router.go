@@ -50,6 +50,7 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 	failbackHandler := http.HandlerFunc(r.handler.HandleFailback)
 	datasetsHandler := http.HandlerFunc(r.handler.HandleDatasets)
 	drillsHandler := http.HandlerFunc(r.handler.HandleDrills)
+	evidenceHandler := http.HandlerFunc(r.handler.HandleEvidence)
 	restoresHandler := http.HandlerFunc(r.handler.HandleRestores)
 	breakglassHandler := http.HandlerFunc(r.handler.HandleBreakglass)
 
@@ -89,6 +90,11 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 			rbacContracts.ActionWrite,
 			failbackHandler,
 		))
+		mux.HandleFunc(constants.EndpointDRFailbacksPrefix, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionRead,
+			failbackHandler,
+		))
 		mux.HandleFunc(constants.EndpointDRDatasetsPrefix, r.rbacMiddle.RequirePermission(
 			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionWrite,
@@ -99,9 +105,24 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 			rbacContracts.ActionWrite,
 			drillsHandler,
 		))
+		mux.HandleFunc(constants.EndpointDRDrillsPrefix, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionRead,
+			drillsHandler,
+		))
+		mux.HandleFunc(constants.EndpointDREvidencePrefix, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionRead,
+			evidenceHandler,
+		))
 		mux.HandleFunc(constants.EndpointDRRestores, r.rbacMiddle.RequirePermission(
 			rbacContracts.ResourceInfrastructure,
 			rbacContracts.ActionWrite,
+			restoresHandler,
+		))
+		mux.HandleFunc(constants.EndpointDRRestoresPrefix, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionRead,
 			restoresHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRBreakglassActivate, r.rbacMiddle.RequirePermission(
@@ -119,8 +140,12 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc(constants.EndpointDRFailovers, failoverHandler)
 	mux.HandleFunc(constants.EndpointDRFailoversPrefix, singleFailoverHandler)
 	mux.HandleFunc(constants.EndpointDRFailbacks, failbackHandler)
+	mux.HandleFunc(constants.EndpointDRFailbacksPrefix, failbackHandler)
 	mux.HandleFunc(constants.EndpointDRDatasetsPrefix, datasetsHandler)
 	mux.HandleFunc(constants.EndpointDRDrills, drillsHandler)
+	mux.HandleFunc(constants.EndpointDRDrillsPrefix, drillsHandler)
+	mux.HandleFunc(constants.EndpointDREvidencePrefix, evidenceHandler)
 	mux.HandleFunc(constants.EndpointDRRestores, restoresHandler)
+	mux.HandleFunc(constants.EndpointDRRestoresPrefix, restoresHandler)
 	mux.HandleFunc(constants.EndpointDRBreakglassActivate, breakglassHandler)
 }

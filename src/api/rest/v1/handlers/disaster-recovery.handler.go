@@ -72,6 +72,12 @@ func (h *DisasterRecoveryHandler) HandleSinglePlan(w http.ResponseWriter, r *htt
 			return nil
 		}
 
+		if strings.HasSuffix(path, "/rpo") && r.Method == http.MethodGet {
+			planID := strings.TrimSuffix(path, "/rpo")
+			h.getPlanRPO(w, r, ctx, meta, planID)
+			return nil
+		}
+
 		if r.Method == http.MethodGet {
 			h.getPlan(w, r, ctx, meta, path)
 			return nil
@@ -94,7 +100,7 @@ func (h *DisasterRecoveryHandler) HandleDeclareIncident(w http.ResponseWriter, r
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -104,7 +110,7 @@ func (h *DisasterRecoveryHandler) HandleDeclareIncident(w http.ResponseWriter, r
 
 		inc, err := h.service.DeclareIncident(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
@@ -128,7 +134,7 @@ func (h *DisasterRecoveryHandler) HandleApproveIncident(w http.ResponseWriter, r
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -139,7 +145,7 @@ func (h *DisasterRecoveryHandler) HandleApproveIncident(w http.ResponseWriter, r
 
 		inc, err := h.service.ApproveIncident(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
@@ -160,7 +166,7 @@ func (h *DisasterRecoveryHandler) HandleFailovers(w http.ResponseWriter, r *http
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -170,7 +176,7 @@ func (h *DisasterRecoveryHandler) HandleFailovers(w http.ResponseWriter, r *http
 
 		op, err := h.service.InitiateFailover(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
@@ -196,6 +202,11 @@ func (h *DisasterRecoveryHandler) HandleSingleFailover(w http.ResponseWriter, r 
 			return nil
 		}
 
+		if r.Method == http.MethodGet {
+			h.getFailoverOperation(w, r, ctx, meta, path)
+			return nil
+		}
+
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return nil
 	})
@@ -204,6 +215,14 @@ func (h *DisasterRecoveryHandler) HandleSingleFailover(w http.ResponseWriter, r 
 func (h *DisasterRecoveryHandler) HandleFailback(w http.ResponseWriter, r *http.Request) {
 	meta := utils.ExtractIngressMetadata(r)
 	_ = observability.WithSpan(r.Context(), "disaster_recovery.handler.failback", func(ctx context.Context) error {
+		if r.Method == http.MethodGet {
+			path := strings.TrimPrefix(r.URL.Path, constants.EndpointDRFailbacksPrefix)
+			if path != "" && path != r.URL.Path {
+				h.getFailbackOperation(w, r, ctx, meta, path)
+				return nil
+			}
+		}
+
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return nil
@@ -213,7 +232,7 @@ func (h *DisasterRecoveryHandler) HandleFailback(w http.ResponseWriter, r *http.
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -223,7 +242,7 @@ func (h *DisasterRecoveryHandler) HandleFailback(w http.ResponseWriter, r *http.
 
 		op, err := h.service.ExecuteFailback(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
@@ -257,6 +276,14 @@ func (h *DisasterRecoveryHandler) HandleDatasets(w http.ResponseWriter, r *http.
 func (h *DisasterRecoveryHandler) HandleDrills(w http.ResponseWriter, r *http.Request) {
 	meta := utils.ExtractIngressMetadata(r)
 	_ = observability.WithSpan(r.Context(), "disaster_recovery.handler.drills", func(ctx context.Context) error {
+		if r.Method == http.MethodGet {
+			path := strings.TrimPrefix(r.URL.Path, constants.EndpointDRDrillsPrefix)
+			if path != "" && path != r.URL.Path {
+				h.getDrillRun(w, r, ctx, meta, path)
+				return nil
+			}
+		}
+
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return nil
@@ -266,7 +293,7 @@ func (h *DisasterRecoveryHandler) HandleDrills(w http.ResponseWriter, r *http.Re
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -276,7 +303,7 @@ func (h *DisasterRecoveryHandler) HandleDrills(w http.ResponseWriter, r *http.Re
 
 		rec, err := h.service.RunDrill(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
@@ -288,6 +315,14 @@ func (h *DisasterRecoveryHandler) HandleDrills(w http.ResponseWriter, r *http.Re
 func (h *DisasterRecoveryHandler) HandleRestores(w http.ResponseWriter, r *http.Request) {
 	meta := utils.ExtractIngressMetadata(r)
 	_ = observability.WithSpan(r.Context(), "disaster_recovery.handler.restores", func(ctx context.Context) error {
+		if r.Method == http.MethodGet {
+			path := strings.TrimPrefix(r.URL.Path, constants.EndpointDRRestoresPrefix)
+			if path != "" && path != r.URL.Path {
+				h.getRestoreOperation(w, r, ctx, meta, path)
+				return nil
+			}
+		}
+
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return nil
@@ -297,7 +332,7 @@ func (h *DisasterRecoveryHandler) HandleRestores(w http.ResponseWriter, r *http.
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -307,11 +342,30 @@ func (h *DisasterRecoveryHandler) HandleRestores(w http.ResponseWriter, r *http.
 
 		rec, err := h.service.InitiateRestore(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
 		h.writeSuccess(w, meta, http.StatusAccepted, rec)
+		return nil
+	})
+}
+
+func (h *DisasterRecoveryHandler) HandleEvidence(w http.ResponseWriter, r *http.Request) {
+	meta := utils.ExtractIngressMetadata(r)
+	_ = observability.WithSpan(r.Context(), "disaster_recovery.handler.evidence", func(ctx context.Context) error {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return nil
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, constants.EndpointDREvidencePrefix)
+		if path == "" || path == r.URL.Path {
+			w.WriteHeader(http.StatusBadRequest)
+			return nil
+		}
+
+		h.getEvidenceBundle(w, r, ctx, meta, path)
 		return nil
 	})
 }
@@ -328,7 +382,7 @@ func (h *DisasterRecoveryHandler) HandleBreakglass(w http.ResponseWriter, r *htt
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&cmd); err != nil {
-			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 			return err
 		}
 
@@ -338,7 +392,7 @@ func (h *DisasterRecoveryHandler) HandleBreakglass(w http.ResponseWriter, r *htt
 
 		rec, err := h.service.ActivateBreakglass(ctx, cmd)
 		if err != nil {
-			h.writeError(w, meta, err)
+			h.writeError(ctx, w, meta, err)
 			return err
 		}
 
@@ -352,7 +406,7 @@ func (h *DisasterRecoveryHandler) createPlan(w http.ResponseWriter, r *http.Requ
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cmd); err != nil {
-		h.writeError(w, meta, appErrors.NewValidationError("invalid closed-schema request payload"))
+		h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid closed-schema request payload"))
 		return
 	}
 
@@ -368,7 +422,7 @@ func (h *DisasterRecoveryHandler) createPlan(w http.ResponseWriter, r *http.Requ
 
 	plan, err := h.service.CreatePlan(ctx, cmd)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 
@@ -378,7 +432,7 @@ func (h *DisasterRecoveryHandler) createPlan(w http.ResponseWriter, r *http.Requ
 func (h *DisasterRecoveryHandler) listPlans(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata) {
 	plans, err := h.service.ListPlans(ctx, meta.TenantID)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 	h.writeSuccess(w, meta, http.StatusOK, plans)
@@ -387,16 +441,70 @@ func (h *DisasterRecoveryHandler) listPlans(w http.ResponseWriter, r *http.Reque
 func (h *DisasterRecoveryHandler) getPlan(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, planID string) {
 	plan, err := h.service.GetPlan(ctx, meta.TenantID, planID)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 	h.writeSuccess(w, meta, http.StatusOK, plan)
 }
 
+func (h *DisasterRecoveryHandler) getPlanRPO(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, planID string) {
+	rpo, err := h.service.GetPlanRPO(ctx, meta.TenantID, planID)
+	if err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
+	h.writeSuccess(w, meta, http.StatusOK, rpo)
+}
+
+func (h *DisasterRecoveryHandler) getFailoverOperation(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, opID string) {
+	op, err := h.service.GetFailoverOperation(ctx, meta.TenantID, opID)
+	if err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
+	h.writeSuccess(w, meta, http.StatusOK, op)
+}
+
+func (h *DisasterRecoveryHandler) getFailbackOperation(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, opID string) {
+	op, err := h.service.GetFailbackOperation(ctx, meta.TenantID, opID)
+	if err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
+	h.writeSuccess(w, meta, http.StatusOK, op)
+}
+
+func (h *DisasterRecoveryHandler) getDrillRun(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, runID string) {
+	drill, err := h.service.GetDrillRun(ctx, runID)
+	if err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
+	h.writeSuccess(w, meta, http.StatusOK, drill)
+}
+
+func (h *DisasterRecoveryHandler) getEvidenceBundle(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, runID string) {
+	evidence, err := h.service.GetEvidenceBundle(ctx, runID)
+	if err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
+	h.writeSuccess(w, meta, http.StatusOK, evidence)
+}
+
+func (h *DisasterRecoveryHandler) getRestoreOperation(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, opID string) {
+	restore, err := h.service.GetRestoreOperation(ctx, meta.TenantID, opID)
+	if err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
+	h.writeSuccess(w, meta, http.StatusOK, restore)
+}
+
 func (h *DisasterRecoveryHandler) checkReadiness(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, planID string) {
 	result, err := h.service.CheckReadiness(ctx, meta.TenantID, planID)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 	h.writeSuccess(w, meta, http.StatusOK, result)
@@ -407,7 +515,7 @@ func (h *DisasterRecoveryHandler) approveFailover(w http.ResponseWriter, r *http
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cmd); err != nil {
-		h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+		h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 		return
 	}
 
@@ -418,7 +526,7 @@ func (h *DisasterRecoveryHandler) approveFailover(w http.ResponseWriter, r *http
 
 	op, err := h.service.ApproveAndExecuteFailover(ctx, cmd)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 
@@ -430,7 +538,7 @@ func (h *DisasterRecoveryHandler) abortFailover(w http.ResponseWriter, r *http.R
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cmd); err != nil {
-		h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+		h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 		return
 	}
 
@@ -441,7 +549,7 @@ func (h *DisasterRecoveryHandler) abortFailover(w http.ResponseWriter, r *http.R
 
 	op, err := h.service.AbortFailover(ctx, cmd)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 
@@ -453,7 +561,7 @@ func (h *DisasterRecoveryHandler) fenceDataset(w http.ResponseWriter, r *http.Re
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cmd); err != nil {
-		h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+		h.writeError(ctx, w, meta, appErrors.NewValidationError("invalid request body schema"))
 		return
 	}
 
@@ -464,7 +572,7 @@ func (h *DisasterRecoveryHandler) fenceDataset(w http.ResponseWriter, r *http.Re
 
 	epoch, err := h.service.FenceDataset(ctx, cmd)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 
@@ -474,7 +582,7 @@ func (h *DisasterRecoveryHandler) fenceDataset(w http.ResponseWriter, r *http.Re
 func (h *DisasterRecoveryHandler) getDatasetEpoch(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata, datasetID string) {
 	epoch, err := h.service.GetFencingEpoch(ctx, datasetID)
 	if err != nil {
-		h.writeError(w, meta, err)
+		h.writeError(ctx, w, meta, err)
 		return
 	}
 	h.writeSuccess(w, meta, http.StatusOK, epoch)
@@ -499,8 +607,8 @@ func (h *DisasterRecoveryHandler) writeSuccess(w http.ResponseWriter, meta utils
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (h *DisasterRecoveryHandler) writeError(w http.ResponseWriter, meta utils.IngressMetadata, err error) {
-	span := observability.CurrentSpan(context.Background())
+func (h *DisasterRecoveryHandler) writeError(ctx context.Context, w http.ResponseWriter, meta utils.IngressMetadata, err error) {
+	span := observability.CurrentSpan(ctx)
 	if span != nil && span.IsRecording() {
 		observability.RecordError(span, err)
 	}
