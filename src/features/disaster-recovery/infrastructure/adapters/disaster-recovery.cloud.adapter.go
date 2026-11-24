@@ -9,9 +9,11 @@ package adapters
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"internal-developer-platform/src/features/disaster-recovery/contracts"
+	"internal-developer-platform/src/infra/clients/backup"
 )
 
 type CloudProviderDRAdapter struct {
@@ -117,6 +119,28 @@ func (a *CloudProviderDRAdapter) ScaleWorkloads(ctx context.Context, clusterID s
 }
 
 func (a *CloudProviderDRAdapter) ExecuteRestorePlan(ctx context.Context, clusterID string, backupID string, namespace string) error {
+	if clusterID == "" {
+		return fmt.Errorf("restore target cluster cannot be empty")
+	}
+	if backupID == "" {
+		return fmt.Errorf("backup id cannot be empty")
+	}
+	if namespace == "" {
+		return fmt.Errorf("namespace cannot be empty")
+	}
+
+	cfg := backup.RestorePlanConfig{
+		Name:             fmt.Sprintf("dr-%s", namespace),
+		Namespace:        namespace,
+		SourceBackupPlan: backupID,
+		TargetCluster:    clusterID,
+		ConflictPolicy:   backup.ConflictPolicyFailOnConflict,
+	}
+
+	_, err := backup.GenerateRestorePlanYAML(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to generate Backup for GKE RestorePlan manifest: %w", err)
+	}
 	return nil
 }
 

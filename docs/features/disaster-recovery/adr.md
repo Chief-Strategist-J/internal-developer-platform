@@ -75,3 +75,26 @@
   2. Specific cloud vendor operations are encapsulated in concrete adapter files in `infrastructure/adapters/`.
 - **Consequences**: Enables swapping or polyglot multi-cloud usage via configuration or curl invocation without modifying domain state machines or rules.
 
+---
+
+## ADR-008: DR-INV-08 Drill Evidence Bundling and Immutable Audit Continuity
+- **Status**: Accepted
+- **Context**: Regulatory audits (DR-INV-08, DR-INV-09) require cryptographic proof of disaster recovery drill execution, actual RTO/RPO metrics, and verification traces that survive primary region loss.
+- **Decision**:
+  1. Every drill run (`POST /api/v1/dr/drills`) generates an immutable `EvidenceBundleRecord` containing table verification logs, measured recovery metrics, and a SHA-256 integrity checksum.
+  2. Audit bundles are served directly via `GET /api/v1/dr/evidence/{run}` and routed to dual-region survival sinks (`auditSinkRegion`).
+  3. Failures in meeting tier RTO/RPO floors flip plan status to `NOT_READY` and register an audit defect.
+- **Consequences**: Satisfies government and enterprise audit compliance; prevents unverified or fabricated drill pass claims.
+
+---
+
+## ADR-009: Automated Divergence and Reverse Replication Verification Gate for Failback
+- **Status**: Accepted
+- **Context**: Executing failback while writes are still catching up or before conflicting writes are resolved causes silent data overwrites (CFP-20) and irrecoverable data loss.
+- **Decision**:
+  1. Failback execution (`POST /api/v1/dr/failbacks`) strictly requires dual-actor approval and automated prerequisite verification via `ValidateFailbackPrerequisites`.
+  2. The system checks that `Divergence == 0` and `ReverseLag == 0` before initiating database switchovers or moving traffic.
+  3. Any positive divergence count or non-zero reverse lag results in an immediate `409 Conflict` abort.
+- **Consequences**: Guarantees zero data loss on failback; prevents reverting to a degraded or desynchronized primary cluster.
+
+

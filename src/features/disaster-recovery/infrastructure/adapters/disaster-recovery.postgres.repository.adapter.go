@@ -33,6 +33,7 @@ type PostgresDRRepositoryAdapter struct {
 	incidents   map[string]contracts.DRIncidentRecord
 	failoverOps map[string]contracts.DRFailoverOperationRecord
 	drillRuns   map[string]contracts.DrillRunRecord
+	evidence    map[string]contracts.EvidenceBundleRecord
 	failbackOps map[string]contracts.DRFailbackOperationRecord
 	restoreOps  map[string]contracts.DRRestoreOperationRecord
 	breakglass  map[string]contracts.BreakglassGrantRecord
@@ -44,6 +45,7 @@ func NewPostgresDRRepositoryAdapter(db *sql.DB) *PostgresDRRepositoryAdapter {
 		incidents:   make(map[string]contracts.DRIncidentRecord),
 		failoverOps: make(map[string]contracts.DRFailoverOperationRecord),
 		drillRuns:   make(map[string]contracts.DrillRunRecord),
+		evidence:    make(map[string]contracts.EvidenceBundleRecord),
 		failbackOps: make(map[string]contracts.DRFailbackOperationRecord),
 		restoreOps:  make(map[string]contracts.DRRestoreOperationRecord),
 		breakglass:  make(map[string]contracts.BreakglassGrantRecord),
@@ -294,6 +296,24 @@ func (a *PostgresDRRepositoryAdapter) GetDrillRunByID(ctx context.Context, id st
 	rec, exists := a.drillRuns[id]
 	if !exists {
 		return nil, errors.NewNotFoundError("drill run not found")
+	}
+	copyRec := rec
+	return &copyRec, nil
+}
+
+func (a *PostgresDRRepositoryAdapter) SaveEvidenceBundle(ctx context.Context, bundle contracts.EvidenceBundleRecord) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.evidence[bundle.ID] = bundle
+	return nil
+}
+
+func (a *PostgresDRRepositoryAdapter) GetEvidenceBundleByID(ctx context.Context, id string) (*contracts.EvidenceBundleRecord, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	rec, exists := a.evidence[id]
+	if !exists {
+		return nil, errors.NewNotFoundError("evidence bundle not found")
 	}
 	copyRec := rec
 	return &copyRec, nil

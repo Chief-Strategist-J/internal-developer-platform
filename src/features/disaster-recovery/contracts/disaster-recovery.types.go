@@ -302,3 +302,33 @@ type BreakglassGrantRecord struct {
 	Active        bool      `json:"active"`
 	CreatedAt     time.Time `json:"createdAt"`
 }
+
+type EvidenceBundleRecord struct {
+	ID               string                 `json:"id"`
+	PublicID         string                 `json:"publicId"`
+	TenantID         string                 `json:"tenantId"`
+	DrillRunID       string                 `json:"drillRunId"`
+	PlanID           string                 `json:"planId"`
+	ExecutedBy       string                 `json:"executedBy"`
+	Scope            string                 `json:"scope"`
+	MeasuredRTOSecs  int                    `json:"measuredRtoSecs"`
+	MeasuredRPOSecs  int                    `json:"measuredRpoSecs"`
+	Passed           bool                   `json:"passed"`
+	VerificationLogs []string               `json:"verificationLogs"`
+	AuditSinkRegion  string                 `json:"auditSinkRegion"`
+	ChecksumSha256   string                 `json:"checksumSha256"`
+	CreatedAt        time.Time              `json:"createdAt"`
+}
+
+type LiveRPOResult struct {
+	PlanID           string    `json:"planId"`
+	PlanName         string    `json:"planName"`
+	DataStoreType    string    `json:"dataStoreType"`
+	PrimaryRegion    string    `json:"primaryRegion"`
+	DRRegion         string    `json:"drRegion"`
+	CurrentLagSecs   int       `json:"currentLagSecs"`
+	TargetRPOSeconds int       `json:"targetRpoSecs"`
+	WithinSLA        bool      `json:"withinSla"`
+	CheckedAt        time.Time `json:"checkedAt"`
+}
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -30,6 +31,8 @@ func InitTracer(serviceName string) (*sdktrace.TracerProvider, func(context.Cont
 	if endpoint == "" {
 		endpoint = "127.0.0.1:4318"
 	}
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	endpoint = strings.TrimPrefix(endpoint, "https://")
 
 	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(endpoint),

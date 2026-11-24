@@ -38,6 +38,9 @@ type DRPlanStorePort interface {
 	SaveDrillRun(ctx context.Context, drill contracts.DrillRunRecord) error
 	GetDrillRunByID(ctx context.Context, id string) (*contracts.DrillRunRecord, error)
 
+	SaveEvidenceBundle(ctx context.Context, bundle contracts.EvidenceBundleRecord) error
+	GetEvidenceBundleByID(ctx context.Context, id string) (*contracts.EvidenceBundleRecord, error)
+
 	SaveRestoreOp(ctx context.Context, op contracts.DRRestoreOperationRecord) error
 	GetRestoreOpByID(ctx context.Context, tenantID string, id string) (*contracts.DRRestoreOperationRecord, error)
 

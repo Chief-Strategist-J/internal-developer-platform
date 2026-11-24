@@ -171,4 +171,46 @@ func TestDisasterRecoveryAPIRoutes(t *testing.T) {
 	if wBreak.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on breakglass activation, got %d: %s", wBreak.Code, wBreak.Body.String())
 	}
+
+	reqRPO := httptest.NewRequest(http.MethodGet, constants.EndpointDRPlansPrefix+"payment-api-dr/rpo", nil)
+	reqRPO.Header.Set(constants.HeaderXTenantID, "tenant-api")
+	wRPO := httptest.NewRecorder()
+	mux.ServeHTTP(wRPO, reqRPO)
+
+	if wRPO.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on GET plan RPO, got %d: %s", wRPO.Code, wRPO.Body.String())
+	}
+
+	var rpoResp types.ApiResponse
+	_ = json.Unmarshal(wRPO.Body.Bytes(), &rpoResp)
+	if !rpoResp.Success {
+		t.Fatalf("expected success true on RPO response, got false")
+	}
+
+	reqGetDrill := httptest.NewRequest(http.MethodGet, constants.EndpointDRDrillsPrefix+"payment-api-dr", nil)
+	reqGetDrill.Header.Set(constants.HeaderXTenantID, "tenant-api")
+	wGetDrill := httptest.NewRecorder()
+	mux.ServeHTTP(wGetDrill, reqGetDrill)
+
+	if wGetDrill.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on GET drill run, got %d: %s", wGetDrill.Code, wGetDrill.Body.String())
+	}
+
+	reqGetEvidence := httptest.NewRequest(http.MethodGet, constants.EndpointDREvidencePrefix+"payment-api-dr", nil)
+	reqGetEvidence.Header.Set(constants.HeaderXTenantID, "tenant-api")
+	wGetEvidence := httptest.NewRecorder()
+	mux.ServeHTTP(wGetEvidence, reqGetEvidence)
+
+	if wGetEvidence.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on GET evidence bundle, got %d: %s", wGetEvidence.Code, wGetEvidence.Body.String())
+	}
+
+	reqGetRestore := httptest.NewRequest(http.MethodGet, constants.EndpointDRRestoresPrefix+"payment-api-dr", nil)
+	reqGetRestore.Header.Set(constants.HeaderXTenantID, "tenant-api")
+	wGetRestore := httptest.NewRecorder()
+	mux.ServeHTTP(wGetRestore, reqGetRestore)
+
+	if wGetRestore.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on GET restore op, got %d: %s", wGetRestore.Code, wGetRestore.Body.String())
+	}
 }

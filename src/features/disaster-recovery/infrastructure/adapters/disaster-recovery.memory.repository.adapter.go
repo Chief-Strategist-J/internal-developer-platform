@@ -26,6 +26,7 @@ type MemoryDRStoreAdapter struct {
 	failbackOps   map[string]contracts.DRFailbackOperationRecord
 	restoreOps    map[string]contracts.DRRestoreOperationRecord
 	breakglass    map[string]contracts.BreakglassGrantRecord
+	evidence      map[string]contracts.EvidenceBundleRecord
 }
 
 func NewMemoryDRStoreAdapter() *MemoryDRStoreAdapter {
@@ -38,6 +39,7 @@ func NewMemoryDRStoreAdapter() *MemoryDRStoreAdapter {
 		failbackOps:   make(map[string]contracts.DRFailbackOperationRecord),
 		restoreOps:    make(map[string]contracts.DRRestoreOperationRecord),
 		breakglass:    make(map[string]contracts.BreakglassGrantRecord),
+		evidence:      make(map[string]contracts.EvidenceBundleRecord),
 	}
 }
 
@@ -246,12 +248,49 @@ func (a *MemoryDRStoreAdapter) GetDrillRunByID(ctx context.Context, id string) (
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	rec, exists := a.drillRuns[id]
-	if !exists {
-		return nil, errors.NewNotFoundError("drill run not found")
+	var planID string
+	for _, p := range a.plans {
+		if p.ID == id || p.PublicID == id || p.PlanName == id {
+			planID = p.ID
+			break
+		}
 	}
-	copyRec := rec
-	return &copyRec, nil
+
+	for _, rec := range a.drillRuns {
+		if rec.ID == id || rec.PublicID == id || (planID != "" && rec.PlanID == planID) {
+			copyRec := rec
+			return &copyRec, nil
+		}
+	}
+	return nil, errors.NewNotFoundError("drill run not found")
+}
+
+func (a *MemoryDRStoreAdapter) SaveEvidenceBundle(ctx context.Context, bundle contracts.EvidenceBundleRecord) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.evidence[bundle.ID] = bundle
+	return nil
+}
+
+func (a *MemoryDRStoreAdapter) GetEvidenceBundleByID(ctx context.Context, id string) (*contracts.EvidenceBundleRecord, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var planID string
+	for _, p := range a.plans {
+		if p.ID == id || p.PublicID == id || p.PlanName == id {
+			planID = p.ID
+			break
+		}
+	}
+
+	for _, b := range a.evidence {
+		if b.ID == id || b.PublicID == id || b.DrillRunID == id || (planID != "" && b.PlanID == planID) {
+			copyB := b
+			return &copyB, nil
+		}
+	}
+	return nil, errors.NewNotFoundError("evidence bundle not found")
 }
 
 func (a *MemoryDRStoreAdapter) SaveRestoreOp(ctx context.Context, op contracts.DRRestoreOperationRecord) error {
@@ -264,8 +303,17 @@ func (a *MemoryDRStoreAdapter) SaveRestoreOp(ctx context.Context, op contracts.D
 func (a *MemoryDRStoreAdapter) GetRestoreOpByID(ctx context.Context, tenantID string, id string) (*contracts.DRRestoreOperationRecord, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+
+	var planID string
+	for _, p := range a.plans {
+		if p.TenantID == tenantID && (p.ID == id || p.PublicID == id || p.PlanName == id) {
+			planID = p.ID
+			break
+		}
+	}
+
 	for _, op := range a.restoreOps {
-		if op.TenantID == tenantID && (op.ID == id || op.PublicID == id) {
+		if op.TenantID == tenantID && (op.ID == id || op.PublicID == id || op.PlanID == id || (planID != "" && op.PlanID == planID)) {
 			copyOp := op
 			return &copyOp, nil
 		}

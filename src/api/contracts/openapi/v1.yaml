@@ -622,6 +622,588 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DRPlanResponseWrapper'
+    get:
+      summary: List Disaster Recovery Plans
+      operationId: listDRPlans
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of DR Plans
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/plans/{plan}:
+    get:
+      summary: Get Disaster Recovery Plan by ID or Name
+      operationId: getDRPlan
+      parameters:
+        - name: plan
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: DR Plan Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DRPlanResponseWrapper'
+
+  /api/v1/dr/plans/{plan}:checkReadiness:
+    post:
+      summary: Check DR Plan Readiness Probes
+      operationId: checkDRPlanReadiness
+      parameters:
+        - name: plan
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Readiness Probe Results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/plans/{plan}/rpo:
+    get:
+      summary: Get Live RPO Replication Lag
+      operationId: getDRPlanRPO
+      parameters:
+        - name: plan
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Live RPO Metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/incidents:declare:
+    post:
+      summary: Declare Disaster Recovery Incident
+      operationId: declareDRIncident
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - planId
+                - scope
+                - declarer
+              properties:
+                tenantId:
+                  type: string
+                planId:
+                  type: string
+                scope:
+                  type: string
+                  enum: [ZONE, REGION, PROVIDER_GLOBAL, DATA_CORRUPTION, SECURITY_COMPROMISE]
+                declarer:
+                  type: string
+                evidenceLinks:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '202':
+          description: Incident Declared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/incidents/{incident}:approve:
+    post:
+      summary: Approve Disaster Recovery Incident (Two-Person Quorum)
+      operationId: approveDRIncident
+      parameters:
+        - name: incident
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - approver
+              properties:
+                tenantId:
+                  type: string
+                incidentId:
+                  type: string
+                approver:
+                  type: string
+      responses:
+        '200':
+          description: Incident Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/failovers:
+    post:
+      summary: Initiate Stateful Disaster Recovery Failover
+      operationId: initiateDRFailover
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - planId
+                - incidentId
+                - mode
+                - initiator
+              properties:
+                tenantId:
+                  type: string
+                planId:
+                  type: string
+                incidentId:
+                  type: string
+                mode:
+                  type: string
+                  enum: [SWITCHOVER, REPLICA_FAILOVER]
+                initiator:
+                  type: string
+      responses:
+        '202':
+          description: Failover Initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/failovers/{op}:
+    get:
+      summary: Get Failover Operation Status
+      operationId: getDRFailover
+      parameters:
+        - name: op
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Failover Operation Status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/failovers/{op}:approve:
+    post:
+      summary: Approve and Execute Failover Operation
+      operationId: approveDRFailover
+      parameters:
+        - name: op
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - approver
+              properties:
+                tenantId:
+                  type: string
+                operationId:
+                  type: string
+                approver:
+                  type: string
+      responses:
+        '200':
+          description: Failover Executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/failbacks:
+    post:
+      summary: Execute Disaster Recovery Failback
+      operationId: executeDRFailback
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - planId
+                - initiator
+                - approver
+                - divergence
+                - reverseLag
+              properties:
+                tenantId:
+                  type: string
+                planId:
+                  type: string
+                initiator:
+                  type: string
+                approver:
+                  type: string
+                divergence:
+                  type: integer
+                reverseLag:
+                  type: integer
+      responses:
+        '200':
+          description: Failback Executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/datasets/{dataset}:fence:
+    post:
+      summary: Fence Dataset Write Path
+      operationId: fenceDataset
+      parameters:
+        - name: dataset
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - authority
+              properties:
+                tenantId:
+                  type: string
+                datasetId:
+                  type: string
+                authority:
+                  type: string
+                actor:
+                  type: string
+      responses:
+        '200':
+          description: Dataset Fenced and Epoch Incremented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/datasets/{dataset}/epoch:
+    get:
+      summary: Get Dataset Fencing Epoch
+      operationId: getDatasetEpoch
+      parameters:
+        - name: dataset
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current Fencing Epoch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/drills:
+    post:
+      summary: Execute Disaster Recovery Drill
+      operationId: executeDRDrill
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - planId
+                - scope
+                - initiator
+              properties:
+                tenantId:
+                  type: string
+                planId:
+                  type: string
+                scope:
+                  type: string
+                initiator:
+                  type: string
+                syntheticOnly:
+                  type: boolean
+      responses:
+        '200':
+          description: Drill Executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/drills/{run}:
+    get:
+      summary: Get Drill Run Results
+      operationId: getDRDrill
+      parameters:
+        - name: run
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Drill Run Report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/evidence/{run}:
+    get:
+      summary: Get Immutable Drill Evidence Bundle
+      operationId: getDREvidence
+      parameters:
+        - name: run
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Immutable Evidence Bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/restores:
+    post:
+      summary: Initiate Backup Restore
+      operationId: initiateDRRestore
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - planId
+                - backupId
+                - targetCluster
+                - namespace
+                - conflictPolicy
+                - initiator
+              properties:
+                tenantId:
+                  type: string
+                planId:
+                  type: string
+                backupId:
+                  type: string
+                targetCluster:
+                  type: string
+                namespace:
+                  type: string
+                conflictPolicy:
+                  type: string
+                initiator:
+                  type: string
+      responses:
+        '202':
+          description: Restore Initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/restores/{op}:
+    get:
+      summary: Get Restore Operation Status
+      operationId: getDRRestore
+      parameters:
+        - name: op
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Restore Operation Report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/dr/breakglass:activate:
+    post:
+      summary: Activate Emergency Break-Glass Role (Two-Person Quorum)
+      operationId: activateDRBreakglass
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - requester
+                - approver
+                - durationMins
+                - justification
+              properties:
+                tenantId:
+                  type: string
+                requester:
+                  type: string
+                approver:
+                  type: string
+                durationMins:
+                  type: integer
+                justification:
+                  type: string
+      responses:
+        '200':
+          description: Break-Glass Role Activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
 components:
 
   schemas:

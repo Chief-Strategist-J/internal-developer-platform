@@ -9,6 +9,7 @@ package tests
 import (
 	"context"
 	"testing"
+	"time"
 
 	"internal-developer-platform/src/features/disaster-recovery/contracts"
 	"internal-developer-platform/src/features/disaster-recovery/domain/machines"
@@ -196,5 +197,60 @@ func TestEndToEndDisasterRecoveryWorkflow(t *testing.T) {
 	if err != nil || route != plan.DRRegion {
 		t.Fatalf("expected traffic routed to DR region '%s', got: '%s'", plan.DRRegion, route)
 	}
+
+	failbackFailCmd := contracts.ExecuteFailbackCommand{
+		TenantID:   plan.TenantID,
+		PlanID:     plan.ID,
+		Initiator:  "lead-sre-1",
+		Approver:   "vp-eng-2",
+		Divergence: 5,
+		ReverseLag: 0,
+	}
+	_, errFail := svc.ExecuteFailback(ctx, failbackFailCmd)
+	if errFail == nil {
+		t.Fatalf("expected failback to be rejected due to unresolved divergence > 0, got success")
+	}
+
+	failbackPassCmd := contracts.ExecuteFailbackCommand{
+		TenantID:   plan.TenantID,
+		PlanID:     plan.ID,
+		Initiator:  "lead-sre-1",
+		Approver:   "vp-eng-2",
+		Divergence: 0,
+		ReverseLag: 0,
+	}
+	failbackOp, errPass := svc.ExecuteFailback(ctx, failbackPassCmd)
+	if errPass != nil {
+		t.Fatalf("expected failback to succeed with 0 divergence and 0 reverse lag, got: %v", errPass)
+	}
+	if failbackOp.State != contracts.StatusNormal {
+		t.Fatalf("expected failback state NORMAL, got: %s", failbackOp.State)
+	}
+
+	routeAfterFailback, err := cloud.GetRoutingPolicy(ctx, plan.PlanName)
+	if err != nil || routeAfterFailback != plan.PrimaryRegion {
+		t.Fatalf("expected traffic restored to primary region '%s', got: '%s'", plan.PrimaryRegion, routeAfterFailback)
+	}
+
+	restoreCmd := contracts.InitiateRestoreCommand{
+		TenantID:       plan.TenantID,
+		PlanID:         plan.ID,
+		BackupID:       "gke-backup-01",
+		TargetCluster:  "gke-dr",
+		Namespace:      "payments",
+		ConflictPolicy: "FAIL_ON_CONFLICT",
+		Initiator:      "sre-lead",
+	}
+	restoreOp, errRestore := svc.InitiateRestore(ctx, restoreCmd)
+	if errRestore != nil {
+		t.Fatalf("expected restore to succeed via Backup for GKE manifest validation, got: %v", errRestore)
+	}
+	if !restoreOp.DataValidated {
+		t.Fatalf("expected restored data validation true, got false")
+	}
+
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelProbe()
+	_ = svc.RunReadinessProbeWorker(probeCtx, 5*time.Millisecond)
 }
 
