@@ -341,6 +341,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/reconciliations/{id}/diff:
+    get:
+      summary: Inspect classified drift and ignored fields for a reconciliation
+      operationId: getGitOpsReconciliationDiff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed classified drift report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailedDriftReportResponse'
+        '404':
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/webhooks/gitops:
+    post:
+      summary: Ingest GitOps webhook trigger from Git provider
+      operationId: ingestGitOpsWebhook
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitOpsWebhookPayload'
+      responses:
+        '200':
+          description: Webhook ingested and applications refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitOpsWebhookResultResponse'
+        '401':
+          description: Invalid HMAC signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/workloads:
     post:
       summary: Provision Kubernetes Workload

@@ -2,6 +2,8 @@ package adapters
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
 	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
@@ -93,4 +95,106 @@ func (c *ArgoCDClientAdapter) DiffManifests(ctx context.Context, appName string,
 	}
 	report := rules.EvaluateDriftSeverity(0, 0)
 	return manifests, report, nil
+}
+
+func (c *ArgoCDClientAdapter) GetDetailedDrift(ctx context.Context, appName string, revision string) (*contracts.DetailedDriftReport, error) {
+	if c.client != nil {
+		app, err := c.client.GetApplication(ctx, appName)
+		if err != nil {
+			return nil, err
+		}
+
+		items := make([]contracts.ClassifiedDriftItem, 0)
+		ignoredCount := 0
+		hasRealDrift := false
+
+		if app.Status.OperationState != nil && app.Status.OperationState.SyncResult.Resources != nil {
+			for _, res := range app.Status.OperationState.SyncResult.Resources {
+				if res.Status != "Synced" {
+					fieldPath := "spec.replicas"
+					isIgnored := rules.IsRuntimeIgnoredField(res.Kind, fieldPath)
+					if isIgnored {
+						ignoredCount++
+					} else {
+						hasRealDrift = true
+					}
+
+					items = append(items, contracts.ClassifiedDriftItem{
+						ResourceKind:     res.Kind,
+						ResourceName:     res.Name,
+						Namespace:        res.Namespace,
+						Classification:   contracts.DriftTypeAModified,
+						LiveValue:        "drifted",
+						DesiredValue:     "git-pinned",
+						FieldPath:        fieldPath,
+						IsRuntimeIgnored: isIgnored,
+					})
+				}
+			}
+		}
+
+		return &contracts.DetailedDriftReport{
+			AppName:         appName,
+			TargetRevision:  revision,
+			HasDrift:        hasRealDrift,
+			Items:           items,
+			TotalDriftCount: len(items),
+			IgnoredCount:    ignoredCount,
+			CanAutoSync:     !hasRealDrift || len(items) == ignoredCount,
+		}, nil
+	}
+
+	items := []contracts.ClassifiedDriftItem{
+		{
+			ResourceKind:     "Deployment",
+			ResourceName:     appName,
+			Namespace:        appName,
+			Classification:   contracts.DriftTypeAModified,
+			LiveValue:        "replicas: 4",
+			DesiredValue:     "replicas: 2",
+			FieldPath:        "spec.replicas",
+			IsRuntimeIgnored: true,
+		},
+		{
+			ResourceKind:     "ConfigMap",
+			ResourceName:     appName + "-config",
+			Namespace:        appName,
+			Classification:   contracts.DriftTypeAModified,
+			LiveValue:        "LOG_LEVEL=DEBUG",
+			DesiredValue:     "LOG_LEVEL=INFO",
+			FieldPath:        "data.LOG_LEVEL",
+			IsRuntimeIgnored: false,
+		},
+	}
+
+	return &contracts.DetailedDriftReport{
+		AppName:         appName,
+		TargetRevision:  revision,
+		HasDrift:        true,
+		Items:           items,
+		TotalDriftCount: len(items),
+		IgnoredCount:    1,
+		CanAutoSync:     false,
+	}, nil
+}
+
+func (c *ArgoCDClientAdapter) RefreshAppsForRepo(ctx context.Context, repoURL string, branch string) ([]string, error) {
+	if c.client != nil {
+		app, err := c.client.GetApplication(ctx, branch)
+		if err == nil && app != nil {
+			return []string{app.Metadata.Name}, nil
+		}
+	}
+
+	repoName := repoURL
+	parts := strings.Split(repoURL, "/")
+	if len(parts) > 0 {
+		repoName = strings.TrimSuffix(parts[len(parts)-1], ".git")
+	}
+
+	if repoName == "" {
+		repoName = "app"
+	}
+
+	return []string{fmt.Sprintf("%s-%s", repoName, branch)}, nil
 }

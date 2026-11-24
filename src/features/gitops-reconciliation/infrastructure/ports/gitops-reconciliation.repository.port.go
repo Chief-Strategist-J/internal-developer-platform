@@ -20,4 +20,6 @@ type ArgoCDClientPort interface {
 	TriggerSync(ctx context.Context, appName string, revision string, prune bool, dryRun bool) (int, error)
 	GetApplicationStatus(ctx context.Context, appName string) (contracts.SyncPhase, contracts.HealthStatus, string, error)
 	DiffManifests(ctx context.Context, appName string, revision string) ([]rules.ResourceManifest, rules.DriftReport, error)
+	GetDetailedDrift(ctx context.Context, appName string, revision string) (*contracts.DetailedDriftReport, error)
+	RefreshAppsForRepo(ctx context.Context, repoURL string, branch string) ([]string, error)
 }

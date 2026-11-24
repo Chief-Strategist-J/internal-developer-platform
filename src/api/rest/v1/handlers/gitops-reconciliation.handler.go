@@ -1,140 +1,206 @@
-/*
-ALGORITHM & ARCHITECTURE BLUEPRINT: GITOPS RECONCILIATION REST HANDLER
-
-1. Ingress Flow Execution:
-  - Ingests W3C traceparent, correlation, tenant, and idempotency headers.
-  - Decodes closed-schema JSON payload for POST /api/v1/gitops/sync.
-  - Enforces Tier-2 handler spans ("gitops.handler.*") wrapping all endpoint executions.
-  - Dispatches validated commands to GitOpsReconciliationService.
-  - Formats success or typed error responses into ApiResponse envelopes.
-  - Zero inline comments inside method bodies.
-*/
 package handlers
 
 import (
-	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/infra/observability"
+	gitopsService "internal-developer-platform/src/features/gitops-reconciliation/service"
 	"internal-developer-platform/src/shared/constants"
-	appErrors "internal-developer-platform/src/shared/errors"
 	"internal-developer-platform/src/shared/types"
+	"internal-developer-platform/src/shared/utils"
 )
 
 type GitOpsReconciliationHandler struct {
-	service *gitopsreconciliation.Service
+	service       *gitopsService.GitOpsReconciliationService
+	webhookSecret string
 }
 
-func NewGitOpsReconciliationHandler(s *gitopsreconciliation.Service) *GitOpsReconciliationHandler {
-	return &GitOpsReconciliationHandler{service: s}
+func NewGitOpsReconciliationHandler(s *gitopsService.GitOpsReconciliationService) *GitOpsReconciliationHandler {
+	secret := os.Getenv("GITOPS_WEBHOOK_SECRET")
+	return &GitOpsReconciliationHandler{
+		service:       s,
+		webhookSecret: secret,
+	}
 }
 
 func (h *GitOpsReconciliationHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
-	_ = observability.WithSpan(r.Context(), "gitops.handler.trigger_sync", func(ctx context.Context) error {
-		start := time.Now()
-		w.Header().Set("Content-Type", "application/json")
-		traceparent := r.Header.Get(constants.HeaderTraceparent)
-		reqID := r.Header.Get(constants.HeaderXRequestID)
-		corrID := r.Header.Get(constants.HeaderXCorrelationID)
-		tenantID := r.Header.Get(constants.HeaderXTenantID)
-		idempotencyKey := r.Header.Get(constants.HeaderXIdempotencyKey)
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
 
-		var cmd contracts.SyncCommand
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&cmd); err != nil {
-			h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", start, reqID, corrID)
-			return err
-		}
+	var cmd contracts.SyncCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		h.writeError(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid json request body", start, meta.RequestID, meta.CorrelationID)
+		return
+	}
 
-		if cmd.TenantID == "" && tenantID != "" {
-			cmd.TenantID = tenantID
-		}
-		if cmd.IdempotencyKey == "" && idempotencyKey != "" {
-			cmd.IdempotencyKey = idempotencyKey
-		}
+	if cmd.TenantID == "" {
+		cmd.TenantID = meta.TenantID
+	}
+	if cmd.IdempotencyKey == "" {
+		cmd.IdempotencyKey = r.Header.Get(constants.HeaderXIdempotencyKey)
+	}
 
-		result, err := h.service.TriggerReconciliation(ctx, cmd)
-		if err != nil {
-			if appErr, ok := err.(*appErrors.ApplicationError); ok {
-				h.writeError(w, appErr.StatusCode, appErr.CanonicalCode, appErr.Message, start, reqID, corrID)
-				return err
-			}
-			h.writeError(w, http.StatusInternalServerError, constants.ErrCodeInternalError, "internal error", start, reqID, corrID)
-			return err
+	result, err := h.service.TriggerReconciliation(r.Context(), cmd)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+		if strings.Contains(err.Error(), "validation") {
+			status = http.StatusBadRequest
+			code = "VALIDATION_FAILED"
+		} else if strings.Contains(err.Error(), "conflict") || strings.Contains(err.Error(), "transition") {
+			status = http.StatusConflict
+			code = "CONFLICT"
+		} else if strings.Contains(err.Error(), "prohibited") || strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+			code = "FORBIDDEN"
 		}
+		h.writeError(w, status, code, err.Error(), start, meta.RequestID, meta.CorrelationID)
+		return
+	}
 
-		w.WriteHeader(http.StatusAccepted)
-		if traceparent != "" {
-			w.Header().Set(constants.HeaderTraceparent, traceparent)
-		}
-
-		resp := types.ApiResponse{
-			Success:    true,
-			StatusCode: http.StatusAccepted,
-			Data:       result,
-			Meta: types.ResponseMeta{
-				RequestID:       reqID,
-				CorrelationID:   corrID,
-				Timestamp:       time.Now().UTC().Format(time.RFC3339),
-				ExecutionTimeMs: time.Since(start).Milliseconds(),
-				APIVersion:      "v1",
-			},
-		}
-		return json.NewEncoder(w).Encode(resp)
-	})
+	w.WriteHeader(http.StatusAccepted)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusAccepted,
+		Data:       result,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *GitOpsReconciliationHandler) GetReconciliation(w http.ResponseWriter, r *http.Request) {
-	_ = observability.WithSpan(r.Context(), "gitops.handler.get_reconciliation", func(ctx context.Context) error {
-		start := time.Now()
-		w.Header().Set("Content-Type", "application/json")
-		traceparent := r.Header.Get(constants.HeaderTraceparent)
-		reqID := r.Header.Get(constants.HeaderXRequestID)
-		corrID := r.Header.Get(constants.HeaderXCorrelationID)
-		tenantID := r.Header.Get(constants.HeaderXTenantID)
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
 
-		pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(pathParts) < 4 {
-			h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "missing reconciliation id in path", start, reqID, corrID)
-			return nil
-		}
-		id := pathParts[len(pathParts)-1]
+	path := strings.TrimPrefix(r.URL.Path, constants.EndpointReconciliationsPrefix)
+	id := strings.TrimSuffix(path, "/diff")
 
-		result, err := h.service.GetReconciliation(ctx, tenantID, id)
-		if err != nil {
-			if appErr, ok := err.(*appErrors.ApplicationError); ok {
-				h.writeError(w, appErr.StatusCode, appErr.CanonicalCode, appErr.Message, start, reqID, corrID)
-				return err
-			}
-			h.writeError(w, http.StatusInternalServerError, constants.ErrCodeInternalError, "internal error", start, reqID, corrID)
-			return err
-		}
+	record, err := h.service.GetReconciliation(r.Context(), meta.TenantID, id)
+	if err != nil || record == nil {
+		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "reconciliation not found", start, meta.RequestID, meta.CorrelationID)
+		return
+	}
 
-		w.WriteHeader(http.StatusOK)
-		if traceparent != "" {
-			w.Header().Set(constants.HeaderTraceparent, traceparent)
-		}
+	w.WriteHeader(http.StatusOK)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       record,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
 
-		resp := types.ApiResponse{
-			Success:    true,
-			StatusCode: http.StatusOK,
-			Data:       result,
-			Meta: types.ResponseMeta{
-				RequestID:       reqID,
-				CorrelationID:   corrID,
-				Timestamp:       time.Now().UTC().Format(time.RFC3339),
-				ExecutionTimeMs: time.Since(start).Milliseconds(),
-				APIVersion:      "v1",
-			},
+func (h *GitOpsReconciliationHandler) GetDriftDiff(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+
+	path := strings.TrimPrefix(r.URL.Path, constants.EndpointReconciliationsPrefix)
+	id := strings.TrimSuffix(path, "/diff")
+
+	diffReport, err := h.service.InspectDrift(r.Context(), meta.TenantID, id)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
 		}
-		return json.NewEncoder(w).Encode(resp)
-	})
+		h.writeError(w, status, code, err.Error(), start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       diffReport,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *GitOpsReconciliationHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "VALIDATION_FAILED", "failed to read webhook payload", start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	var payload contracts.GitOpsWebhookPayload
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		h.writeError(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid json payload", start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	signature := r.Header.Get("X-Hub-Signature-256")
+	if signature == "" {
+		signature = r.Header.Get("X-ArgoCD-Signature")
+	}
+
+	result, err := h.service.IngestWebhook(r.Context(), payload, signature, h.webhookSecret, bodyBytes)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+		if strings.Contains(err.Error(), "signature") || strings.Contains(err.Error(), "unauthorized") {
+			status = http.StatusUnauthorized
+			code = "UNAUTHORIZED"
+		} else if strings.Contains(err.Error(), "validation") {
+			status = http.StatusBadRequest
+			code = "VALIDATION_FAILED"
+		}
+		h.writeError(w, status, code, err.Error(), start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       result,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *GitOpsReconciliationHandler) writeError(w http.ResponseWriter, status int, code string, msg string, start time.Time, reqID string, corrID string) {

@@ -43,6 +43,26 @@ func (m *MockFlakyArgoClient) DiffManifests(ctx context.Context, appName string,
 	return manifests, rules.EvaluateDriftSeverity(0, 0), nil
 }
 
+func (m *MockFlakyArgoClient) GetDetailedDrift(ctx context.Context, appName string, revision string) (*contracts.DetailedDriftReport, error) {
+	return &contracts.DetailedDriftReport{
+		AppName:         appName,
+		TargetRevision:  revision,
+		HasDrift:        false,
+		Items:           make([]contracts.ClassifiedDriftItem, 0),
+		TotalDriftCount: 0,
+		IgnoredCount:    0,
+		CanAutoSync:     true,
+	}, nil
+}
+
+func (m *MockFlakyArgoClient) RefreshAppsForRepo(ctx context.Context, repoURL string, branch string) ([]string, error) {
+	return []string{appNameFromURL(repoURL, branch)}, nil
+}
+
+func appNameFromURL(repoURL, branch string) string {
+	return "app-" + branch
+}
+
 func TestStatefulGitOpsRollbackOnDeploymentFailure(t *testing.T) {
 	ctx := context.Background()
 	store := gitopsreconciliation.NewMemoryStore()

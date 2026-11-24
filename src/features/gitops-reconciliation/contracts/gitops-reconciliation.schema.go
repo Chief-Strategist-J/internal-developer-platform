@@ -33,3 +33,16 @@ func ValidateSyncCommand(cmd SyncCommand) error {
 	}
 	return nil
 }
+
+func ValidateWebhookPayload(p GitOpsWebhookPayload) error {
+	if p.RepositoryURL == "" {
+		return errors.NewValidationError("repositoryUrl is required")
+	}
+	if p.Branch == "" {
+		return errors.NewValidationError("branch is required")
+	}
+	if p.CommitSHA == "" || len(p.CommitSHA) < 7 {
+		return errors.NewValidationError("valid commitSha is required")
+	}
+	return nil
+}

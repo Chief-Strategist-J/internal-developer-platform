@@ -134,5 +134,8 @@ func decodeRegimePayload(r *http.Request, meta IngressMetadata) (contracts.Creat
 	if cmd.CorrelationID == "" {
 		cmd.CorrelationID = meta.CorrelationID
 	}
+	if err := contracts.ValidateCreateRegimePolicyCommand(cmd); err != nil {
+		return cmd, err
+	}
 	return cmd, nil
 }

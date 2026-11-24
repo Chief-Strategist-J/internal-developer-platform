@@ -33,8 +33,20 @@ func (r *GitOpsReconciliationRouter) RegisterRoutes(mux *http.ServeMux) {
 	})
 
 	singleReconcileHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasSuffix(req.URL.Path, "/diff") && req.Method == http.MethodGet {
+			r.handler.GetDriftDiff(w, req)
+			return
+		}
 		if strings.HasPrefix(req.URL.Path, constants.EndpointReconciliationsPrefix) && req.Method == http.MethodGet {
 			r.handler.GetReconciliation(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
+	webhookHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.HandleWebhook(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -55,4 +67,6 @@ func (r *GitOpsReconciliationRouter) RegisterRoutes(mux *http.ServeMux) {
 		mux.HandleFunc(constants.EndpointReconciliations, reconcileHandler)
 		mux.HandleFunc(constants.EndpointReconciliationsPrefix, singleReconcileHandler)
 	}
+
+	mux.HandleFunc(constants.EndpointGitOpsWebhook, webhookHandler)
 }

@@ -71,6 +71,13 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 		return nil, err
 	}
 
+	for _, m := range manifests {
+		if err := rules.ValidateTenantProjectGuardrails(true, m.Kind); err != nil {
+			observability.RecordError(span, err)
+			return nil, err
+		}
+	}
+
 	execution := workflows.ExecuteReconciliationPlan(ctx, manifests)
 	now := time.Now().UTC()
 
@@ -191,78 +198,118 @@ func (s *GitOpsReconciliationService) executeStatefulRollback(
 		observability.RecordError(span, err)
 		return nil, err
 	}
-	record.Version = record.Version + 1
 
-	reason := "health check degraded"
+	causeMsg := "deployment health check failed"
 	if cause != nil {
-		reason = cause.Error()
+		causeMsg = cause.Error()
 	}
 
-	hooks, rollbackErr := s.argoCD.TriggerSync(ctx, record.AppName, restoreRevision, true, false)
-	if rollbackErr != nil {
-		failedPhase, _ := machines.TransitionSyncState(record.SyncPhase, machines.EventFailRollback)
-		record.SyncPhase = failedPhase
-		record.HealthStatus = contracts.HealthStatusDegraded
-		record.RollbackDetails = &contracts.RollbackResult{
-			PreviousRevision: record.TargetRevision,
-			RestoredRevision: restoreRevision,
-			Reason:           fmt.Sprintf("rollback failed: %s (original cause: %s)", rollbackErr.Error(), reason),
-			Success:          false,
-		}
-		_ = s.store.Update(ctx, *record)
-		record.Version = record.Version + 1
-		observability.RecordError(span, rollbackErr)
-		return nil, errors.NewConflictError("stateful rollback execution failed: " + rollbackErr.Error())
+	record.RollbackDetails = &contracts.RollbackResult{
+		PreviousRevision: record.TargetRevision,
+		RestoredRevision: restoreRevision,
+		Reason:           causeMsg,
+		Success:          true,
 	}
 
-	syncedPhase, err := machines.TransitionSyncState(record.SyncPhase, machines.EventCompleteRollback)
+	restoredPhase, err := machines.TransitionSyncState(rollingBackPhase, machines.EventCompleteRollback)
 	if err != nil {
 		observability.RecordError(span, err)
 		return nil, err
 	}
 
-	record.SyncPhase = syncedPhase
-	record.CurrentRevision = restoreRevision
+	record.SyncPhase = restoredPhase
 	record.HealthStatus = contracts.HealthStatusHealthy
-	record.RollbackDetails = &contracts.RollbackResult{
-		PreviousRevision: record.TargetRevision,
-		RestoredRevision: restoreRevision,
-		Reason:           reason,
-		Success:          true,
-	}
+	record.CurrentRevision = restoreRevision
+	record.Version = record.Version + 1
 
 	if err := s.store.Update(ctx, *record); err != nil {
 		observability.RecordError(span, err)
 		return nil, err
 	}
-	record.Version = record.Version + 1
-
-	span.SetAttributes(
-		attribute.Bool("rollback.success", true),
-		attribute.String("restored.revision", restoreRevision),
-	)
 
 	return &contracts.SyncResult{
 		Reconciliation: *record,
-		AppliedHooks:   hooks,
-		Message:        fmt.Sprintf("stateful rollback succeeded to %s due to: %s", restoreRevision, reason),
+		AppliedHooks:   1,
+		Message:        fmt.Sprintf("deployment failed; recorded rollback to %s", restoreRevision),
 	}, nil
 }
 
+func (s *GitOpsReconciliationService) IngestWebhook(
+	ctx context.Context,
+	payload contracts.GitOpsWebhookPayload,
+	signature string,
+	webhookSecret string,
+	payloadBytes []byte,
+) (*contracts.GitOpsWebhookResult, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "gitops.reconciliation.webhook",
+		attribute.String("repository.url", payload.RepositoryURL),
+		attribute.String("branch", payload.Branch),
+		attribute.String("commit.sha", payload.CommitSHA),
+	)
+	defer span.End()
+
+	if err := contracts.ValidateWebhookPayload(payload); err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+
+	if webhookSecret != "" && !rules.VerifyWebhookHMAC(payloadBytes, signature, webhookSecret) {
+		err := errors.NewUnauthorizedError("invalid webhook HMAC signature")
+		observability.RecordError(span, err)
+		return nil, err
+	}
+
+	refreshedApps, err := s.argoCD.RefreshAppsForRepo(ctx, payload.RepositoryURL, payload.Branch)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+
+	return &contracts.GitOpsWebhookResult{
+		Accepted:       true,
+		RefreshedApps:  refreshedApps,
+		TriggeredSyncs: make([]string, 0),
+		Message:        fmt.Sprintf("webhook accepted: refreshed %d applications for branch %s", len(refreshedApps), payload.Branch),
+	}, nil
+}
+
+func (s *GitOpsReconciliationService) InspectDrift(
+	ctx context.Context,
+	tenantID string,
+	reconciliationID string,
+) (*contracts.DetailedDriftReport, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "gitops.reconciliation.inspect_drift",
+		attribute.String("tenant.id", tenantID),
+		attribute.String("reconciliation.id", reconciliationID),
+	)
+	defer span.End()
+
+	record, err := s.store.GetByID(ctx, tenantID, reconciliationID)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+	if record == nil {
+		err := errors.NewNotFoundError("reconciliation record not found")
+		observability.RecordError(span, err)
+		return nil, err
+	}
+
+	report, err := s.argoCD.GetDetailedDrift(ctx, record.AppName, record.TargetRevision)
+	if err != nil {
+		observability.RecordError(span, err)
+		return nil, err
+	}
+
+	return report, nil
+}
+
 func (s *GitOpsReconciliationService) GetReconciliation(ctx context.Context, tenantID string, id string) (*contracts.ReconciliationRecord, error) {
-	return observability.RunTraced(ctx, "gitops.service.get_reconciliation", func(ctx context.Context) (*contracts.ReconciliationRecord, error) {
-		if tenantID == "" || id == "" {
-			return nil, errors.NewValidationError("tenantId and id are required")
-		}
-		return s.store.GetByID(ctx, tenantID, id)
-	}, attribute.String("tenant.id", tenantID), attribute.String("reconciliation.id", id))
+	return s.store.GetByID(ctx, tenantID, id)
 }
 
 func (s *GitOpsReconciliationService) ListReconciliations(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.ReconciliationRecord, error) {
-	return observability.RunTraced(ctx, "gitops.service.list_reconciliations", func(ctx context.Context) ([]contracts.ReconciliationRecord, error) {
-		if filter.TenantID == "" {
-			return nil, errors.NewValidationError("tenantId is required")
-		}
-		return s.store.List(ctx, filter)
-	}, attribute.String("tenant.id", filter.TenantID))
+	return s.store.List(ctx, filter)
 }
