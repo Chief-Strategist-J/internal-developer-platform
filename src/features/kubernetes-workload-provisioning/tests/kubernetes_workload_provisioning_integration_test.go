@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -850,7 +851,7 @@ func TestGenerateManifestBundleCompliant(t *testing.T) {
 		IdempotencyKey: "idemp-manifest-01",
 	}
 
-	mutations := rules.EvaluateWorkloadMutations(cmd)
+	_ = rules.EvaluateWorkloadMutations(cmd)
 	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
 	if err != nil {
 		t.Fatalf("unexpected error generating manifest bundle: %v", err)
@@ -954,7 +955,7 @@ func TestKubernetesAdapterHealthCheck(t *testing.T) {
 		IdempotencyKey: "idemp-health-01",
 	}
 
-	mutations := rules.EvaluateWorkloadMutations(cmd)
+	_ = rules.EvaluateWorkloadMutations(cmd)
 	if err := client.ApplyDeployment(ctx, cmd, mutations); err != nil {
 		t.Fatalf("unexpected error applying deployment: %v", err)
 	}
@@ -997,7 +998,7 @@ func TestGenerateManifestBundle_CertAndSecretManifests(t *testing.T) {
 		TLSHosts:         []string{"pay.example.gov"},
 	}
 
-	mutations := rules.EvaluateWorkloadMutations(cmd)
+	_ = rules.EvaluateWorkloadMutations(cmd)
 	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
 	if err != nil {
 		t.Fatalf("unexpected error generating manifest bundle: %v", err)
@@ -1034,7 +1035,7 @@ func TestGenerateManifestBundle_PeerAuthenticationAndServiceEntry(t *testing.T) 
 		},
 	}
 
-	mutations := rules.EvaluateWorkloadMutations(cmd)
+	_ = rules.EvaluateWorkloadMutations(cmd)
 	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
 	if err != nil {
 		t.Fatalf("unexpected error generating manifest bundle: %v", err)
@@ -1075,7 +1076,7 @@ func TestGenerateManifestBundle_AuditLogSinkAndBucket(t *testing.T) {
 		},
 	}
 
-	mutations := rules.EvaluateWorkloadMutations(cmd)
+	_ = rules.EvaluateWorkloadMutations(cmd)
 	bundle, err := client.GenerateManifestBundle(ctx, cmd, mutations)
 	if err != nil {
 		t.Fatalf("unexpected error generating manifest bundle: %v", err)
@@ -1093,3 +1094,69 @@ func TestGenerateManifestBundle_AuditLogSinkAndBucket(t *testing.T) {
 		t.Errorf("expected isLocked: true in StorageBucket")
 	}
 }
+
+func TestLiveKubernetesClusterClusterIntegration(t *testing.T) {
+	ctx := context.Background()
+	kubeconfigPath := os.Getenv("KUBECONFIG")
+	if kubeconfigPath == "" {
+		if home := os.Getenv("HOME"); home != "" {
+			candidate := filepath.Join(home, ".kube", "config")
+			if _, err := os.Stat(candidate); err == nil {
+				kubeconfigPath = candidate
+			}
+		}
+	}
+	if kubeconfigPath == "" {
+		t.Skip("skipping live kubernetes test: no KUBECONFIG or ~/.kube/config found")
+	}
+
+	resConfig := resilience.DefaultResilienceConfig()
+	client, err := k8sclient.NewKubernetesClientFromConfig(kubeconfigPath, "", resConfig)
+	if err != nil {
+		t.Skipf("skipping live kubernetes test: unable to connect to cluster: %v", err)
+	}
+
+	liveAdapter := adapters.NewLiveKubernetesClientAdapter(client)
+	store := adapters.NewMemoryWorkloadRepositoryAdapter()
+	svc := service.NewWorkloadProvisioningService(store, liveAdapter)
+
+	cmd := contracts.WorkloadProvisionCommand{
+		ID:             "wkld-real-verify-01",
+		TenantID:       "tenant-real-test",
+		ServiceID:      "order-service",
+		Namespace:      "test-real-workloads",
+		WorkloadName:   "real-nginx-deploy",
+		Image:          "repo/nginx:1.25-alpine",
+		CPURequest:     "100m",
+		CPULimit:       "200m",
+		MemoryRequest:  "128Mi",
+		MemoryLimit:    "256Mi",
+		Replicas:       1,
+		Strategy:       contracts.StrategyRollingUpdate,
+		IdempotencyKey: "idemp-real-001",
+	}
+
+	_ = rules.EvaluateWorkloadMutations(cmd)
+
+	res, err := svc.ProvisionWorkload(ctx, cmd)
+	if err != nil {
+		t.Fatalf("failed to provision workload via service with live adapter: %v", err)
+	}
+
+	if res.Provision.Namespace != cmd.Namespace {
+		t.Errorf("expected namespace %s, got %s", cmd.Namespace, res.Provision.Namespace)
+	}
+
+	if err := liveAdapter.ApplyPDB(ctx, cmd.Namespace, cmd.WorkloadName, 1); err != nil {
+		t.Fatalf("failed to apply pdb to live cluster: %v", err)
+	}
+
+	manifests, err := liveAdapter.GetAppliedManifests(ctx, cmd.Namespace, cmd.WorkloadName)
+	if err != nil {
+		t.Fatalf("failed to get applied manifests: %v", err)
+	}
+	if manifests == nil || manifests.DeploymentYAML == "" {
+		t.Errorf("expected non-empty deployment YAML from live adapter")
+	}
+}
+

@@ -59,3 +59,20 @@ const (
 	ErrCodePreconditionFailed = "PRECONDITION_FAILED"
 	ErrCodeInternalError      = "INTERNAL_SERVER_ERROR"
 )
+
+const (
+	LabelAppName      = "app.kubernetes.io/name"
+	LabelAppPartOf    = "app.kubernetes.io/part-of"
+	LabelAppManagedBy = "app.kubernetes.io/managed-by"
+	LabelMeshRevision = "istio.io/rev"
+	LabelPSEnforce    = "pod-security.kubernetes.io/enforce"
+	LabelPSAudit      = "pod-security.kubernetes.io/audit"
+	LabelPSWarn       = "pod-security.kubernetes.io/warn"
+)
+
+const (
+	DefaultManagerValue = "internal-developer-platform"
+	DefaultMeshRevision = "asm-managed"
+	DefaultCapabilityDropAll = "ALL"
+	DefaultPDBNameSuffix = "-pdb"
+)
