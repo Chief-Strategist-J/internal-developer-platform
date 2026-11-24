@@ -15,6 +15,13 @@ routes:
     status: "/api/v1/workloads/{id}"
   catalog:
     services: "/api/v1/services"
+  dr:
+    plans: "/api/v1/dr/plans"
+    incidents_declare: "/api/v1/dr/incidents:declare"
+    failovers: "/api/v1/dr/failovers"
+    failbacks: "/api/v1/dr/failbacks"
+    datasets_fence: "/api/v1/dr/datasets/{dataset}:fence"
+    drills: "/api/v1/dr/drills"
   health:
     live: "/healthz"
     ready: "/readyz"

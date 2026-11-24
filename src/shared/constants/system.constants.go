@@ -50,6 +50,17 @@ const (
 	EndpointPoliciesEvaluate            = "/api/v1/policies/admission/evaluate"
 	EndpointPoliciesAuditScan           = "/api/v1/policies/audit-scan"
 	EndpointPoliciesReconcileExceptions = "/api/v1/policies/exceptions/reconcile"
+
+	EndpointDRPlans                   = "/api/v1/dr/plans"
+	EndpointDRPlansPrefix             = "/api/v1/dr/plans/"
+	EndpointDRIncidentsDeclare        = "/api/v1/dr/incidents:declare"
+	EndpointDRIncidentsApprovePrefix  = "/api/v1/dr/incidents/"
+	EndpointDRFailovers               = "/api/v1/dr/failovers"
+	EndpointDRFailoversPrefix         = "/api/v1/dr/failovers/"
+	EndpointDRFailbacks               = "/api/v1/dr/failbacks"
+	EndpointDRDatasetsPrefix          = "/api/v1/dr/datasets/"
+	EndpointDRDrills                  = "/api/v1/dr/drills"
+	EndpointDRDrillsPrefix            = "/api/v1/dr/drills/"
 )
 
 const (
