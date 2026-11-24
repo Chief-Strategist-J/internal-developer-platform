@@ -12,6 +12,8 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: DISASTER RECOVERY INGRESS HANDLER
       * Failback: ExecuteFailback.
       * Fencing: FenceDataset, GetFencingEpoch.
       * Drills: RunDrill.
+      * Restore: InitiateRestore.
+      * Breakglass: ActivateBreakglass.
   - Encapsulates results in standard RFC-compliant ApiResponse envelopes.
 
 2. Invariants:
@@ -283,6 +285,68 @@ func (h *DisasterRecoveryHandler) HandleDrills(w http.ResponseWriter, r *http.Re
 	})
 }
 
+func (h *DisasterRecoveryHandler) HandleRestores(w http.ResponseWriter, r *http.Request) {
+	meta := utils.ExtractIngressMetadata(r)
+	_ = observability.WithSpan(r.Context(), "disaster_recovery.handler.restores", func(ctx context.Context) error {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return nil
+		}
+
+		var cmd contracts.InitiateRestoreCommand
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&cmd); err != nil {
+			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			return err
+		}
+
+		if cmd.TenantID == "" {
+			cmd.TenantID = meta.TenantID
+		}
+
+		rec, err := h.service.InitiateRestore(ctx, cmd)
+		if err != nil {
+			h.writeError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccess(w, meta, http.StatusAccepted, rec)
+		return nil
+	})
+}
+
+func (h *DisasterRecoveryHandler) HandleBreakglass(w http.ResponseWriter, r *http.Request) {
+	meta := utils.ExtractIngressMetadata(r)
+	_ = observability.WithSpan(r.Context(), "disaster_recovery.handler.breakglass", func(ctx context.Context) error {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return nil
+		}
+
+		var cmd contracts.ActivateBreakglassCommand
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&cmd); err != nil {
+			h.writeError(w, meta, appErrors.NewValidationError("invalid request body schema"))
+			return err
+		}
+
+		if cmd.TenantID == "" {
+			cmd.TenantID = meta.TenantID
+		}
+
+		rec, err := h.service.ActivateBreakglass(ctx, cmd)
+		if err != nil {
+			h.writeError(w, meta, err)
+			return err
+		}
+
+		h.writeSuccess(w, meta, http.StatusOK, rec)
+		return nil
+	})
+}
+
 func (h *DisasterRecoveryHandler) createPlan(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata) {
 	var cmd contracts.CreateDRPlanCommand
 	dec := json.NewDecoder(r.Body)
@@ -436,6 +500,11 @@ func (h *DisasterRecoveryHandler) writeSuccess(w http.ResponseWriter, meta utils
 }
 
 func (h *DisasterRecoveryHandler) writeError(w http.ResponseWriter, meta utils.IngressMetadata, err error) {
+	span := observability.CurrentSpan(context.Background())
+	if span != nil && span.IsRecording() {
+		observability.RecordError(span, err)
+	}
+
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	if meta.Traceparent != "" {
 		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)

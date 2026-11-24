@@ -148,3 +148,38 @@ func ValidateFenceDatasetCommand(cmd FenceDatasetCommand) error {
 	}
 	return nil
 }
+
+func ValidateInitiateRestoreCommand(cmd InitiateRestoreCommand) error {
+	if cmd.TenantID == "" || !rxGenericID.MatchString(cmd.TenantID) {
+		return errors.NewValidationError("tenantId is required")
+	}
+	if cmd.BackupID == "" || len(strings.TrimSpace(cmd.BackupID)) == 0 {
+		return errors.NewValidationError("backupId is required")
+	}
+	if cmd.TargetCluster == "" || len(strings.TrimSpace(cmd.TargetCluster)) == 0 {
+		return errors.NewValidationError("targetCluster is required")
+	}
+	if cmd.Namespace == "" || len(strings.TrimSpace(cmd.Namespace)) == 0 {
+		return errors.NewValidationError("namespace is required")
+	}
+	return nil
+}
+
+func ValidateActivateBreakglassCommand(cmd ActivateBreakglassCommand) error {
+	if cmd.TenantID == "" || !rxGenericID.MatchString(cmd.TenantID) {
+		return errors.NewValidationError("tenantId is required")
+	}
+	if cmd.Requester == "" || cmd.Approver == "" {
+		return errors.NewValidationError("requester and approver are required (two-person rule)")
+	}
+	if cmd.Requester == cmd.Approver {
+		return errors.NewConflictError("requester and approver must be distinct individuals")
+	}
+	if cmd.DurationMins <= 0 || cmd.DurationMins > 240 {
+		return errors.NewValidationError("durationMins must be between 1 and 240 minutes")
+	}
+	if cmd.Justification == "" || len(strings.TrimSpace(cmd.Justification)) < 10 {
+		return errors.NewValidationError("justification must be at least 10 characters")
+	}
+	return nil
+}

@@ -8,6 +8,8 @@
 //     * Fencing: :fence, /epoch
 //     * Failbacks: POST /api/v1/dr/failbacks
 //     * Drills: POST /api/v1/dr/drills
+//     * Restores: POST /api/v1/dr/restores
+//     * Breakglass: POST /api/v1/dr/breakglass:activate
 // - Zero inline comments inside function bodies.
 package tests
 
@@ -130,5 +132,43 @@ func TestDisasterRecoveryAPIRoutes(t *testing.T) {
 
 	if wDrill.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on drill execution, got %d: %s", wDrill.Code, wDrill.Body.String())
+	}
+
+	restoreCmd := contracts.InitiateRestoreCommand{
+		TenantID:       "tenant-api",
+		PlanID:         "payment-api-dr",
+		BackupID:       "bkp-gke-001",
+		TargetCluster:  "gke-dr-cluster",
+		Namespace:      "payments",
+		ConflictPolicy: "FAIL_ON_CONFLICT",
+		Initiator:      "sre-lead",
+	}
+	restoreBody, _ := json.Marshal(restoreCmd)
+	reqRestore := httptest.NewRequest(http.MethodPost, constants.EndpointDRRestores, bytes.NewReader(restoreBody))
+	reqRestore.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	reqRestore.Header.Set(constants.HeaderXTenantID, "tenant-api")
+	wRestore := httptest.NewRecorder()
+	mux.ServeHTTP(wRestore, reqRestore)
+
+	if wRestore.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted on restore, got %d: %s", wRestore.Code, wRestore.Body.String())
+	}
+
+	breakglassCmd := contracts.ActivateBreakglassCommand{
+		TenantID:      "tenant-api",
+		Requester:     "operator-1",
+		Approver:      "director-2",
+		DurationMins:  60,
+		Justification: "Emergency restore and key verification in DR region",
+	}
+	breakglassBody, _ := json.Marshal(breakglassCmd)
+	reqBreak := httptest.NewRequest(http.MethodPost, constants.EndpointDRBreakglassActivate, bytes.NewReader(breakglassBody))
+	reqBreak.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	reqBreak.Header.Set(constants.HeaderXTenantID, "tenant-api")
+	wBreak := httptest.NewRecorder()
+	mux.ServeHTTP(wBreak, reqBreak)
+
+	if wBreak.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on breakglass activation, got %d: %s", wBreak.Code, wBreak.Body.String())
 	}
 }

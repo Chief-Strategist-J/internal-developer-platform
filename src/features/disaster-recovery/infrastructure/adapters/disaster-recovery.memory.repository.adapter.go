@@ -24,6 +24,8 @@ type MemoryDRStoreAdapter struct {
 	fencingEpochs map[string]contracts.FencingEpochRecord
 	drillRuns     map[string]contracts.DrillRunRecord
 	failbackOps   map[string]contracts.DRFailbackOperationRecord
+	restoreOps    map[string]contracts.DRRestoreOperationRecord
+	breakglass    map[string]contracts.BreakglassGrantRecord
 }
 
 func NewMemoryDRStoreAdapter() *MemoryDRStoreAdapter {
@@ -34,6 +36,8 @@ func NewMemoryDRStoreAdapter() *MemoryDRStoreAdapter {
 		fencingEpochs: make(map[string]contracts.FencingEpochRecord),
 		drillRuns:     make(map[string]contracts.DrillRunRecord),
 		failbackOps:   make(map[string]contracts.DRFailbackOperationRecord),
+		restoreOps:    make(map[string]contracts.DRRestoreOperationRecord),
+		breakglass:    make(map[string]contracts.BreakglassGrantRecord),
 	}
 }
 
@@ -248,5 +252,43 @@ func (a *MemoryDRStoreAdapter) GetDrillRunByID(ctx context.Context, id string) (
 	}
 	copyRec := rec
 	return &copyRec, nil
+}
+
+func (a *MemoryDRStoreAdapter) SaveRestoreOp(ctx context.Context, op contracts.DRRestoreOperationRecord) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.restoreOps[op.ID] = op
+	return nil
+}
+
+func (a *MemoryDRStoreAdapter) GetRestoreOpByID(ctx context.Context, tenantID string, id string) (*contracts.DRRestoreOperationRecord, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	for _, op := range a.restoreOps {
+		if op.TenantID == tenantID && (op.ID == id || op.PublicID == id) {
+			copyOp := op
+			return &copyOp, nil
+		}
+	}
+	return nil, errors.NewNotFoundError("restore op not found")
+}
+
+func (a *MemoryDRStoreAdapter) SaveBreakglassGrant(ctx context.Context, grant contracts.BreakglassGrantRecord) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.breakglass[grant.ID] = grant
+	return nil
+}
+
+func (a *MemoryDRStoreAdapter) GetBreakglassGrantByID(ctx context.Context, tenantID string, id string) (*contracts.BreakglassGrantRecord, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	for _, g := range a.breakglass {
+		if g.TenantID == tenantID && (g.ID == id || g.PublicID == id) {
+			copyG := g
+			return &copyG, nil
+		}
+	}
+	return nil, errors.NewNotFoundError("breakglass grant not found")
 }
 

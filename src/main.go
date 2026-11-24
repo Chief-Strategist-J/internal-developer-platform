@@ -8,6 +8,8 @@ import (
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/middleware"
 	"internal-developer-platform/src/api/rest/v1/routers"
+	disasterrecovery "internal-developer-platform/src/features/disaster-recovery"
+	drAdapters "internal-developer-platform/src/features/disaster-recovery/infrastructure/adapters"
 	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
 	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
 	healthService "internal-developer-platform/src/features/health-checks/service"
@@ -40,6 +42,7 @@ type AppServices struct {
 	HealthRouter    *routers.HealthCheckRouter
 	OfferingsRouter *routers.OfferingsRouter
 	PolicyRouter    *routers.PolicyAsCodeRouter
+	DRRouter        *routers.DisasterRecoveryRouter
 }
 
 func main() {
@@ -91,6 +94,7 @@ func describeService() chassis.ServiceSpec {
 			var workloadStore kubernetesworkloadprovisioning.StorePort
 			var regimeRepo platformregime.PlatformRegimeRepositoryPort
 			var policyRepo policyPorts.PolicyRepositoryPort
+			var drStore disasterrecovery.DRPlanStorePort
 
 			if deps.DB != nil {
 				rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
@@ -101,6 +105,7 @@ func describeService() chassis.ServiceSpec {
 				workloadStore = workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
 				regimeRepo = platformregime.NewPostgresRepository(deps.DB)
 				policyRepo = policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
+				drStore = drAdapters.NewPostgresDRRepositoryAdapter(deps.DB)
 			} else {
 				rbacMemGrants := rbacAdapters.NewMemoryAccessGrantAdapter()
 				rbacMemBindings := rbacAdapters.NewMemoryUserBindingAdapter()
@@ -111,6 +116,7 @@ func describeService() chassis.ServiceSpec {
 				workloadStore = workloadAdapters.NewMemoryWorkloadRepositoryAdapter()
 				regimeRepo = platformregime.NewMemoryRepository()
 				policyRepo = policyAdapters.NewMemoryPolicyRepositoryAdapter()
+				drStore = drAdapters.NewMemoryDRStoreAdapter()
 			}
 
 			catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
@@ -173,6 +179,11 @@ func describeService() chassis.ServiceSpec {
 			policyHandler := handlers.NewPolicyAsCodeHandler(policySvc)
 			policyRouter := routers.NewPolicyAsCodeRouter(policyHandler, rbacMW)
 
+			drCloud := drAdapters.NewCloudProviderDRAdapter()
+			drSvc := disasterrecovery.NewService(drStore, drCloud, drCloud, drCloud, drCloud)
+			drHandler := handlers.NewDisasterRecoveryHandler(drSvc)
+			drRouter := routers.NewDisasterRecoveryRouter(drHandler, rbacMW)
+
 			return &AppServices{
 				RBACRouter:      rbacRouter,
 				CatalogRouter:   catalogRouter,
@@ -182,6 +193,7 @@ func describeService() chassis.ServiceSpec {
 				HealthRouter:    healthRouter,
 				OfferingsRouter: offeringsRouter,
 				PolicyRouter:    policyRouter,
+				DRRouter:        drRouter,
 			}, nil
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
@@ -193,6 +205,7 @@ func describeService() chassis.ServiceSpec {
 			appServices.RegimeRouter.RegisterRoutes(mux)
 			appServices.OfferingsRouter.RegisterRoutes(mux)
 			appServices.PolicyRouter.RegisterRoutes(mux)
+			appServices.DRRouter.RegisterRoutes(mux)
 			appServices.HealthRouter.RegisterPublicRoutes(mux)
 		},
 

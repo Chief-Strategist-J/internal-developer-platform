@@ -256,3 +256,49 @@ type DrillRunRecord struct {
 	EvidenceBundleID string    `json:"evidenceBundleId"`
 	ExecutedAt       time.Time `json:"executedAt"`
 }
+
+type InitiateRestoreCommand struct {
+	TenantID       string `json:"tenantId"`
+	PlanID         string `json:"planId"`
+	BackupID       string `json:"backupId"`
+	TargetCluster  string `json:"targetCluster"`
+	Namespace      string `json:"namespace"`
+	ConflictPolicy string `json:"conflictPolicy"`
+	Initiator      string `json:"initiator"`
+}
+
+type DRRestoreOperationRecord struct {
+	ID             string    `json:"id"`
+	PublicID       string    `json:"publicId"`
+	TenantID       string    `json:"tenantId"`
+	PlanID         string    `json:"planId"`
+	BackupID       string    `json:"backupId"`
+	TargetCluster  string    `json:"targetCluster"`
+	Namespace      string    `json:"namespace"`
+	State          string    `json:"state"`
+	DataValidated  bool      `json:"dataValidated"`
+	ValidationNote string    `json:"validationNote"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+type ActivateBreakglassCommand struct {
+	TenantID      string `json:"tenantId"`
+	Requester     string `json:"requester"`
+	Approver      string `json:"approver"`
+	DurationMins  int    `json:"durationMins"`
+	Justification string `json:"justification"`
+}
+
+type BreakglassGrantRecord struct {
+	ID            string    `json:"id"`
+	PublicID      string    `json:"publicId"`
+	TenantID      string    `json:"tenantId"`
+	Requester     string    `json:"requester"`
+	Approver      string    `json:"approver"`
+	Role          string    `json:"role"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	Justification string    `json:"justification"`
+	Active        bool      `json:"active"`
+	CreatedAt     time.Time `json:"createdAt"`
+}

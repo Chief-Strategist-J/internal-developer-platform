@@ -37,6 +37,12 @@ type DRPlanStorePort interface {
 
 	SaveDrillRun(ctx context.Context, drill contracts.DrillRunRecord) error
 	GetDrillRunByID(ctx context.Context, id string) (*contracts.DrillRunRecord, error)
+
+	SaveRestoreOp(ctx context.Context, op contracts.DRRestoreOperationRecord) error
+	GetRestoreOpByID(ctx context.Context, tenantID string, id string) (*contracts.DRRestoreOperationRecord, error)
+
+	SaveBreakglassGrant(ctx context.Context, grant contracts.BreakglassGrantRecord) error
+	GetBreakglassGrantByID(ctx context.Context, tenantID string, id string) (*contracts.BreakglassGrantRecord, error)
 }
 
 type DatabaseFailoverPort interface {

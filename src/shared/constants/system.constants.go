@@ -61,6 +61,9 @@ const (
 	EndpointDRDatasetsPrefix          = "/api/v1/dr/datasets/"
 	EndpointDRDrills                  = "/api/v1/dr/drills"
 	EndpointDRDrillsPrefix            = "/api/v1/dr/drills/"
+	EndpointDRRestores                = "/api/v1/dr/restores"
+	EndpointDRRestoresPrefix          = "/api/v1/dr/restores/"
+	EndpointDRBreakglassActivate      = "/api/v1/dr/breakglass:activate"
 )
 
 const (
