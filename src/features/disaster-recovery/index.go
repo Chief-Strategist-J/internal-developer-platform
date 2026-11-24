@@ -20,6 +20,8 @@ type ReadinessCheckResult = contracts.ReadinessCheckResult
 type DRIncidentRecord = contracts.DRIncidentRecord
 type DRFailoverOperationRecord = contracts.DRFailoverOperationRecord
 type DRFailbackOperationRecord = contracts.DRFailbackOperationRecord
+type DRRestoreOperationRecord = contracts.DRRestoreOperationRecord
+type BreakglassGrantRecord = contracts.BreakglassGrantRecord
 type DrillRunRecord = contracts.DrillRunRecord
 type FencingEpochRecord = contracts.FencingEpochRecord
 

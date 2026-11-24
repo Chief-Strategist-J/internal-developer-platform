@@ -9,6 +9,8 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: DISASTER RECOVERY INGRESS ROUTER
       * Failbacks: POST /api/v1/dr/failbacks
       * Datasets & Fencing: POST /api/v1/dr/datasets/{dataset}:fence, GET /api/v1/dr/datasets/{dataset}/epoch
       * Drills: POST /api/v1/dr/drills
+      * Restores: POST /api/v1/dr/restores
+      * Breakglass: POST /api/v1/dr/breakglass:activate
   - Attaches RBAC permission gates when middleware is provided.
 
 2. Invariants:
@@ -48,6 +50,8 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 	failbackHandler := http.HandlerFunc(r.handler.HandleFailback)
 	datasetsHandler := http.HandlerFunc(r.handler.HandleDatasets)
 	drillsHandler := http.HandlerFunc(r.handler.HandleDrills)
+	restoresHandler := http.HandlerFunc(r.handler.HandleRestores)
+	breakglassHandler := http.HandlerFunc(r.handler.HandleBreakglass)
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointDRPlans, r.rbacMiddle.RequirePermission(
@@ -95,6 +99,16 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 			rbacContracts.ActionWrite,
 			drillsHandler,
 		))
+		mux.HandleFunc(constants.EndpointDRRestores, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionWrite,
+			restoresHandler,
+		))
+		mux.HandleFunc(constants.EndpointDRBreakglassActivate, r.rbacMiddle.RequirePermission(
+			rbacContracts.ResourceInfrastructure,
+			rbacContracts.ActionWrite,
+			breakglassHandler,
+		))
 		return
 	}
 
@@ -107,4 +121,6 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc(constants.EndpointDRFailbacks, failbackHandler)
 	mux.HandleFunc(constants.EndpointDRDatasetsPrefix, datasetsHandler)
 	mux.HandleFunc(constants.EndpointDRDrills, drillsHandler)
+	mux.HandleFunc(constants.EndpointDRRestores, restoresHandler)
+	mux.HandleFunc(constants.EndpointDRBreakglassActivate, breakglassHandler)
 }

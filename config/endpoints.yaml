@@ -22,6 +22,8 @@ routes:
     failbacks: "/api/v1/dr/failbacks"
     datasets_fence: "/api/v1/dr/datasets/{dataset}:fence"
     drills: "/api/v1/dr/drills"
+    restores: "/api/v1/dr/restores"
+    breakglass_activate: "/api/v1/dr/breakglass:activate"
   health:
     live: "/healthz"
     ready: "/readyz"

@@ -612,6 +612,99 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 23] POST /api/v1/dr/plans -> Create Disaster Recovery Plan"
+echo "--------------------------------------------------------------------------------"
+DR_TENANT_ID="00a02d55-cd2a-43d8-be83-a151ebc41553"
+DR_PLAN_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}" \
+  -H "X-Idempotency-Key: idemp-dr-plan-curl-01" \
+  -d "{
+    \"tenantId\": \"${DR_TENANT_ID}\",
+    \"planName\": \"fintech-ledger-dr-plan\",
+    \"incidentTier\": \"TIER_0\",
+    \"primaryRegion\": \"us-central1\",
+    \"drRegion\": \"us-east4\",
+    \"topology\": \"WARM_STANDBY\",
+    \"targetRtoSeconds\": 300,
+    \"targetRpoSeconds\": 0,
+    \"dataStoreType\": \"CLOUD_SQL\",
+    \"secretSyncSource\": \"GOOGLE_SECRET_MANAGER\",
+    \"primaryClusterId\": \"gke-primary-01\",
+    \"drClusterId\": \"gke-dr-01\",
+    \"idempotencyKey\": \"idemp-dr-plan-curl-01\"
+  }")
+
+echo "${DR_PLAN_RESP}"
+if echo "${DR_PLAN_RESP}" | grep -q "201 Created" && echo "${DR_PLAN_RESP}" | grep -q "fintech-ledger-dr-plan"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully created Disaster Recovery plan in PostgreSQL"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 201 Created for DR plan"
+    exit 1
+fi
+
+PLAN_ID=$(echo "${DR_PLAN_RESP}" | grep -o '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 24] GET /api/v1/dr/plans -> List Disaster Recovery Plans"
+echo "--------------------------------------------------------------------------------"
+DR_LIST_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${DR_LIST_RESP}"
+if echo "${DR_LIST_RESP}" | grep -q "200 OK" && echo "${DR_LIST_RESP}" | grep -q "fintech-ledger-dr-plan"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully listed Disaster Recovery plans from PostgreSQL"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with DR plan in list"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 25] POST /api/v1/dr/plans/{plan}:checkReadiness -> Probe DR Readiness"
+echo "--------------------------------------------------------------------------------"
+DR_READY_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans/${PLAN_ID}:checkReadiness" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}")
+
+echo "${DR_READY_RESP}"
+if echo "${DR_READY_RESP}" | grep -q "200 OK" && echo "${DR_READY_RESP}" | grep -q "overallStatus"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully probed DR readiness and updated PostgreSQL status"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for DR readiness check"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 26] POST /api/v1/dr/incidents:declare -> Declare DR Incident"
+echo "--------------------------------------------------------------------------------"
+DR_INC_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/incidents:declare" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: ${DR_TENANT_ID}" \
+  -d "{
+    \"tenantId\": \"${DR_TENANT_ID}\",
+    \"planId\": \"${PLAN_ID}\",
+    \"scope\": \"REGION_WIDE\",
+    \"declarer\": \"ops-incident-commander\",
+    \"evidenceLinks\": [\"https://monitoring.gov.io/incidents/INC-8921\"]
+  }")
+
+echo "${DR_INC_RESP}"
+if echo "${DR_INC_RESP}" | grep -q "202 Accepted" && echo "${DR_INC_RESP}" | grep -q "PENDING_APPROVAL"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully declared DR incident (PENDING_APPROVAL)"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 202 Accepted for DR incident declaration"
+    exit 1
+fi
+
+
 
 
 
