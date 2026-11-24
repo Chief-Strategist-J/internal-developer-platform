@@ -544,6 +544,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/dr/plans:
+    post:
+      summary: Create Disaster Recovery Plan
+      operationId: createDRPlan
+      parameters:
+        - name: traceparent
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - planName
+                - incidentTier
+                - primaryRegion
+                - drRegion
+                - topology
+                - targetRtoSeconds
+                - targetRpoSeconds
+                - dataStoreType
+                - secretSyncSource
+                - primaryClusterId
+                - drClusterId
+                - idempotencyKey
+              properties:
+                tenantId:
+                  type: string
+                planName:
+                  type: string
+                incidentTier:
+                  type: string
+                  enum: [TIER_0, TIER_1, TIER_2, TIER_3]
+                primaryRegion:
+                  type: string
+                drRegion:
+                  type: string
+                topology:
+                  type: string
+                  enum: [ACTIVE_ACTIVE, WARM_STANDBY, PILOT_LIGHT, RESTORE_TO_NEW]
+                targetRtoSeconds:
+                  type: integer
+                targetRpoSeconds:
+                  type: integer
+                dataStoreType:
+                  type: string
+                  enum: [CLOUD_SQL, ALLOYDB, SPANNER, SELF_MANAGED]
+                secretSyncSource:
+                  type: string
+                  enum: [GOOGLE_SECRET_MANAGER, VAULT_REPLICATED]
+                primaryClusterId:
+                  type: string
+                drClusterId:
+                  type: string
+                idempotencyKey:
+                  type: string
+      responses:
+        '201':
+          description: DR Plan Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DRPlanResponseWrapper'
 components:
 
   schemas:
@@ -1600,3 +1678,103 @@ components:
         meta:
           $ref: '#/components/schemas/ResponseMeta'
 
+
+    DRPlanRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - publicId
+        - tenantId
+        - planName
+        - incidentTier
+        - primaryRegion
+        - drRegion
+        - topology
+        - targetRtoSeconds
+        - targetRpoSeconds
+        - status
+        - dataStoreType
+        - secretSyncSource
+        - primaryClusterId
+        - drClusterId
+        - idempotencyKey
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        publicId:
+          type: string
+        tenantId:
+          type: string
+          format: uuid
+        source:
+          type: string
+        externalId:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+        planName:
+          type: string
+        incidentTier:
+          type: string
+          enum: [TIER_0, TIER_1, TIER_2, TIER_3]
+        primaryRegion:
+          type: string
+        drRegion:
+          type: string
+        topology:
+          type: string
+          enum: [ACTIVE_ACTIVE, WARM_STANDBY, PILOT_LIGHT, RESTORE_TO_NEW]
+        targetRtoSeconds:
+          type: integer
+        targetRpoSeconds:
+          type: integer
+        status:
+          type: string
+        dataStoreType:
+          type: string
+          enum: [CLOUD_SQL, ALLOYDB, SPANNER, SELF_MANAGED]
+        secretSyncSource:
+          type: string
+          enum: [GOOGLE_SECRET_MANAGER, VAULT_REPLICATED]
+        primaryClusterId:
+          type: string
+        drClusterId:
+          type: string
+        lastDrillAt:
+          type: string
+          format: date-time
+        lastDrillResult:
+          type: string
+        idempotencyKey:
+          type: string
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DRPlanResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/DRPlanRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
