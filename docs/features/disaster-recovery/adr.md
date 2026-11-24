@@ -97,4 +97,24 @@
   3. Any positive divergence count or non-zero reverse lag results in an immediate `409 Conflict` abort.
 - **Consequences**: Guarantees zero data loss on failback; prevents reverting to a degraded or desynchronized primary cluster.
 
+---
+
+## ADR-010: Zero-Hardcoding & Dual Ingress Configurability (REST API & Developer CLI)
+- **Status**: Accepted
+- **Context**: Hardcoding cloud provider URLs, GCP project IDs, auth tokens, or regional topologies in application binaries makes deployment across heterogeneous sovereign clusters, testing environments, and multi-tenant environments brittle and unmaintainable. Developers and automated runbooks must be able to configure and invoke the control plane seamlessly via both programmatic REST APIs and an end-developer CLI script.
+- **Decision**:
+  1. **Zero Hardcoded Strings & Endpoints**: All base paths, Google Cloud endpoints (`DefaultCloudSQLAdminBaseURL`, `DefaultCloudDNSBaseURL`), and authentication sources must be read from centralized configuration constants (`system.constants.go`, `config/endpoints.yaml`) and overridable dynamically via environment variables (`CLOUD_SQL_ADMIN_BASE_URL`, `CLOUD_DNS_BASE_URL`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_OAUTH_ACCESS_TOKEN`).
+  2. **First-Class Developer CLI (`scripts/dr/dr-ctl.sh`)**: The platform provides a native, configurable developer automation script implementing the full lifecycle:
+     - `plan:create`, `plan:check`, `plan:rpo`
+     - `incident:declare`, `incident:approve` (Two-person rule)
+     - `failover:init`, `failover:approve` (Forward-locking switchover/failover)
+     - `dataset:fence` (Epoch tracking)
+     - `failback:exec` (Zero-divergence validated recovery)
+     - `drill:run`, `evidence:get` (Audit bundles)
+     - `restore:init` (Backup for GKE validation)
+     - `breakglass:grant` (Time-boxed emergency roles)
+  3. **Dual-Ingress Parity**: Every command in the CLI maps 1-to-1 to the underlying HTTP REST API endpoints (`/api/v1/dr/...`), reading environment variables (`DR_API_BASE_URL`, `DR_TENANT_ID`, `DR_AUTH_TOKEN`) with clean fallback defaults for local development.
+- **Consequences**: Eliminates brittle environment coupling; enables seamless runbook automation by SREs and platform engineers in emergency scenarios through both standard curl/REST API clients and the interactive CLI.
+
+
 
