@@ -94,8 +94,10 @@ const (
 
 	DefaultCloudSQLAdminBaseURL = "https://sqladmin.googleapis.com/sql/v1beta4"
 	DefaultCloudDNSBaseURL      = "https://dns.googleapis.com/dns/v1"
+	DefaultPlatformAPIBaseURL   = "http://127.0.0.1:8080"
 	EnvGoogleCloudProject       = "GOOGLE_CLOUD_PROJECT"
 	EnvGoogleOAuthAccessToken   = "GOOGLE_OAUTH_ACCESS_TOKEN"
 	EnvCloudSQLAdminBaseURL     = "CLOUD_SQL_ADMIN_BASE_URL"
 	EnvCloudDNSBaseURL          = "CLOUD_DNS_BASE_URL"
+	EnvDRAPIBaseURL             = "DR_API_BASE_URL"
 )

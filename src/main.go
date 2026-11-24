@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
 
+	cliHandlers "internal-developer-platform/src/api/cli/handlers"
 	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/api/rest/v1/middleware"
 	"internal-developer-platform/src/api/rest/v1/routers"
@@ -43,6 +46,8 @@ type AppServices struct {
 	OfferingsRouter *routers.OfferingsRouter
 	PolicyRouter    *routers.PolicyAsCodeRouter
 	DRRouter        *routers.DisasterRecoveryRouter
+	DRCLIHandler    *cliHandlers.DisasterRecoveryCLIHandler
+	DRService       *disasterrecovery.Service
 }
 
 func main() {
@@ -180,9 +185,10 @@ func describeService() chassis.ServiceSpec {
 			policyRouter := routers.NewPolicyAsCodeRouter(policyHandler, rbacMW)
 
 			drCloud := drAdapters.NewCloudProviderDRAdapter()
-			drSvc := disasterrecovery.NewService(drStore, drCloud, drCloud, drCloud, drCloud)
+			drSvc := disasterrecovery.NewService(drStore, drCloud, drCloud, drCloud, drCloud, drCloud)
 			drHandler := handlers.NewDisasterRecoveryHandler(drSvc)
 			drRouter := routers.NewDisasterRecoveryRouter(drHandler, rbacMW)
+			drCLI := cliHandlers.NewDisasterRecoveryCLIHandler()
 
 			return &AppServices{
 				RBACRouter:      rbacRouter,
@@ -194,6 +200,8 @@ func describeService() chassis.ServiceSpec {
 				OfferingsRouter: offeringsRouter,
 				PolicyRouter:    policyRouter,
 				DRRouter:        drRouter,
+				DRCLIHandler:    drCLI,
+				DRService:       drSvc,
 			}, nil
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
@@ -212,6 +220,24 @@ func describeService() chassis.ServiceSpec {
 		RegisterAdminRoutes: func(mux *http.ServeMux, services interface{}) {
 			appServices := services.(*AppServices)
 			appServices.HealthRouter.RegisterAdminRoutes(mux)
+		},
+
+		StartBackgroundWorkers: func(ctx context.Context, services interface{}) {
+			appServices := services.(*AppServices)
+			if appServices.DRService != nil {
+				appServices.DRService.StartBackgroundProber(ctx, 30*time.Second)
+			}
+		},
+
+		ExecuteCommand: func(ctx context.Context, command string, args []string, services interface{}) (int, bool) {
+			appServices := services.(*AppServices)
+			switch command {
+			case "dr-ctl", "dr":
+				return appServices.DRCLIHandler.Execute(ctx, args), true
+			default:
+				fmt.Fprintf(os.Stderr, "unknown operational command: %s\n", command)
+				return 2, true
+			}
 		},
 	}
 }

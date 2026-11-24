@@ -216,12 +216,7 @@ func (h *PolicyAsCodeHandler) EvaluateAdmission(w http.ResponseWriter, r *http.R
 			return err
 		}
 
-		status := http.StatusOK
-		if !verdict.Allowed {
-			status = http.StatusForbidden
-		}
-
-		h.writeSuccessResponse(w, status, verdict, meta)
+		h.writeSuccessResponse(w, http.StatusOK, verdict, meta)
 		return nil
 	})
 }

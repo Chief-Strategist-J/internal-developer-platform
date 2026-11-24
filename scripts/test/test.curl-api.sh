@@ -48,7 +48,7 @@ trap cleanup EXIT
 
 # Wait for server readiness
 for i in {1..20}; do
-    if curl -s "http://127.0.0.1:${CLI_ADMIN_PORT}/readyz" | grep -q "healthy"; then
+    if curl --noproxy "*" -s "http://127.0.0.1:${CLI_ADMIN_PORT}/readyz" | grep -q "healthy"; then
         echo -e "\033[1;32m[SERVER READY]\033[0m Platform server listening at http://127.0.0.1:${CLI_PORT}"
         break
     fi
@@ -60,7 +60,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 1] POST /api/v1/auth/token -> Issue valid Developer JWT"
 echo "--------------------------------------------------------------------------------"
 DEV_SUB="dev-sarah-$(date +%s%N)"
-DEV_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
+DEV_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
   -d "{
     \"subjectId\": \"${DEV_SUB}\",
@@ -83,7 +83,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 2] GET /api/v1/auth/me -> Inspect Caller Identity and Claims"
 echo "--------------------------------------------------------------------------------"
-ME_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/me" \
+ME_RESP=$(curl --noproxy "*" -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/me" \
   -H "Authorization: Bearer ${DEV_TOKEN}")
 
 echo "${ME_RESP}"
@@ -98,7 +98,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 3] POST /api/v1/auth/evaluate -> PDP Decision Evaluation"
 echo "--------------------------------------------------------------------------------"
-EVAL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/evaluate" \
+EVAL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/evaluate" \
   -H "Authorization: Bearer ${DEV_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -120,7 +120,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 4] POST /api/v1/services -> Register service with Bearer Token"
 echo "--------------------------------------------------------------------------------"
 SVC_ID="fintech-ledger-api-$(date +%s%N)"
-SERVICE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/services" \
+SERVICE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/services" \
   -H "Authorization: Bearer ${DEV_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
@@ -145,7 +145,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 5] POST /api/v1/auth/token -> Issue PlatformAdmin Token"
 echo "--------------------------------------------------------------------------------"
-ADMIN_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
+ADMIN_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
   -d '{
     "subjectId": "secops-officer-marcus",
@@ -160,7 +160,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 6] POST /api/v1/auth/revoke -> Admin revokes ${DEV_SUB} session"
 echo "--------------------------------------------------------------------------------"
-REVOKE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/revoke" \
+REVOKE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/revoke" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{
@@ -180,7 +180,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 7] GET /api/v1/auth/me -> ${DEV_SUB} tries to use revoked token"
 echo "--------------------------------------------------------------------------------"
-POST_REVOKE_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/me" \
+POST_REVOKE_RESP=$(curl --noproxy "*" -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/me" \
   -H "Authorization: Bearer ${DEV_TOKEN}")
 
 echo "${POST_REVOKE_RESP}"
@@ -201,7 +201,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 8] POST /api/v1/workloads -> Provision Workload with Distributed Traces"
 echo "--------------------------------------------------------------------------------"
 WKLD_DEV_SUB="wkld-dev-$(date +%s%N)"
-WKLD_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
+WKLD_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
   -d "{
     \"subjectId\": \"${WKLD_DEV_SUB}\",
@@ -212,11 +212,11 @@ WKLD_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/toke
 WKLD_TOKEN=$(echo "${WKLD_TOKEN_RESP}" | grep -o '"accessToken":"[^"]*' | cut -d'"' -f4)
 
 WKLD_ID="wkld-e2e-$(date +%s)"
-TRACE_ID="4bf92f3577b34da6a3ce929d0e0e4736"
-SPAN_ID="00f067aa0ba902b7"
+TRACE_ID=$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))")
+SPAN_ID=$(openssl rand -hex 8 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(8))")
 TRACEPARENT="00-${TRACE_ID}-${SPAN_ID}-01"
 
-WORKLOAD_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads" \
+WORKLOAD_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads" \
   -H "Authorization: Bearer ${WKLD_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: ${TRACEPARENT}" \
@@ -249,7 +249,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 9] GET /api/v1/workloads/${WKLD_ID} -> Retrieve Workload State"
 echo "--------------------------------------------------------------------------------"
-GET_WKLD_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/${WKLD_ID}" \
+GET_WKLD_RESP=$(curl --noproxy "*" -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/${WKLD_ID}" \
   -H "Authorization: Bearer ${WKLD_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: ${TRACEPARENT}")
@@ -267,10 +267,10 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 10] POST /api/v1/regimes -> Register Platform Regime Policy (B-1 to B-4)"
 echo "--------------------------------------------------------------------------------"
 REGIME_EXT_ID="regime-ext-$(date +%s%N)"
-REGIME_POST_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/regimes" \
+REGIME_POST_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/regimes" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
-  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902c1-01" \
+  -H "traceparent: 00-$(openssl rand -hex 16)-$(openssl rand -hex 8)-01" \
   -H "Content-Type: application/json" \
   -d "{
     \"tenantId\": \"fintech-team\",
@@ -301,9 +301,9 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 11] GET /api/v1/regimes/active -> Fetch Active Regime Policy"
 echo "--------------------------------------------------------------------------------"
-REGIME_GET_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/regimes/active?tenantId=fintech-team" \
+REGIME_GET_RESP=$(curl --noproxy "*" -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/regimes/active?tenantId=fintech-team" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902c2-01")
+  -H "traceparent: 00-$(openssl rand -hex 16)-$(openssl rand -hex 8)-01")
 
 echo "${REGIME_GET_RESP}"
 if echo "${REGIME_GET_RESP}" | grep -q "200 OK" && echo "${REGIME_GET_RESP}" | grep -q "US_FEDRAMP_HIGH"; then
@@ -317,10 +317,10 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 12] POST /api/v1/regimes -> Traced Validation Error Path (Retention < 30)"
 echo "--------------------------------------------------------------------------------"
-REGIME_ERR_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/regimes" \
+REGIME_ERR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/regimes" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
-  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902c3-01" \
+  -H "traceparent: 00-$(openssl rand -hex 16)-$(openssl rand -hex 8)-01" \
   -H "Content-Type: application/json" \
   -d '{
     "tenantId": "fintech-team",
@@ -352,7 +352,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 13] POST /api/v1/auth/bindings -> Bind User to Role Developer"
 echo "--------------------------------------------------------------------------------"
 BIND_SUB="user-bound-$(date +%s%N)"
-BIND_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/bindings" \
+BIND_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/bindings" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
@@ -374,7 +374,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 14] GET /api/v1/auth/bindings -> Query Bound User Roles"
 echo "--------------------------------------------------------------------------------"
-GET_BIND_RESP=$(curl -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/bindings?subjectId=${BIND_SUB}" \
+GET_BIND_RESP=$(curl --noproxy "*" -s -i "http://127.0.0.1:${CLI_PORT}/api/v1/auth/bindings?subjectId=${BIND_SUB}" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team")
 
@@ -390,7 +390,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 15] POST /api/v1/auth/token -> Token Resolution from User Binding"
 echo "--------------------------------------------------------------------------------"
-RESOLVED_TOKEN_RESP=$(curl -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
+RESOLVED_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
   -d "{
     \"subjectId\": \"${BIND_SUB}\",
@@ -409,7 +409,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 16] POST /api/v1/clusters -> Hardened GKE Baseline Provisioning"
 echo "--------------------------------------------------------------------------------"
-CLUSTER_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/clusters" \
+CLUSTER_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/clusters" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -452,7 +452,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 17] POST /api/v1/cloud-resources -> Cloud Resource Workload Identity"
 echo "--------------------------------------------------------------------------------"
-CR_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources" \
+CR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -482,7 +482,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 18] POST /api/v1/workloads/timeline -> Incident Timeline Event"
 echo "--------------------------------------------------------------------------------"
-TIMELINE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/timeline" \
+TIMELINE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/workloads/timeline" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
@@ -512,7 +512,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 19] POST /api/v1/policies -> Create Policy-as-Code Rule"
 echo "--------------------------------------------------------------------------------"
 POL_TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
-POL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies" \
+POL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${POL_TENANT}" \
   -H "Content-Type: application/json" \
@@ -546,7 +546,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 20] POST /api/v1/policies/admission/evaluate -> Evaluate Admission"
 echo "--------------------------------------------------------------------------------"
-EVAL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies/admission/evaluate" \
+EVAL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies/admission/evaluate" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${POL_TENANT}" \
   -H "Content-Type: application/json" \
@@ -571,10 +571,10 @@ EVAL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/policies/adm
   }")
 
 echo "${EVAL_RESP}"
-if echo "${EVAL_RESP}" | grep -q "403 Forbidden" && echo "${EVAL_RESP}" | grep -q "allowed\":false"; then
-    echo -e "\033[1;32m[PASS]\033[0m Policy-as-Code admission review denied privileged workload with HTTP 403"
+if echo "${EVAL_RESP}" | grep -q "200 OK" && echo "${EVAL_RESP}" | grep -q "allowed\":false"; then
+    echo -e "\033[1;32m[PASS]\033[0m Policy-as-Code admission review denied privileged workload (200 OK, allowed:false in body)"
 else
-    echo -e "\033[1;31m[FAIL]\033[0m Expected 403 Forbidden for DENY policy violation"
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with allowed:false for DENY policy evaluation"
     exit 1
 fi
 
@@ -582,7 +582,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 21] GET /api/v1/clusters/posture -> Scan Cluster Posture Drift"
 echo "--------------------------------------------------------------------------------"
-POSTURE_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/clusters/posture?clusterId=gke-fedramp-prod-01" \
+POSTURE_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/clusters/posture?clusterId=gke-fedramp-prod-01" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}")
 
 echo "${POSTURE_RESP}"
@@ -597,7 +597,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 22] POST /api/v1/cloud-resources/reconcile -> Reconcile Cloud Resource Ledger"
 echo "--------------------------------------------------------------------------------"
-RECON_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources/reconcile" \
+RECON_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources/reconcile" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -617,7 +617,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 23] POST /api/v1/dr/plans -> Create Disaster Recovery Plan"
 echo "--------------------------------------------------------------------------------"
 DR_TENANT_ID="00a02d55-cd2a-43d8-be83-a151ebc41553"
-DR_PLAN_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
+DR_PLAN_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
@@ -652,7 +652,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 24] GET /api/v1/dr/plans -> List Disaster Recovery Plans"
 echo "--------------------------------------------------------------------------------"
-DR_LIST_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
+DR_LIST_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -668,7 +668,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 25] POST /api/v1/dr/plans/{plan}:checkReadiness -> Probe DR Readiness"
 echo "--------------------------------------------------------------------------------"
-DR_READY_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans/${PLAN_ID}:checkReadiness" \
+DR_READY_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans/${PLAN_ID}:checkReadiness" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -684,7 +684,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 26] POST /api/v1/dr/incidents:declare -> Declare DR Incident"
 echo "--------------------------------------------------------------------------------"
-DR_INC_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/incidents:declare" \
+DR_INC_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/incidents:declare" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
@@ -709,7 +709,7 @@ echo "--------------------------------------------------------------------------
 echo "[CURL TEST 27] POST /api/v1/dr/datasets/{dataset}:fence -> Fence Dataset Epoch"
 echo "--------------------------------------------------------------------------------"
 DATASET_ID="ledger-postgres-cluster-01"
-FENCE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}:fence" \
+FENCE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}:fence" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
@@ -729,7 +729,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 28] GET /api/v1/dr/datasets/{dataset}/epoch -> Get Fencing Epoch"
 echo "--------------------------------------------------------------------------------"
-EPOCH_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}/epoch" \
+EPOCH_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}/epoch" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -745,7 +745,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 29] POST /api/v1/dr/drills -> Execute DR Drill"
 echo "--------------------------------------------------------------------------------"
-DRILL_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills" \
+DRILL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
@@ -771,7 +771,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 30] GET /api/v1/dr/plans/{plan}/rpo -> Get Live Replication Lag"
 echo "--------------------------------------------------------------------------------"
-RPO_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans/${PLAN_ID}/rpo" \
+RPO_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans/${PLAN_ID}/rpo" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -787,7 +787,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 31] GET /api/v1/dr/drills/{run} -> Query Drill Run Report"
 echo "--------------------------------------------------------------------------------"
-GET_DRILL_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills/${DRILL_RUN_ID}" \
+GET_DRILL_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills/${DRILL_RUN_ID}" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -803,7 +803,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 32] GET /api/v1/dr/evidence/{run} -> Query Immutable Evidence Bundle"
 echo "--------------------------------------------------------------------------------"
-GET_EVID_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/evidence/${EVIDENCE_ID}" \
+GET_EVID_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/evidence/${EVIDENCE_ID}" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -819,7 +819,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 33] POST /api/v1/dr/restores -> Initiate DR Backup Restore"
 echo "--------------------------------------------------------------------------------"
-RESTORE_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores" \
+RESTORE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
@@ -847,7 +847,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 34] GET /api/v1/dr/restores/{op} -> Query Restore Operation Status"
 echo "--------------------------------------------------------------------------------"
-GET_RESTORE_RESP=$(curl -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores/${RESTORE_OP_ID}" \
+GET_RESTORE_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores/${RESTORE_OP_ID}" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}")
 
@@ -863,7 +863,7 @@ echo ""
 echo "--------------------------------------------------------------------------------"
 echo "[CURL TEST 35] POST /api/v1/dr/breakglass:activate -> Activate Emergency Role"
 echo "--------------------------------------------------------------------------------"
-BREAKGLASS_RESP=$(curl -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/breakglass:activate" \
+BREAKGLASS_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/breakglass:activate" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \

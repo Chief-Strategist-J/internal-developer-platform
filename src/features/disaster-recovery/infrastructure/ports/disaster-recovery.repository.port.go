@@ -73,3 +73,14 @@ type SecretReplicationPort interface {
 	VerifySecretParity(ctx context.Context, source contracts.DRSecretSyncSource, primaryRegion, drRegion string) (bool, error)
 	SyncSecretsToDR(ctx context.Context, source contracts.DRSecretSyncSource, primaryRegion, drRegion string) error
 }
+
+type DependencyProbePort interface {
+	CheckCapacityReservation(ctx context.Context, region, clusterID string) (bool, string, int64, error)
+	CheckRegistryReachability(ctx context.Context, drRegion string) (bool, string, int64, error)
+	CheckBinaryAuthorization(ctx context.Context, drRegion string) (bool, string, int64, error)
+	CheckKMSKeyAvailability(ctx context.Context, drRegion string) (bool, string, int64, error)
+	CheckGitOpsHealth(ctx context.Context, drRegion string) (bool, string, int64, error)
+	CheckDNSRoutingPrecreated(ctx context.Context, planName string) (bool, string, int64, error)
+	CheckCertificateValidity(ctx context.Context, planName, drRegion string) (bool, string, int64, error)
+	CheckObservabilitySink(ctx context.Context, drRegion string) (bool, string, int64, error)
+}

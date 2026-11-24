@@ -382,3 +382,4 @@ case "${COMMAND}" in
     echo "  breakglass:grant <requester> <approver> [duration] [reason]"
     ;;
 esac
+

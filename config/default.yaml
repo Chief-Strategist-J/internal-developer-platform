@@ -28,5 +28,10 @@ argocd:
   endpoint: "https://argocd.internal:443"
   token: ""
 
+gcp:
+  project_id: ""
+  cloud_sql_admin_url: "https://sqladmin.googleapis.com/sql/v1beta4"
+  cloud_dns_url: "https://dns.googleapis.com/dns/v1"
+
 endpoints:
   base_path: "/api/v1"
