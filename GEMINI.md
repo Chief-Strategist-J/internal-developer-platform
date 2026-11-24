@@ -28,12 +28,9 @@ Before reading any rules or executing lifecycle commands, you MUST resolve `$POL
    POLICY_ROOT=$(find . .. ../.. ~/.local/share /home/btpl-lap-22/live/System-Architect -maxdepth 3 -type f -path "*/policy-orchestrator/src/api/cli/main.py" 2>/dev/null | head -n 1 | sed 's|/policy-orchestrator/src/api/cli/main.py||')
    ```
 
-3. **Auto-Clone Fallback**:
-   If the signature files are not found in any local or parent tree:
-   ```bash
-   git clone https://github.com/Scaibu/llm-obs-policies.git ~/.local/share/llm-obs-policies
-   POLICY_ROOT="$HOME/.local/share/llm-obs-policies"
-   ```
+3. **No-Clone Hard Stop (Strict User Permission Required)**:
+   - If the signature files are not found in any local or parent tree, you are STRICTLY FORBIDDEN from cloning any repository automatically.
+   - Halt execution immediately, report that `$POLICY_ROOT` was not found, and request explicit user permission before attempting `git clone`.
 
 4. **Execution Enforcement**:
    - All rule reads in Section 1.1 & Section 6 MUST resolve against:
@@ -48,6 +45,11 @@ Before reading any rules or executing lifecycle commands, you MUST resolve `$POL
     - `$POLICY_ROOT/rules/folder-structure/1-feature-folder-writing-rule.md`
     - `$POLICY_ROOT/rules/code-quality/coding-standards/03-strict-typecasting-rules.md`
     - `$POLICY_ROOT/rules/database/migrations/01-schema-migrations-and-code-guidelines.md`
+    - `$POLICY_ROOT/rules/database/design/05-db-writing-rules-phase-1 copy.md`
+    - `$POLICY_ROOT/rules/folder-structure/function-structures/design/database-patterns.md`
+    - `$POLICY_ROOT/rules/folder-structure/function-structures/design/design-patterns.md`
+    - `$POLICY_ROOT/rules/folder-structure/4-functions-and-classes-writing-rule.md`
+    - `$POLICY_ROOT/rules/code-quality/coding-standards/02-function-parameter-limit-rule.md`
   * Use-Case policies: Look up your active task in **Section 6 (Use-Case-Driven Rule Retrieval Matrix)** and strictly adhere to all mapped rule files.
 
 ### 1.1 Mandatory 'read rule' Trigger Protocol
@@ -88,6 +90,14 @@ Whenever the user states `"read rule"`, `"read rules"`, or explicitly demands po
    - All CRDs, workload specifications, and cluster states must be strictly typecasted via Go structs.
 5. **NEVER Throw Unhandled Exceptions or Panic**:
    - Reconciliation loops must be idempotent, strictly stateless, and return strongly-typed `Result[T, error]`.
+6. **NEVER Write Mock or In-Memory Bypass Code in Production Paths**:
+   - In-memory bypass maps, mock stores, or fake drivers in production code are STRICTLY FORBIDDEN.
+   - All production adapters must wire and execute concrete production libraries (`k8s.io/client-go`, PostgreSQL drivers, etc.).
+7. **NEVER Test via Ad-Hoc Code Generation or Internal Function Calls**:
+   - Whenever asked to "test it", creating temporary `.go` files, throwaway test scripts in `/tmp`, or invoking Go package functions directly is STRICTLY FORBIDDEN.
+   - All integration and end-to-end verification MUST run through the official HTTP REST API via `curl` (e.g. `scripts/test/test.curl-api.sh`) or official CLI interfaces.
+8. **NEVER Clone External Repositories Without User Permission**:
+   - Automatic `git clone` calls are prohibited. Any cloning must be explicitly approved by the user.
 
 ---
 
