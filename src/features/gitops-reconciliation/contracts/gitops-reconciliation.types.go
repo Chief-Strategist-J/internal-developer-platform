@@ -50,9 +50,11 @@ type SyncCommand struct {
 	AllowWindowExists     bool   `json:"allowWindowExists"`
 	InAllowWindow         bool   `json:"inAllowWindow"`
 	InDenyWindow          bool   `json:"inDenyWindow"`
-	WindowAllowsManual    bool   `json:"windowAllowsManual"`
-	OwnerAppMap           map[string]string `json:"ownerAppMap,omitempty"`
-	IdempotencyKey        string `json:"idempotencyKey"`
+	WindowAllowsManual           bool              `json:"windowAllowsManual"`
+	EmergencyChangePending       bool              `json:"emergencyChangePending"`
+	EmergencyCommittedAndSigned  bool              `json:"emergencyCommittedAndSigned"`
+	OwnerAppMap                  map[string]string `json:"ownerAppMap,omitempty"`
+	IdempotencyKey               string            `json:"idempotencyKey"`
 }
 
 type RollbackResult struct {
