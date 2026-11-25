@@ -30,6 +30,7 @@ import (
 	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 	"internal-developer-platform/src/infra/chassis"
+	argocdClientPkg "internal-developer-platform/src/infra/clients/argocd"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/cluster"
 	k8sClientPkg "internal-developer-platform/src/infra/clients/kubernetes"
@@ -128,7 +129,18 @@ func describeService() chassis.ServiceSpec {
 			catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
 			catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
 
-			argoClient := gitopsreconciliation.NewArgoCDClient(deps.Config.ArgoCD.Endpoint, deps.Config.ArgoCD.Token)
+			resConfig := resilience.DefaultResilienceConfig()
+			var argoClient gitopsreconciliation.ClientPort
+			if deps.Config.ArgoCD.Endpoint != "" && deps.Config.ArgoCD.Token != "" {
+				liveArgo := argocdClientPkg.NewArgoCDClient(argocdClientPkg.ArgoCDClientConfig{
+					BaseURL:   deps.Config.ArgoCD.Endpoint,
+					AuthToken: deps.Config.ArgoCD.Token,
+					Timeout:   15 * time.Second,
+				}, resConfig)
+				argoClient = gitopsreconciliation.NewLiveArgoCDClient(liveArgo)
+			} else {
+				argoClient = gitopsreconciliation.NewArgoCDClient(deps.Config.ArgoCD.Endpoint, deps.Config.ArgoCD.Token)
+			}
 			gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
 			gitopsSvc.SetSecretAdapter(gitopsreconciliation.NewSecretAdapterWithDB(deps.DB))
 			gitopsSvc.SetOutboxPort(gitopsreconciliation.NewOutboxAdapterWithDB(deps.DB))
@@ -151,7 +163,6 @@ func describeService() chassis.ServiceSpec {
 			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
 			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
 
-			resConfig := resilience.DefaultResilienceConfig()
 			var k8sClient workloadPorts.K8sClientPort
 			if realK8s, err := k8sClientPkg.NewKubernetesClientFromConfig("", deps.Config.Kubernetes.Endpoint, resConfig); err == nil && realK8s != nil {
 				k8sClient = workloadAdapters.NewLiveKubernetesClientAdapter(realK8s)
