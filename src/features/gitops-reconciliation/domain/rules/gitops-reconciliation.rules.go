@@ -279,3 +279,10 @@ func ValidateSharedResourceOwnership(existingOwnerApp string, requestingApp stri
 	}
 	return nil
 }
+
+func EvaluateBreakGlassAutoSyncGuard(emergencyChangePending bool, emergencyCommittedAndSigned bool) error {
+	if emergencyChangePending && !emergencyCommittedAndSigned {
+		return errors.NewConflictError("auto-sync blocked: emergency break-glass change must be committed and signed in Git before re-enabling")
+	}
+	return nil
+}

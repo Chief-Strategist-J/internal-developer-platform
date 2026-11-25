@@ -239,6 +239,9 @@ func (s *GitOpsReconciliationService) evaluateReconciliationPolicyGates(ctx cont
 		if !rules.ShouldRetryFailedSHA(cmd.TargetRevision, cmd.LastFailedSHA) {
 			return errors.NewConflictError("sync refused: target revision matches last failed SHA — resolve the failure before retrying")
 		}
+		if err := rules.EvaluateBreakGlassAutoSyncGuard(cmd.EmergencyChangePending, cmd.EmergencyCommittedAndSigned); err != nil {
+			return err
+		}
 		return nil
 	}, attribute.String("app.name", cmd.AppName))
 }
@@ -505,6 +508,35 @@ func (s *GitOpsReconciliationService) emitOutboxEvent(ctx context.Context, event
 			OccurredAt:  time.Now().UTC(),
 		})
 	}, attribute.String("outbox.event_type", string(eventType)), attribute.String("aggregate.id", record.ID))
+}
+
+func (s *GitOpsReconciliationService) RelayPendingOutboxEvents(
+	ctx context.Context,
+	limit int,
+	publishFn func(ctx context.Context, event contracts.OutboxEvent) error,
+) (int, error) {
+	return observability.RunTraced(ctx, SpanPrefixGitOps+".outbox_relay", func(ctx context.Context) (int, error) {
+		if s.outboxPort == nil {
+			return 0, errors.NewInternalError("outbox port not configured")
+		}
+		events, err := s.outboxPort.FetchUnpublished(ctx, limit)
+		if err != nil {
+			return 0, err
+		}
+		relayed := 0
+		for _, ev := range events {
+			if publishFn != nil {
+				if err := publishFn(ctx, ev); err != nil {
+					return relayed, err
+				}
+			}
+			if err := s.outboxPort.MarkPublished(ctx, ev.ID); err != nil {
+				return relayed, err
+			}
+			relayed++
+		}
+		return relayed, nil
+	})
 }
 
 func applyFilterAllowlist(filter contracts.FilterCriteria) contracts.FilterCriteria {

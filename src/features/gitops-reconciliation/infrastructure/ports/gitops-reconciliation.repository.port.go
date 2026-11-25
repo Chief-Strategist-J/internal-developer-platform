@@ -32,4 +32,6 @@ type SecretMechanismPort interface {
 
 type OutboxPort interface {
 	Enqueue(ctx context.Context, event contracts.OutboxEvent) error
+	FetchUnpublished(ctx context.Context, limit int) ([]contracts.OutboxEvent, error)
+	MarkPublished(ctx context.Context, eventID string) error
 }
