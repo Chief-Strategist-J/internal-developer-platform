@@ -91,3 +91,40 @@ type RBACAuditEvent struct {
 	ViolationCode string    `json:"violationCode,omitempty"`
 	OccurredAt    time.Time `json:"occurredAt"`
 }
+
+type TaskExecutionLeaseRequest struct {
+	TokenExpired          bool `json:"tokenExpired"`
+	IsIdempotentBatchStep bool `json:"isIdempotentBatchStep"`
+	HasSignedTaskLease    bool `json:"hasSignedTaskLease"`
+	LeaseExpired          bool `json:"leaseExpired"`
+	RefreshSucceeded      bool `json:"refreshSucceeded"`
+}
+
+type TaskExecutionLeaseResult struct {
+	Granted       bool   `json:"granted"`
+	Directive     string `json:"directive"`
+	Reason        string `json:"reason"`
+	ViolationCode string `json:"violationCode,omitempty"`
+}
+
+type AsyncJobRevocationResult struct {
+	Granted       bool   `json:"granted"`
+	Directive     string `json:"directive"`
+	Reason        string `json:"reason"`
+	ViolationCode string `json:"violationCode,omitempty"`
+}
+
+type RegionalSplitBrainResult struct {
+	Granted       bool   `json:"granted"`
+	Degraded      bool   `json:"degraded,omitempty"`
+	HTTPStatus    int    `json:"httpStatus"`
+	WarningHeader string `json:"warningHeader,omitempty"`
+	Reason        string `json:"reason"`
+	ViolationCode string `json:"violationCode,omitempty"`
+}
+
+type StreamingHeartbeatResult struct {
+	Terminate       bool          `json:"terminate"`
+	SessionDuration time.Duration `json:"sessionDuration"`
+	Reason          string        `json:"reason"`
+}

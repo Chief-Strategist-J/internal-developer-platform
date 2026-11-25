@@ -7,8 +7,11 @@
 package service
 
 import (
+	"container/list"
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -20,18 +23,107 @@ import (
 	"internal-developer-platform/src/shared/errors"
 )
 
+const (
+	permitCacheTTL      = 30 * time.Second
+	permitCacheCapacity = 1024
+)
+
+type permitCacheEntry struct {
+	key       string
+	subjectID string
+	result    rbacContracts.EvaluationResult
+	expiresAt time.Time
+}
+
+type permitLRUCache struct {
+	mu       sync.Mutex
+	capacity int
+	ttl      time.Duration
+	items    map[string]*list.Element
+	order    *list.List
+}
+
+func newPermitLRUCache(capacity int, ttl time.Duration) *permitLRUCache {
+	return &permitLRUCache{
+		capacity: capacity,
+		ttl:      ttl,
+		items:    make(map[string]*list.Element),
+		order:    list.New(),
+	}
+}
+
+func (c *permitLRUCache) get(key string, now time.Time) (rbacContracts.EvaluationResult, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	elem, ok := c.items[key]
+	if !ok {
+		return rbacContracts.EvaluationResult{}, false
+	}
+	entry := elem.Value.(*permitCacheEntry)
+	if !now.Before(entry.expiresAt) {
+		c.order.Remove(elem)
+		delete(c.items, key)
+		return rbacContracts.EvaluationResult{}, false
+	}
+	c.order.MoveToFront(elem)
+	return entry.result, true
+}
+
+func (c *permitLRUCache) set(key string, subjectID string, result rbacContracts.EvaluationResult, now time.Time) {
+	if !result.Granted || result.ElevatedPermit {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		entry := elem.Value.(*permitCacheEntry)
+		entry.result = result
+		entry.expiresAt = now.Add(c.ttl)
+		c.order.MoveToFront(elem)
+		return
+	}
+	if c.order.Len() >= c.capacity {
+		oldest := c.order.Back()
+		if oldest != nil {
+			c.order.Remove(oldest)
+			delete(c.items, oldest.Value.(*permitCacheEntry).key)
+		}
+	}
+	entry := &permitCacheEntry{
+		key:       key,
+		subjectID: subjectID,
+		result:    result,
+		expiresAt: now.Add(c.ttl),
+	}
+	elem := c.order.PushFront(entry)
+	c.items[key] = elem
+}
+
+func (c *permitLRUCache) invalidateSubject(subjectID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, elem := range c.items {
+		if elem.Value.(*permitCacheEntry).subjectID == subjectID {
+			c.order.Remove(elem)
+			delete(c.items, k)
+		}
+	}
+}
+
 type RBACService struct {
 	tokenVerifier   ports.TokenVerifierPort
 	revocationStore ports.RevocationStorePort
 	grantRepo       ports.AccessGrantRepositoryPort
 	bindingRepo     ports.UserBindingRepositoryPort
 	auditOutbox     ports.RBACAuditOutboxPort
+	permitCache     *permitLRUCache
 }
 
 func NewRBACService(verifier ports.TokenVerifierPort, revocation ports.RevocationStorePort, grantRepo ...ports.AccessGrantRepositoryPort) *RBACService {
 	svc := &RBACService{
 		tokenVerifier:   verifier,
 		revocationStore: revocation,
+		permitCache:     newPermitLRUCache(permitCacheCapacity, permitCacheTTL),
 	}
 	if len(grantRepo) > 0 && grantRepo[0] != nil {
 		svc.grantRepo = grantRepo[0]
@@ -75,11 +167,8 @@ func (s *RBACService) Authorize(ctx context.Context, subject rbacContracts.Subje
 			Resource:       resource,
 			Action:         action,
 		}
-		decision := rules.EvaluateAuthorization(req, time.Now())
-		if !decision.Granted {
-			return errors.NewForbiddenError(decision.Reason)
-		}
-		return nil
+		_, err := s.AuthorizeWithContext(ctx, req)
+		return err
 	}, attribute.String("subject.id", subject.ID), attribute.String("target_tenant", targetTenant), attribute.String("resource", string(resource)), attribute.String("action", string(action)))
 }
 
@@ -112,6 +201,9 @@ func (s *RBACService) IssueToken(subject rbacContracts.Subject) (string, error) 
 
 func (s *RBACService) RevokeSubject(ctx context.Context, subjectID string) error {
 	return observability.WithSpan(ctx, "rbac.service.revoke_subject", func(ctx context.Context) error {
+		if s.permitCache != nil {
+			s.permitCache.invalidateSubject(subjectID)
+		}
 		if s.revocationStore != nil {
 			return s.revocationStore.RevokeSubject(ctx, subjectID)
 		}
@@ -192,6 +284,9 @@ func (s *RBACService) UnbindUserRole(ctx context.Context, tenantID string, subje
 		if tenantID == "" || subjectID == "" || role == "" {
 			return errors.NewValidationError("tenantId, subjectId, and roleName are required")
 		}
+		if s.permitCache != nil {
+			s.permitCache.invalidateSubject(subjectID)
+		}
 		if s.bindingRepo != nil {
 			return s.bindingRepo.UnbindUserRole(ctx, tenantID, subjectID, role)
 		}
@@ -212,56 +307,151 @@ func (s *RBACService) GetUserRoles(ctx context.Context, tenantID string, subject
 }
 
 func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContracts.EvaluationRequest) (rbacContracts.EvaluationResult, error) {
+	ctx = observability.WithTenantID(ctx, req.TargetTenantID)
 	return observability.RunTraced(ctx, "rbac.service.authorize_with_context", func(ctx context.Context) (rbacContracts.EvaluationResult, error) {
-		decision := rules.EvaluateAuthorization(req, time.Now())
+		now := time.Now()
+		bypassCache := shouldBypassPermitCache(req)
+		cacheKey := buildPermitCacheKey(req)
+		if !bypassCache && s.permitCache != nil {
+			if cached, ok := s.permitCache.get(cacheKey, now); ok {
+				_ = s.dispatchAuditDecision(ctx, req, "PERMIT", cached)
+				return cached, nil
+			}
+		}
+		decision := rules.EvaluateAuthorization(req, now)
 		if !decision.Granted {
-			s.dispatchAuditDecision(ctx, req, "DENY", decision)
+			observability.GetLogger().Warn(ctx, "rbac authorization denied",
+				observability.String("subject_id", req.Subject.ID),
+				observability.String("resource", string(req.Resource)),
+				observability.String("action", string(req.Action)),
+				observability.String("violation_code", decision.ViolationCode),
+				observability.String("reason", decision.Reason),
+			)
+			_ = s.dispatchAuditDecision(ctx, req, "DENY", decision)
 			return decision, errors.NewForbiddenError(decision.Reason)
 		}
 		if decision.ElevatedPermit {
 			if err := s.dispatchAuditDecision(ctx, req, "ELEVATED_PERMIT", decision); err != nil {
+				observability.GetLogger().Error(ctx, "rbac break-glass audit guarantee failed",
+					observability.String("subject_id", req.Subject.ID),
+					observability.String("resource", string(req.Resource)),
+					observability.String("error", err.Error()),
+				)
 				return rbacContracts.EvaluationResult{
 					Granted:       false,
 					Reason:        "cannot grant break-glass access without audit guarantee",
 					ViolationCode: "ERR_AUDIT_UNAVAILABLE",
 				}, errors.NewForbiddenError("cannot grant break-glass access without audit guarantee")
 			}
+			return decision, nil
 		}
+		if !bypassCache && s.permitCache != nil {
+			s.permitCache.set(cacheKey, req.Subject.ID, decision, now)
+		}
+		_ = s.dispatchAuditDecision(ctx, req, "PERMIT", decision)
 		return decision, nil
-	}, attribute.String("subject.id", req.Subject.ID), attribute.String("target_tenant", req.TargetTenantID), attribute.String("resource", string(req.Resource)))
+	}, attribute.String("subject.id", req.Subject.ID), attribute.String("target_tenant", req.TargetTenantID), attribute.String("resource", string(req.Resource)), attribute.String("action", string(req.Action)))
+}
+
+func (s *RBACService) PermitCacheSize() int {
+	if s.permitCache == nil {
+		return 0
+	}
+	s.permitCache.mu.Lock()
+	defer s.permitCache.mu.Unlock()
+	return s.permitCache.order.Len()
+}
+
+func shouldBypassPermitCache(req rbacContracts.EvaluationRequest) bool {
+	if req.BreakGlass != nil {
+		return true
+	}
+	if strings.EqualFold(req.TargetEnvironment, rbacContracts.EnvProduction) {
+		return !strings.EqualFold(string(req.Action), string(rbacContracts.ActionRead))
+	}
+	return false
+}
+
+func buildPermitCacheKey(req rbacContracts.EvaluationRequest) string {
+	roles := make([]string, len(req.Subject.Roles))
+	for i, r := range req.Subject.Roles {
+		roles[i] = string(r)
+	}
+	return fmt.Sprintf(
+		"%s|%s|%s|%s|%s|%s|%s|%t|%t|%t|%s",
+		req.Subject.ID,
+		req.Subject.TenantID,
+		req.TargetTenantID,
+		string(req.Resource),
+		string(req.Action),
+		req.TargetEnvironment,
+		req.ResourceClassification,
+		req.ChangeFreezeActive,
+		req.RequireStepUpMFA,
+		req.Subject.MFAVerified,
+		strings.Join(roles, ","),
+	)
 }
 
 func (s *RBACService) ValidateRoleHierarchy(ctx context.Context, edges map[string][]string) error {
 	return observability.WithSpan(ctx, "rbac.service.validate_role_hierarchy", func(ctx context.Context) error {
-		return rules.ValidateRoleHierarchyDAG(edges)
-	})
+		if err := rules.ValidateRoleHierarchyDAG(edges); err != nil {
+			observability.GetLogger().Warn(ctx, "rbac role hierarchy validation failed",
+				observability.Int("edge_count", len(edges)),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+		return nil
+	}, attribute.Int("rbac.edge_count", len(edges)))
 }
 
 func (s *RBACService) VerifyImpersonation(ctx context.Context, callerMTLS bool, hasImpersonateGrant bool, targetProtectedAdmin bool) error {
 	return observability.WithSpan(ctx, "rbac.service.verify_impersonation", func(ctx context.Context) error {
-		return rules.EvaluateImpersonation(callerMTLS, hasImpersonateGrant, targetProtectedAdmin)
-	})
+		if err := rules.EvaluateImpersonation(callerMTLS, hasImpersonateGrant, targetProtectedAdmin); err != nil {
+			observability.GetLogger().Warn(ctx, "rbac impersonation verification failed",
+				observability.Bool("caller_mtls", callerMTLS),
+				observability.Bool("has_impersonate_grant", hasImpersonateGrant),
+				observability.Bool("target_protected_admin", targetProtectedAdmin),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+		return nil
+	}, attribute.Bool("caller.mtls", callerMTLS), attribute.Bool("impersonate.grant", hasImpersonateGrant), attribute.Bool("target.protected_admin", targetProtectedAdmin))
 }
 
 func (s *RBACService) VerifyDelegationScope(ctx context.Context, isTenantDelegation bool, tokenTenantID string, targetTenantID string) error {
+	ctx = observability.WithTenantID(ctx, targetTenantID)
 	return observability.WithSpan(ctx, "rbac.service.verify_delegation_scope", func(ctx context.Context) error {
-		return rules.EvaluateDelegationScope(isTenantDelegation, tokenTenantID, targetTenantID)
-	})
+		if err := rules.EvaluateDelegationScope(isTenantDelegation, tokenTenantID, targetTenantID); err != nil {
+			observability.GetLogger().Warn(ctx, "rbac delegation scope verification failed",
+				observability.Bool("is_tenant_delegation", isTenantDelegation),
+				observability.String("token_tenant_id", tokenTenantID),
+				observability.String("target_tenant_id", targetTenantID),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+		return nil
+	}, attribute.Bool("delegation.tenant_scoped", isTenantDelegation), attribute.String("token.tenant_id", tokenTenantID), attribute.String("target.tenant_id", targetTenantID))
 }
 
 func (s *RBACService) dispatchAuditDecision(ctx context.Context, req rbacContracts.EvaluationRequest, decisionLabel string, res rbacContracts.EvaluationResult) error {
 	if s.auditOutbox == nil {
 		return nil
 	}
-	return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
-		ID:            fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
-		TenantID:      req.TargetTenantID,
-		SubjectID:     req.Subject.ID,
-		Resource:      req.Resource,
-		Action:        req.Action,
-		Decision:      decisionLabel,
-		Reason:        res.Reason,
-		ViolationCode: res.ViolationCode,
-		OccurredAt:    time.Now().UTC(),
-	})
+	return observability.WithSpan(ctx, "rbac.service.dispatch_audit_decision", func(ctx context.Context) error {
+		return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
+			ID:            fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
+			TenantID:      req.TargetTenantID,
+			SubjectID:     req.Subject.ID,
+			Resource:      req.Resource,
+			Action:        req.Action,
+			Decision:      decisionLabel,
+			Reason:        res.Reason,
+			ViolationCode: res.ViolationCode,
+			OccurredAt:    time.Now().UTC(),
+		})
+	}, attribute.String("rbac.decision", decisionLabel), attribute.String("subject.id", req.Subject.ID), attribute.String("target.tenant_id", req.TargetTenantID))
 }

@@ -237,6 +237,123 @@ func (h *RBACHandler) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *RBACHandler) Authorize(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "rbac.handler.authorize", func(ctx context.Context) error {
+		start := time.Now()
+		w.Header().Set("Content-Type", "application/json")
+		traceparent := r.Header.Get(constants.HeaderTraceparent)
+		reqID := r.Header.Get(constants.HeaderXRequestID)
+		corrID := r.Header.Get(constants.HeaderXCorrelationID)
+
+		sub := middleware.GetSubjectFromContext(ctx)
+		if sub == nil {
+			h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthenticated", start, reqID, corrID)
+			return nil
+		}
+
+		var req rbacContracts.EvaluatePolicyRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", start, reqID, corrID)
+			return err
+		}
+
+		if req.Resource == "" || req.Action == "" {
+			h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "resource and action are required", start, reqID, corrID)
+			return nil
+		}
+
+		evalReq := rbacContracts.EvaluationRequest{
+			Subject:                *sub,
+			TargetTenantID:         req.TargetTenantID,
+			Resource:               req.Resource,
+			Action:                 req.Action,
+			TargetEnvironment:      req.TargetEnvironment,
+			ChangeFreezeActive:     req.ChangeFreezeActive,
+			RequireStepUpMFA:       req.RequireStepUpMFA,
+			ResourceClassification: req.ResourceClassification,
+		}
+		decision, err := h.rbacSvc.AuthorizeWithContext(ctx, evalReq)
+		if err != nil {
+			w.Header().Set(constants.HeaderTraceparent, traceparent)
+			w.WriteHeader(http.StatusForbidden)
+			return json.NewEncoder(w).Encode(types.ApiResponse{
+				Success:    false,
+				StatusCode: http.StatusForbidden,
+				Data:       decision,
+				Error: &types.ResponseError{
+					Code:    constants.ErrCodeForbidden,
+					Message: decision.Reason,
+				},
+				Meta: types.ResponseMeta{
+					RequestID:       reqID,
+					CorrelationID:   corrID,
+					Timestamp:       time.Now().UTC().Format(time.RFC3339),
+					ExecutionTimeMs: time.Since(start).Milliseconds(),
+					APIVersion:      "v1",
+				},
+			})
+		}
+
+		w.Header().Set(constants.HeaderTraceparent, traceparent)
+		w.WriteHeader(http.StatusOK)
+		return json.NewEncoder(w).Encode(types.ApiResponse{
+			Success:    true,
+			StatusCode: http.StatusOK,
+			Data:       decision,
+			Meta: types.ResponseMeta{
+				RequestID:       reqID,
+				CorrelationID:   corrID,
+				Timestamp:       time.Now().UTC().Format(time.RFC3339),
+				ExecutionTimeMs: time.Since(start).Milliseconds(),
+				APIVersion:      "v1",
+			},
+		})
+	})
+}
+
+func (h *RBACHandler) ValidateRoleHierarchy(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), "rbac.handler.validate_role_hierarchy", func(ctx context.Context) error {
+		start := time.Now()
+		w.Header().Set("Content-Type", "application/json")
+		traceparent := r.Header.Get(constants.HeaderTraceparent)
+		reqID := r.Header.Get(constants.HeaderXRequestID)
+		corrID := r.Header.Get(constants.HeaderXCorrelationID)
+
+		var req rbacContracts.ValidateRoleHierarchyRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "malformed request payload", start, reqID, corrID)
+			return err
+		}
+
+		if err := h.rbacSvc.ValidateRoleHierarchy(ctx, req.Edges); err != nil {
+			h.writeError(w, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, err.Error(), start, reqID, corrID)
+			return err
+		}
+
+		w.Header().Set(constants.HeaderTraceparent, traceparent)
+		w.WriteHeader(http.StatusOK)
+		return json.NewEncoder(w).Encode(types.ApiResponse{
+			Success:    true,
+			StatusCode: http.StatusOK,
+			Data: rbacContracts.ValidateRoleHierarchyResponse{
+				Valid:   true,
+				Message: "role hierarchy DAG is valid",
+			},
+			Meta: types.ResponseMeta{
+				RequestID:       reqID,
+				CorrelationID:   corrID,
+				Timestamp:       time.Now().UTC().Format(time.RFC3339),
+				ExecutionTimeMs: time.Since(start).Milliseconds(),
+				APIVersion:      "v1",
+			},
+		})
+	})
+}
+
 func (h *RBACHandler) writeError(w http.ResponseWriter, code int, errCode, message string, start time.Time, reqID, corrID string) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(types.ApiResponse{
