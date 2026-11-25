@@ -22,6 +22,19 @@ import (
 	"internal-developer-platform/src/shared/errors"
 )
 
+type txContextKeyType struct{}
+
+var rbacTxContextKey = txContextKeyType{}
+
+func WithTx(ctx context.Context, tx *sql.Tx) context.Context {
+	return context.WithValue(ctx, rbacTxContextKey, tx)
+}
+
+func TxFromContext(ctx context.Context) (*sql.Tx, bool) {
+	tx, ok := ctx.Value(rbacTxContextKey).(*sql.Tx)
+	return tx, ok && tx != nil
+}
+
 type PostgresRBACAdapter struct {
 	db *sql.DB
 }
@@ -30,9 +43,40 @@ func NewPostgresRBACAdapter(db *sql.DB) *PostgresRBACAdapter {
 	return &PostgresRBACAdapter{db: db}
 }
 
+func (a *PostgresRBACAdapter) Run(ctx context.Context, fn func(txCtx context.Context) error) error {
+	return observability.WithSpan(ctx, "postgres.rbac.unit_of_work", func(ctx context.Context) error {
+		if a.db == nil {
+			return errors.NewInternalError("database connection is nil for unit of work")
+		}
+		if _, alreadyInTx := TxFromContext(ctx); alreadyInTx {
+			return fn(ctx)
+		}
+		tx, err := a.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		txCtx := WithTx(ctx, tx)
+		if err := fn(txCtx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+		return nil
+	})
+}
+
+func (a *PostgresRBACAdapter) exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	if tx, ok := TxFromContext(ctx); ok {
+		return tx.ExecContext(ctx, query, args...)
+	}
+	return a.db.ExecContext(ctx, query, args...)
+}
+
 func (a *PostgresRBACAdapter) SaveGrant(ctx context.Context, grant rbacContracts.AccessGrantRecord) error {
 	return observability.WithSpan(ctx, "postgres.rbac.save_grant", func(ctx context.Context) error {
-		_, err := a.db.ExecContext(
+		_, err := a.exec(
 			ctx,
 			rbacQueries.FlowInsertAccessGrant,
 			grant.ID,
@@ -96,7 +140,7 @@ func (a *PostgresRBACAdapter) GetGrant(ctx context.Context, tenantID string, id 
 
 func (a *PostgresRBACAdapter) RevokeGrant(ctx context.Context, tenantID string, id string) error {
 	return observability.WithSpan(ctx, "postgres.rbac.revoke_grant", func(ctx context.Context) error {
-		res, err := a.db.ExecContext(ctx, rbacQueries.FlowRevokeAccessGrant, tenantID, id, time.Now())
+		res, err := a.exec(ctx, rbacQueries.FlowRevokeAccessGrant, tenantID, id, time.Now())
 		if err != nil {
 			return fmt.Errorf("failed to revoke access grant: %w", err)
 		}
@@ -158,7 +202,7 @@ func (a *PostgresRBACAdapter) BindUserRole(ctx context.Context, binding rbacCont
 		if createdAt.IsZero() {
 			createdAt = time.Now()
 		}
-		_, err := a.db.ExecContext(ctx, rbacQueries.FlowInsertUserBinding, binding.SubjectID, binding.TenantID, string(binding.RoleName), createdAt)
+		_, err := a.exec(ctx, rbacQueries.FlowInsertUserBinding, binding.SubjectID, binding.TenantID, string(binding.RoleName), createdAt)
 		if err != nil {
 			if pqErr, ok := err.(*pq.Error); ok {
 				if pqErr.Code == "23503" {
@@ -173,7 +217,7 @@ func (a *PostgresRBACAdapter) BindUserRole(ctx context.Context, binding rbacCont
 
 func (a *PostgresRBACAdapter) UnbindUserRole(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error {
 	return observability.WithSpan(ctx, "postgres.rbac.unbind_user_role", func(ctx context.Context) error {
-		res, err := a.db.ExecContext(ctx, rbacQueries.FlowDeleteUserBinding, tenantID, subjectID, string(role))
+		res, err := a.exec(ctx, rbacQueries.FlowDeleteUserBinding, tenantID, subjectID, string(role))
 		if err != nil {
 			return fmt.Errorf("failed to unbind user role: %w", err)
 		}
@@ -212,4 +256,53 @@ func (a *PostgresRBACAdapter) GetUserRoles(ctx context.Context, tenantID string,
 		}
 		return roles, nil
 	}, attribute.String("tenant_id", tenantID), attribute.String("subject_id", subjectID))
+}
+
+func (a *PostgresRBACAdapter) ClaimExclusiveRoleBinding(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error {
+	return observability.WithSpan(ctx, "postgres.rbac.claim_exclusive_role_binding", func(ctx context.Context) error {
+		res, err := a.db.ExecContext(ctx, rbacQueries.FLOW_CLAIM_EXCLUSIVE_ROLE_BINDING, subjectID, tenantID, string(role), time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to claim exclusive role binding: %w", err)
+		}
+		rowsAffected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to inspect claimed rows: %w", err)
+		}
+		if rowsAffected == 0 {
+			return errors.NewConflictError("role binding already claimed")
+		}
+		return nil
+	}, attribute.String("tenant_id", tenantID), attribute.String("subject_id", subjectID), attribute.String("role", string(role)))
+}
+
+func (a *PostgresRBACAdapter) SaveRoleHierarchyEdge(ctx context.Context, parentRole string, childRole string) error {
+	return observability.WithSpan(ctx, "postgres.rbac.save_role_hierarchy_edge", func(ctx context.Context) error {
+		_, err := a.db.ExecContext(ctx, rbacQueries.FLOW_INSERT_ROLE_HIERARCHY, parentRole, childRole, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to save role hierarchy edge: %w", err)
+		}
+		return nil
+	}, attribute.String("parent_role", parentRole), attribute.String("child_role", childRole))
+}
+
+func (a *PostgresRBACAdapter) GetRoleHierarchyEdges(ctx context.Context) (map[string][]string, error) {
+	return observability.RunTraced(ctx, "postgres.rbac.get_role_hierarchy_edges", func(ctx context.Context) (map[string][]string, error) {
+		rows, err := a.db.QueryContext(ctx, rbacQueries.FLOW_GET_ROLE_HIERARCHY)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query role hierarchy: %w", err)
+		}
+		defer rows.Close()
+		edges := make(map[string][]string)
+		for rows.Next() {
+			var parent, child string
+			if err := rows.Scan(&parent, &child); err != nil {
+				return nil, fmt.Errorf("failed to scan role hierarchy edge: %w", err)
+			}
+			edges[parent] = append(edges[parent], child)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("rows iteration error: %w", err)
+		}
+		return edges, nil
+	})
 }

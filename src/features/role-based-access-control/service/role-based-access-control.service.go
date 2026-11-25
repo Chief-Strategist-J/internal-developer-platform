@@ -1,15 +1,53 @@
-// Package service provides domain authorization and token management for RBAC.
-//
-// Architectural Blueprint:
-// - Step 06 Service: Evaluates subject permissions, verifies tokens, and governs JIT grants.
-// - Traced with OpenTelemetry child spans using observability.RunTraced and observability.WithSpan.
-// - 100% comment-free function bodies.
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC SERVICE (feature-files.md §4 COMPLIANT)
+
+1. Public Functions (grouped by shape):
+  - S1 Command:
+    * RequestJITAccess(ctx, req) -> (*AccessGrantRecord, error) [deadline -> validate -> UnitOfWork(persistGrant + auditOutbox)]
+    * RevokeJITAccess(ctx, tenantID, grantID) -> error [deadline -> UnitOfWork(loadGrant -> machine.TransitionGrantStatus -> persistRevokeGrant + auditOutbox)]
+    * BindUserRole(ctx, binding) -> error [deadline -> UnitOfWork(persistUserBinding + auditOutbox)]
+    * UnbindUserRole(ctx, tenantID, subjectID, role) -> error [deadline -> invalidateCache -> UnitOfWork(removeUserBinding + auditOutbox)]
+    * RevokeSubject(ctx, subjectID) -> error [deadline -> invalidateCache -> revocationStore.RevokeSubject]
+    * RevokeJTI(ctx, jti) -> error [deadline -> revocationStore.RevokeJTI]
+  - S2 Query:
+    * AuthenticateToken(ctx, rawToken) -> (*Subject, error) [deadline -> verifyToken -> fail-closed revocation check]
+    * Authorize(ctx, subject, targetTenant, resource, action) -> error
+    * AuthenticateAndAuthorize(ctx, rawToken, targetTenant, resource, action) -> (*Subject, error)
+    * AuthorizeWithContext(ctx, req) -> (EvaluationResult, error) [deadline -> permitCache -> rules.EvaluateAuthorization -> auditOutbox / denyFailoverLog]
+    * ListActiveGrants(ctx, tenantID, subjectID) -> ([]AccessGrantRecord, error)
+    * ListActiveGrantsPage(ctx, tenantID, subjectID, pageSize, cursor) -> (AccessGrantPage, error)
+    * GetUserRoles(ctx, tenantID, subjectID) -> ([]RoleName, error)
+    * ValidateRoleHierarchy(ctx, edges) -> error
+    * VerifyImpersonation(ctx, callerMTLS, hasImpersonateGrant, targetProtectedAdmin) -> error
+    * VerifyDelegationScope(ctx, isTenantDelegation, tokenTenantID, targetTenantID) -> error
+    * EvaluateTaskLease(ctx, req) -> (TaskExecutionLeaseResult, error)
+    * EvaluateAsyncJobDrift(ctx, subjectID, jti, queueLatency, oidcIntrospect) -> (AsyncJobRevocationResult, error)
+    * EvaluateSplitBrain(ctx, globalAuthorityReachable, isRoleMutation, snapshotAge) -> (RegionalSplitBrainResult, error)
+    * EvaluateStreamingHeartbeat(expiresAt, sessionStart) -> StreamingHeartbeatResult
+
+2. Private Functions (grouped by purpose):
+  - loading: loadGrant, findActiveGrants
+  - lifecycle: transitionGrantForRevoke
+  - policy: validateJITPolicy
+  - computation: buildInitialGrantRecord, clampPageSize, buildPermitCacheKey, shouldBypassPermitCache
+  - persistence: persistGrant, persistRevokeGrant, persistUserBinding, removeUserBinding
+  - messaging: dispatchAuditDecision, dispatchLifecycleAudit, writeDenyFailoverLog
+  - transaction: runInUnitOfWork
+
+3. Invariants:
+  - Zero mid-function inline comments.
+  - Constructor injection via RBACServiceDeps.
+*/
 package service
 
 import (
 	"container/list"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,16 +55,32 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/features/role-based-access-control/domain/machines"
 	"internal-developer-platform/src/features/role-based-access-control/domain/rules"
 	"internal-developer-platform/src/features/role-based-access-control/infrastructure/ports"
+	"internal-developer-platform/src/infra/clients/resilience"
 	"internal-developer-platform/src/infra/observability"
+	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
 )
 
 const (
+	rbacSpanPrefix      = "rbac.service"
 	permitCacheTTL      = 30 * time.Second
 	permitCacheCapacity = 1024
+	rbacMaxPageSize     = 100
+	rbacDefaultPageSize = 25
+	rbacDeadlineMargin  = 10 * time.Millisecond
 )
+
+type RBACServiceDeps struct {
+	TokenVerifier   ports.TokenVerifierPort
+	RevocationStore ports.RevocationStorePort
+	GrantRepo       ports.AccessGrantRepositoryPort
+	BindingRepo     ports.UserBindingRepositoryPort
+	AuditOutbox     ports.RBACAuditOutboxPort
+	UnitOfWork      ports.UnitOfWorkPort
+}
 
 type permitCacheEntry struct {
 	key       string
@@ -116,19 +170,31 @@ type RBACService struct {
 	grantRepo       ports.AccessGrantRepositoryPort
 	bindingRepo     ports.UserBindingRepositoryPort
 	auditOutbox     ports.RBACAuditOutboxPort
+	unitOfWork      ports.UnitOfWorkPort
 	permitCache     *permitLRUCache
 }
 
-func NewRBACService(verifier ports.TokenVerifierPort, revocation ports.RevocationStorePort, grantRepo ...ports.AccessGrantRepositoryPort) *RBACService {
-	svc := &RBACService{
-		tokenVerifier:   verifier,
-		revocationStore: revocation,
+func NewRBACServiceWithDeps(deps RBACServiceDeps) *RBACService {
+	return &RBACService{
+		tokenVerifier:   deps.TokenVerifier,
+		revocationStore: deps.RevocationStore,
+		grantRepo:       deps.GrantRepo,
+		bindingRepo:     deps.BindingRepo,
+		auditOutbox:     deps.AuditOutbox,
+		unitOfWork:      deps.UnitOfWork,
 		permitCache:     newPermitLRUCache(permitCacheCapacity, permitCacheTTL),
 	}
-	if len(grantRepo) > 0 && grantRepo[0] != nil {
-		svc.grantRepo = grantRepo[0]
+}
+
+func NewRBACService(verifier ports.TokenVerifierPort, revocation ports.RevocationStorePort, grantRepo ...ports.AccessGrantRepositoryPort) *RBACService {
+	deps := RBACServiceDeps{
+		TokenVerifier:   verifier,
+		RevocationStore: revocation,
 	}
-	return svc
+	if len(grantRepo) > 0 && grantRepo[0] != nil {
+		deps.GrantRepo = grantRepo[0]
+	}
+	return NewRBACServiceWithDeps(deps)
 }
 
 func (s *RBACService) SetGrantRepository(repo ports.AccessGrantRepositoryPort) {
@@ -143,15 +209,25 @@ func (s *RBACService) SetAuditOutbox(outbox ports.RBACAuditOutboxPort) {
 	s.auditOutbox = outbox
 }
 
+func (s *RBACService) SetUnitOfWork(uow ports.UnitOfWorkPort) {
+	s.unitOfWork = uow
+}
+
 func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error) {
-	return observability.RunTraced(ctx, "rbac.service.authenticate_token", func(ctx context.Context) (*rbacContracts.Subject, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".authenticate_token", func(ctx context.Context) (*rbacContracts.Subject, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return nil, err
+		}
 		subject, err := s.tokenVerifier.VerifyToken(ctx, rawToken)
 		if err != nil {
 			return nil, err
 		}
 		if s.revocationStore != nil {
 			revoked, err := s.revocationStore.IsRevoked(ctx, subject.ID, subject.JTI)
-			if err == nil && revoked {
+			if err != nil {
+				return nil, errors.NewUnauthorizedError(constants.ErrRevocationStoreUnavailable)
+			}
+			if revoked {
 				return nil, errors.NewUnauthorizedError("subject or token has been revoked")
 			}
 		}
@@ -160,7 +236,10 @@ func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*
 }
 
 func (s *RBACService) Authorize(ctx context.Context, subject rbacContracts.Subject, targetTenant string, resource rbacContracts.Resource, action rbacContracts.Action) error {
-	return observability.WithSpan(ctx, "rbac.service.authorize", func(ctx context.Context) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".authorize", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
 		req := rbacContracts.EvaluationRequest{
 			Subject:        subject,
 			TargetTenantID: targetTenant,
@@ -173,7 +252,10 @@ func (s *RBACService) Authorize(ctx context.Context, subject rbacContracts.Subje
 }
 
 func (s *RBACService) AuthenticateAndAuthorize(ctx context.Context, rawToken string, targetTenant string, resource rbacContracts.Resource, action rbacContracts.Action) (*rbacContracts.Subject, error) {
-	return observability.RunTraced(ctx, "rbac.service.authenticate_and_authorize", func(ctx context.Context) (*rbacContracts.Subject, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".authenticate_and_authorize", func(ctx context.Context) (*rbacContracts.Subject, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return nil, err
+		}
 		subject, err := s.AuthenticateToken(ctx, rawToken)
 		if err != nil {
 			return nil, err
@@ -187,7 +269,7 @@ func (s *RBACService) AuthenticateAndAuthorize(ctx context.Context, rawToken str
 
 func (s *RBACService) IssueToken(subject rbacContracts.Subject) (string, error) {
 	ctx := context.Background()
-	return observability.RunTraced(ctx, "rbac.service.issue_token", func(ctx context.Context) (string, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".issue_token", func(ctx context.Context) (string, error) {
 		resolvedSubject := subject
 		if len(resolvedSubject.Roles) == 0 && s.bindingRepo != nil {
 			roles, err := s.bindingRepo.GetUserRoles(ctx, resolvedSubject.TenantID, resolvedSubject.ID)
@@ -200,7 +282,10 @@ func (s *RBACService) IssueToken(subject rbacContracts.Subject) (string, error) 
 }
 
 func (s *RBACService) RevokeSubject(ctx context.Context, subjectID string) error {
-	return observability.WithSpan(ctx, "rbac.service.revoke_subject", func(ctx context.Context) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".revoke_subject", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
 		if s.permitCache != nil {
 			s.permitCache.invalidateSubject(subjectID)
 		}
@@ -211,91 +296,161 @@ func (s *RBACService) RevokeSubject(ctx context.Context, subjectID string) error
 	}, attribute.String("subject.id", subjectID))
 }
 
+func (s *RBACService) RevokeJTI(ctx context.Context, jti string) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".revoke_jti", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
+		if jti == "" {
+			return errors.NewValidationError("jti is required")
+		}
+		if s.revocationStore != nil {
+			return s.revocationStore.RevokeJTI(ctx, jti)
+		}
+		return nil
+	}, attribute.String("jti", jti))
+}
+
+func (s *RBACService) InvalidateLocalCache(subjectID string) {
+	if s.permitCache != nil && subjectID != "" {
+		s.permitCache.invalidateSubject(subjectID)
+	}
+}
+
 func (s *RBACService) RequestJITAccess(ctx context.Context, req rbacContracts.AccessGrantRequest) (*rbacContracts.AccessGrantRecord, error) {
-	return observability.RunTraced(ctx, "rbac.service.request_jit_access", func(ctx context.Context) (*rbacContracts.AccessGrantRecord, error) {
-		if err := rules.ValidateJITRequest(req); err != nil {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".request_jit_access", func(ctx context.Context) (*rbacContracts.AccessGrantRecord, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
 			return nil, err
 		}
-		now := time.Now()
-		expiresAt := now.Add(time.Duration(req.DurationSeconds) * time.Second)
-		record := rbacContracts.AccessGrantRecord{
-			ID:              req.ID,
-			TenantID:        req.TenantID,
-			SubjectID:       req.SubjectID,
-			TargetNamespace: req.TargetNamespace,
-			Role:            req.Role,
-			Reason:          req.Reason,
-			DurationSeconds: req.DurationSeconds,
-			ApprovedBy:      req.ApproverRole,
-			Status:          "ACTIVE",
-			ExpiresAt:       expiresAt,
-			IdempotencyKey:  req.IdempotencyKey,
-			Version:         1,
-			CreatedAt:       now,
-			UpdatedAt:       now,
+		if err := s.validateJITPolicy(req); err != nil {
+			return nil, err
 		}
-		if s.grantRepo != nil {
-			if err := s.grantRepo.SaveGrant(ctx, record); err != nil {
-				return nil, err
+		record := buildInitialGrantRecord(req, time.Now().UTC())
+		err := s.runInUnitOfWork(ctx, func(txCtx context.Context) error {
+			if err := s.persistGrant(txCtx, record); err != nil {
+				return err
 			}
+			return s.dispatchLifecycleAudit(txCtx, record.TenantID, record.SubjectID, rbacContracts.ResourceAuth, rbacContracts.ActionWrite, "PERMIT", "jit access grant created")
+		})
+		if err != nil {
+			return nil, err
 		}
 		return &record, nil
 	}, attribute.String("tenant_id", req.TenantID), attribute.String("subject.id", req.SubjectID), attribute.String("role", req.Role))
 }
 
 func (s *RBACService) RevokeJITAccess(ctx context.Context, tenantID, grantID string) error {
-	return observability.WithSpan(ctx, "rbac.service.revoke_jit_access", func(ctx context.Context) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".revoke_jit_access", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
 		if tenantID == "" || grantID == "" {
 			return errors.NewValidationError("tenantId and grantId are required")
 		}
-		if s.grantRepo != nil {
-			return s.grantRepo.RevokeGrant(ctx, tenantID, grantID)
-		}
-		return nil
+		return s.runInUnitOfWork(ctx, func(txCtx context.Context) error {
+			grant, err := s.loadGrant(txCtx, tenantID, grantID)
+			if err != nil {
+				return err
+			}
+			if grant != nil {
+				if _, err := transitionGrantForRevoke(grant.Status); err != nil {
+					return err
+				}
+			}
+			if err := s.persistRevokeGrant(txCtx, tenantID, grantID); err != nil {
+				return err
+			}
+			subjectID := grantID
+			if grant != nil && grant.SubjectID != "" {
+				subjectID = grant.SubjectID
+			}
+			return s.dispatchLifecycleAudit(txCtx, tenantID, subjectID, rbacContracts.ResourceAuth, rbacContracts.ActionDelete, "PERMIT", "jit access grant revoked")
+		})
 	}, attribute.String("tenant_id", tenantID), attribute.String("grant_id", grantID))
 }
 
 func (s *RBACService) ListActiveGrants(ctx context.Context, tenantID, subjectID string) ([]rbacContracts.AccessGrantRecord, error) {
-	return observability.RunTraced(ctx, "rbac.service.list_active_grants", func(ctx context.Context) ([]rbacContracts.AccessGrantRecord, error) {
-		if tenantID == "" {
-			return nil, errors.NewValidationError("tenantId is required")
+	return observability.RunTraced(ctx, rbacSpanPrefix+".list_active_grants", func(ctx context.Context) ([]rbacContracts.AccessGrantRecord, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return nil, err
 		}
-		if s.grantRepo != nil {
-			return s.grantRepo.ListActiveGrants(ctx, tenantID, subjectID)
+		return s.findActiveGrants(ctx, tenantID, subjectID)
+	}, attribute.String("tenant_id", tenantID), attribute.String("subject.id", subjectID))
+}
+
+func (s *RBACService) ListActiveGrantsPage(ctx context.Context, tenantID string, subjectID string, pageSize int, cursor string) (rbacContracts.AccessGrantPage, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".list_active_grants_page", func(ctx context.Context) (rbacContracts.AccessGrantPage, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return rbacContracts.AccessGrantPage{}, err
 		}
-		return []rbacContracts.AccessGrantRecord{}, nil
+		all, err := s.findActiveGrants(ctx, tenantID, subjectID)
+		if err != nil {
+			return rbacContracts.AccessGrantPage{}, err
+		}
+		limit := clampPageSize(pageSize, rbacMaxPageSize)
+		offset := decodeCursor(cursor)
+		if offset >= len(all) {
+			return rbacContracts.AccessGrantPage{Items: []rbacContracts.AccessGrantRecord{}, HasMore: false}, nil
+		}
+		end := offset + limit
+		hasMore := end < len(all)
+		if end > len(all) {
+			end = len(all)
+		}
+		nextCursor := ""
+		if hasMore {
+			nextCursor = strconv.Itoa(end)
+		}
+		return rbacContracts.AccessGrantPage{
+			Items:      all[offset:end],
+			NextCursor: nextCursor,
+			HasMore:    hasMore,
+		}, nil
 	}, attribute.String("tenant_id", tenantID), attribute.String("subject.id", subjectID))
 }
 
 func (s *RBACService) BindUserRole(ctx context.Context, binding rbacContracts.UserBindingRecord) error {
-	return observability.WithSpan(ctx, "rbac.service.bind_user_role", func(ctx context.Context) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".bind_user_role", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
 		if binding.TenantID == "" || binding.SubjectID == "" || binding.RoleName == "" {
 			return errors.NewValidationError("tenantId, subjectId, and roleName are required")
 		}
-		if s.bindingRepo != nil {
-			return s.bindingRepo.BindUserRole(ctx, binding)
-		}
-		return nil
+		return s.runInUnitOfWork(ctx, func(txCtx context.Context) error {
+			if err := s.persistUserBinding(txCtx, binding); err != nil {
+				return err
+			}
+			return s.dispatchLifecycleAudit(txCtx, binding.TenantID, binding.SubjectID, rbacContracts.ResourceAuth, rbacContracts.ActionWrite, "PERMIT", "user role bound")
+		})
 	}, attribute.String("tenant_id", binding.TenantID), attribute.String("subject_id", binding.SubjectID), attribute.String("role", string(binding.RoleName)))
 }
 
 func (s *RBACService) UnbindUserRole(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error {
-	return observability.WithSpan(ctx, "rbac.service.unbind_user_role", func(ctx context.Context) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".unbind_user_role", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
 		if tenantID == "" || subjectID == "" || role == "" {
 			return errors.NewValidationError("tenantId, subjectId, and roleName are required")
 		}
 		if s.permitCache != nil {
 			s.permitCache.invalidateSubject(subjectID)
 		}
-		if s.bindingRepo != nil {
-			return s.bindingRepo.UnbindUserRole(ctx, tenantID, subjectID, role)
-		}
-		return nil
+		return s.runInUnitOfWork(ctx, func(txCtx context.Context) error {
+			if err := s.removeUserBinding(txCtx, tenantID, subjectID, role); err != nil {
+				return err
+			}
+			return s.dispatchLifecycleAudit(txCtx, tenantID, subjectID, rbacContracts.ResourceAuth, rbacContracts.ActionDelete, "PERMIT", "user role unbound")
+		})
 	}, attribute.String("tenant_id", tenantID), attribute.String("subject_id", subjectID), attribute.String("role", string(role)))
 }
 
 func (s *RBACService) GetUserRoles(ctx context.Context, tenantID string, subjectID string) ([]rbacContracts.RoleName, error) {
-	return observability.RunTraced(ctx, "rbac.service.get_user_roles", func(ctx context.Context) ([]rbacContracts.RoleName, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".get_user_roles", func(ctx context.Context) ([]rbacContracts.RoleName, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return nil, err
+		}
 		if tenantID == "" || subjectID == "" {
 			return nil, errors.NewValidationError("tenantId and subjectId are required")
 		}
@@ -308,7 +463,10 @@ func (s *RBACService) GetUserRoles(ctx context.Context, tenantID string, subject
 
 func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContracts.EvaluationRequest) (rbacContracts.EvaluationResult, error) {
 	ctx = observability.WithTenantID(ctx, req.TargetTenantID)
-	return observability.RunTraced(ctx, "rbac.service.authorize_with_context", func(ctx context.Context) (rbacContracts.EvaluationResult, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".authorize_with_context", func(ctx context.Context) (rbacContracts.EvaluationResult, error) {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return rbacContracts.EvaluationResult{}, err
+		}
 		now := time.Now()
 		bypassCache := shouldBypassPermitCache(req)
 		cacheKey := buildPermitCacheKey(req)
@@ -327,7 +485,9 @@ func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContract
 				observability.String("violation_code", decision.ViolationCode),
 				observability.String("reason", decision.Reason),
 			)
-			_ = s.dispatchAuditDecision(ctx, req, "DENY", decision)
+			if err := s.dispatchAuditDecision(ctx, req, "DENY", decision); err != nil {
+				s.writeDenyFailoverLog(ctx, req, decision, err)
+			}
 			return decision, errors.NewForbiddenError(decision.Reason)
 		}
 		if decision.ElevatedPermit {
@@ -362,6 +522,264 @@ func (s *RBACService) PermitCacheSize() int {
 	return s.permitCache.order.Len()
 }
 
+func (s *RBACService) ValidateRoleHierarchy(ctx context.Context, edges map[string][]string) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".validate_role_hierarchy", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
+		if err := rules.ValidateRoleHierarchyDAG(edges); err != nil {
+			observability.GetLogger().Warn(ctx, "rbac role hierarchy validation failed",
+				observability.Int("edge_count", len(edges)),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+		return nil
+	}, attribute.Int("rbac.edge_count", len(edges)))
+}
+
+func (s *RBACService) VerifyImpersonation(ctx context.Context, callerMTLS bool, hasImpersonateGrant bool, targetProtectedAdmin bool) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".verify_impersonation", func(ctx context.Context) error {
+		if err := rules.EvaluateImpersonation(callerMTLS, hasImpersonateGrant, targetProtectedAdmin); err != nil {
+			observability.GetLogger().Warn(ctx, "rbac impersonation verification failed",
+				observability.Bool("caller_mtls", callerMTLS),
+				observability.Bool("has_impersonate_grant", hasImpersonateGrant),
+				observability.Bool("target_protected_admin", targetProtectedAdmin),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+		return nil
+	}, attribute.Bool("caller.mtls", callerMTLS), attribute.Bool("impersonate.grant", hasImpersonateGrant), attribute.Bool("target.protected_admin", targetProtectedAdmin))
+}
+
+func (s *RBACService) VerifyDelegationScope(ctx context.Context, isTenantDelegation bool, tokenTenantID string, targetTenantID string) error {
+	ctx = observability.WithTenantID(ctx, targetTenantID)
+	return observability.WithSpan(ctx, rbacSpanPrefix+".verify_delegation_scope", func(ctx context.Context) error {
+		if err := rules.EvaluateDelegationScope(isTenantDelegation, tokenTenantID, targetTenantID); err != nil {
+			observability.GetLogger().Warn(ctx, "rbac delegation scope verification failed",
+				observability.Bool("is_tenant_delegation", isTenantDelegation),
+				observability.String("token_tenant_id", tokenTenantID),
+				observability.String("target_tenant_id", targetTenantID),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+		return nil
+	}, attribute.Bool("delegation.tenant_scoped", isTenantDelegation), attribute.String("token.tenant_id", tokenTenantID), attribute.String("target.tenant_id", targetTenantID))
+}
+
+func (s *RBACService) EvaluateTaskLease(ctx context.Context, req rbacContracts.TaskExecutionLeaseRequest) (rbacContracts.TaskExecutionLeaseResult, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".evaluate_task_lease", func(ctx context.Context) (rbacContracts.TaskExecutionLeaseResult, error) {
+		res := rules.EvaluateTaskExecutionLease(req)
+		if !res.Granted {
+			return res, errors.NewUnauthorizedError(res.Reason)
+		}
+		return res, nil
+	})
+}
+
+func (s *RBACService) EvaluateAsyncJobDrift(ctx context.Context, subjectID string, jti string, queueLatency time.Duration, oidcIntrospect func(ctx context.Context) (bool, error)) (rbacContracts.AsyncJobRevocationResult, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".evaluate_async_job_drift", func(ctx context.Context) (rbacContracts.AsyncJobRevocationResult, error) {
+		revoked := false
+		if s.revocationStore != nil {
+			r, err := s.revocationStore.IsRevoked(ctx, subjectID, jti)
+			if err != nil {
+				return rbacContracts.AsyncJobRevocationResult{Granted: false, Directive: "DISCARD", Reason: constants.ErrRevocationStoreUnavailable, ViolationCode: "ERR_REVOCATION_UNAVAILABLE"}, errors.NewUnauthorizedError(constants.ErrRevocationStoreUnavailable)
+			}
+			revoked = r
+		}
+		res := rules.EvaluateAsyncJobRevocationDrift(ctx, revoked, queueLatency, oidcIntrospect)
+		if !res.Granted {
+			return res, errors.NewForbiddenError(res.Reason)
+		}
+		return res, nil
+	}, attribute.String("subject.id", subjectID))
+}
+
+func (s *RBACService) EvaluateSplitBrain(ctx context.Context, globalAuthorityReachable bool, isRoleMutation bool, snapshotAge time.Duration) (rbacContracts.RegionalSplitBrainResult, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".evaluate_split_brain", func(ctx context.Context) (rbacContracts.RegionalSplitBrainResult, error) {
+		res := rules.EvaluateRegionalSplitBrain(globalAuthorityReachable, isRoleMutation, snapshotAge)
+		if !res.Granted {
+			return res, errors.NewForbiddenError(res.Reason)
+		}
+		return res, nil
+	}, attribute.Bool("is_role_mutation", isRoleMutation))
+}
+
+func (s *RBACService) EvaluateStreamingHeartbeat(expiresAt time.Time, sessionStart time.Time) rbacContracts.StreamingHeartbeatResult {
+	return rules.EvaluateStreamingSessionHeartbeat(expiresAt, sessionStart, time.Now().UTC())
+}
+
+func (s *RBACService) runInUnitOfWork(ctx context.Context, fn func(txCtx context.Context) error) error {
+	if s.unitOfWork != nil {
+		return s.unitOfWork.Run(ctx, fn)
+	}
+	return fn(ctx)
+}
+
+func (s *RBACService) loadGrant(ctx context.Context, tenantID string, grantID string) (*rbacContracts.AccessGrantRecord, error) {
+	if s.grantRepo == nil {
+		return nil, nil
+	}
+	return s.grantRepo.GetGrant(ctx, tenantID, grantID)
+}
+
+func (s *RBACService) findActiveGrants(ctx context.Context, tenantID string, subjectID string) ([]rbacContracts.AccessGrantRecord, error) {
+	if tenantID == "" {
+		return nil, errors.NewValidationError("tenantId is required")
+	}
+	if s.grantRepo != nil {
+		return s.grantRepo.ListActiveGrants(ctx, tenantID, subjectID)
+	}
+	return []rbacContracts.AccessGrantRecord{}, nil
+}
+
+func (s *RBACService) validateJITPolicy(req rbacContracts.AccessGrantRequest) error {
+	return rules.ValidateJITRequest(req)
+}
+
+func (s *RBACService) persistGrant(ctx context.Context, record rbacContracts.AccessGrantRecord) error {
+	if s.grantRepo == nil {
+		return nil
+	}
+	return s.grantRepo.SaveGrant(ctx, record)
+}
+
+func (s *RBACService) persistRevokeGrant(ctx context.Context, tenantID string, grantID string) error {
+	if s.grantRepo == nil {
+		return nil
+	}
+	return s.grantRepo.RevokeGrant(ctx, tenantID, grantID)
+}
+
+func (s *RBACService) persistUserBinding(ctx context.Context, binding rbacContracts.UserBindingRecord) error {
+	if s.bindingRepo == nil {
+		return nil
+	}
+	return s.bindingRepo.BindUserRole(ctx, binding)
+}
+
+func (s *RBACService) removeUserBinding(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error {
+	if s.bindingRepo == nil {
+		return nil
+	}
+	return s.bindingRepo.UnbindUserRole(ctx, tenantID, subjectID, role)
+}
+
+func (s *RBACService) dispatchAuditDecision(ctx context.Context, req rbacContracts.EvaluationRequest, decisionLabel string, res rbacContracts.EvaluationResult) error {
+	if s.auditOutbox == nil {
+		return nil
+	}
+	return observability.WithSpan(ctx, rbacSpanPrefix+".dispatch_audit_decision", func(ctx context.Context) error {
+		return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
+			ID:            fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
+			TenantID:      req.TargetTenantID,
+			SubjectID:     req.Subject.ID,
+			Resource:      req.Resource,
+			Action:        req.Action,
+			Decision:      decisionLabel,
+			Reason:        res.Reason,
+			ViolationCode: res.ViolationCode,
+			OccurredAt:    time.Now().UTC(),
+		})
+	}, attribute.String("rbac.decision", decisionLabel), attribute.String("subject.id", req.Subject.ID), attribute.String("target.tenant_id", req.TargetTenantID))
+}
+
+func (s *RBACService) dispatchLifecycleAudit(ctx context.Context, tenantID string, subjectID string, resource rbacContracts.Resource, action rbacContracts.Action, decision string, reason string) error {
+	if s.auditOutbox == nil || tenantID == "" || subjectID == "" {
+		return nil
+	}
+	return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
+		ID:         fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
+		TenantID:   tenantID,
+		SubjectID:  subjectID,
+		Resource:   resource,
+		Action:     action,
+		Decision:   decision,
+		Reason:     reason,
+		OccurredAt: time.Now().UTC(),
+	})
+}
+
+func (s *RBACService) writeDenyFailoverLog(ctx context.Context, req rbacContracts.EvaluationRequest, res rbacContracts.EvaluationResult, outboxErr error) {
+	observability.GetLogger().Error(ctx, "rbac deny audit outbox failed; writing local failover log",
+		observability.String("subject_id", req.Subject.ID),
+		observability.String("error", outboxErr.Error()),
+	)
+	event := rbacContracts.RBACAuditEvent{
+		ID:            fmt.Sprintf("rbac-failover-%d", time.Now().UnixNano()),
+		TenantID:      req.TargetTenantID,
+		SubjectID:     req.Subject.ID,
+		Resource:      req.Resource,
+		Action:        req.Action,
+		Decision:      "DENY",
+		Reason:        res.Reason,
+		ViolationCode: res.ViolationCode,
+		OccurredAt:    time.Now().UTC(),
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	logPath := filepath.Join(os.TempDir(), constants.RBACDenyFailoverLogName)
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(payload, '\n'))
+}
+
+func transitionGrantForRevoke(currentStatus string) (string, error) {
+	next, ok := machines.TransitionGrantStatus(currentStatus, machines.GrantEventRevoke)
+	if !ok {
+		return currentStatus, errors.NewConflictError("grant cannot transition to REVOKED from current state")
+	}
+	return next, nil
+}
+
+func buildInitialGrantRecord(req rbacContracts.AccessGrantRequest, now time.Time) rbacContracts.AccessGrantRecord {
+	expiresAt := now.Add(time.Duration(req.DurationSeconds) * time.Second)
+	return rbacContracts.AccessGrantRecord{
+		ID:              req.ID,
+		TenantID:        req.TenantID,
+		SubjectID:       req.SubjectID,
+		TargetNamespace: req.TargetNamespace,
+		Role:            req.Role,
+		Reason:          req.Reason,
+		DurationSeconds: req.DurationSeconds,
+		ApprovedBy:      req.ApproverRole,
+		Status:          "ACTIVE",
+		ExpiresAt:       expiresAt,
+		IdempotencyKey:  req.IdempotencyKey,
+		Version:         1,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+}
+
+func clampPageSize(requested int, max int) int {
+	if requested <= 0 {
+		return rbacDefaultPageSize
+	}
+	if requested > max {
+		return max
+	}
+	return requested
+}
+
+func decodeCursor(cursor string) int {
+	if cursor == "" {
+		return 0
+	}
+	val, err := strconv.Atoi(cursor)
+	if err != nil || val < 0 {
+		return 0
+	}
+	return val
+}
+
 func shouldBypassPermitCache(req rbacContracts.EvaluationRequest) bool {
 	if req.BreakGlass != nil {
 		return true
@@ -391,67 +809,4 @@ func buildPermitCacheKey(req rbacContracts.EvaluationRequest) string {
 		req.Subject.MFAVerified,
 		strings.Join(roles, ","),
 	)
-}
-
-func (s *RBACService) ValidateRoleHierarchy(ctx context.Context, edges map[string][]string) error {
-	return observability.WithSpan(ctx, "rbac.service.validate_role_hierarchy", func(ctx context.Context) error {
-		if err := rules.ValidateRoleHierarchyDAG(edges); err != nil {
-			observability.GetLogger().Warn(ctx, "rbac role hierarchy validation failed",
-				observability.Int("edge_count", len(edges)),
-				observability.String("error", err.Error()),
-			)
-			return err
-		}
-		return nil
-	}, attribute.Int("rbac.edge_count", len(edges)))
-}
-
-func (s *RBACService) VerifyImpersonation(ctx context.Context, callerMTLS bool, hasImpersonateGrant bool, targetProtectedAdmin bool) error {
-	return observability.WithSpan(ctx, "rbac.service.verify_impersonation", func(ctx context.Context) error {
-		if err := rules.EvaluateImpersonation(callerMTLS, hasImpersonateGrant, targetProtectedAdmin); err != nil {
-			observability.GetLogger().Warn(ctx, "rbac impersonation verification failed",
-				observability.Bool("caller_mtls", callerMTLS),
-				observability.Bool("has_impersonate_grant", hasImpersonateGrant),
-				observability.Bool("target_protected_admin", targetProtectedAdmin),
-				observability.String("error", err.Error()),
-			)
-			return err
-		}
-		return nil
-	}, attribute.Bool("caller.mtls", callerMTLS), attribute.Bool("impersonate.grant", hasImpersonateGrant), attribute.Bool("target.protected_admin", targetProtectedAdmin))
-}
-
-func (s *RBACService) VerifyDelegationScope(ctx context.Context, isTenantDelegation bool, tokenTenantID string, targetTenantID string) error {
-	ctx = observability.WithTenantID(ctx, targetTenantID)
-	return observability.WithSpan(ctx, "rbac.service.verify_delegation_scope", func(ctx context.Context) error {
-		if err := rules.EvaluateDelegationScope(isTenantDelegation, tokenTenantID, targetTenantID); err != nil {
-			observability.GetLogger().Warn(ctx, "rbac delegation scope verification failed",
-				observability.Bool("is_tenant_delegation", isTenantDelegation),
-				observability.String("token_tenant_id", tokenTenantID),
-				observability.String("target_tenant_id", targetTenantID),
-				observability.String("error", err.Error()),
-			)
-			return err
-		}
-		return nil
-	}, attribute.Bool("delegation.tenant_scoped", isTenantDelegation), attribute.String("token.tenant_id", tokenTenantID), attribute.String("target.tenant_id", targetTenantID))
-}
-
-func (s *RBACService) dispatchAuditDecision(ctx context.Context, req rbacContracts.EvaluationRequest, decisionLabel string, res rbacContracts.EvaluationResult) error {
-	if s.auditOutbox == nil {
-		return nil
-	}
-	return observability.WithSpan(ctx, "rbac.service.dispatch_audit_decision", func(ctx context.Context) error {
-		return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
-			ID:            fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
-			TenantID:      req.TargetTenantID,
-			SubjectID:     req.Subject.ID,
-			Resource:      req.Resource,
-			Action:        req.Action,
-			Decision:      decisionLabel,
-			Reason:        res.Reason,
-			ViolationCode: res.ViolationCode,
-			OccurredAt:    time.Now().UTC(),
-		})
-	}, attribute.String("rbac.decision", decisionLabel), attribute.String("subject.id", req.Subject.ID), attribute.String("target.tenant_id", req.TargetTenantID))
 }

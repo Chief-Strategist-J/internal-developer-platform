@@ -113,3 +113,19 @@ func IsNotFoundError(err error) bool {
 	}
 	return false
 }
+
+func IsUnauthorizedError(err error) bool {
+	var appErr *ApplicationError
+	if stdErrors.As(err, &appErr) {
+		return appErr.StatusCode == 401
+	}
+	return false
+}
+
+func IsForbiddenError(err error) bool {
+	var appErr *ApplicationError
+	if stdErrors.As(err, &appErr) {
+		return appErr.StatusCode == 403
+	}
+	return false
+}

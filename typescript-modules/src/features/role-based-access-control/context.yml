@@ -1,0 +1,14 @@
+feature: role-based-access-control
+mode: frontend
+owner: platform-core
+invariants:
+  - State-Controller-Model triad strictly segregated
+  - Adapter communicates only with versioned /api/v1/auth and /api/v1/rbac endpoints
+ports:
+  - RoleBasedAccessControlApiPort (RoleBasedAccessControlHttpAdapter)
+inheritance_chain:
+  - class: RoleBasedAccessControlController
+    parents: []
+    linearization: [RoleBasedAccessControlController]
+    shared_ancestors: []
+    ports: [RoleBasedAccessControlApiPort]

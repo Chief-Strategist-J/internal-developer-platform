@@ -84,4 +84,37 @@ const (
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (id) DO NOTHING;
 	`
+
+	FLOW_LIST_PENDING_RBAC_AUDIT_OUTBOX = `
+		SELECT id, tenant_id, subject_id, resource, action, decision,
+		       reason, violation_code, occurred_at
+		FROM rbac_audit_outbox
+		WHERE published_at IS NULL
+		ORDER BY occurred_at ASC
+		LIMIT $1;
+	`
+
+	FLOW_MARK_RBAC_AUDIT_OUTBOX_PUBLISHED = `
+		UPDATE rbac_audit_outbox
+		SET published_at = $2
+		WHERE id = $1 AND published_at IS NULL;
+	`
+
+	FLOW_INSERT_ROLE_HIERARCHY = `
+		INSERT INTO rbac_role_hierarchy (parent_role, child_role, created_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (parent_role, child_role) DO NOTHING;
+	`
+
+	FLOW_GET_ROLE_HIERARCHY = `
+		SELECT parent_role, child_role
+		FROM rbac_role_hierarchy
+		ORDER BY parent_role ASC, child_role ASC;
+	`
+
+	FLOW_CLAIM_EXCLUSIVE_ROLE_BINDING = `
+		UPDATE rbac_user_bindings
+		SET subject_id = $1, version = version + 1, updated_at = $4
+		WHERE tenant_id = $2 AND role_name = $3 AND subject_id = '';
+	`
 )

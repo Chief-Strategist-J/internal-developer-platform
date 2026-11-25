@@ -53,3 +53,28 @@ func (m *TokenLifecycleMachine) Transition(event TokenTransitionEvent) (TokenSta
 	}
 	return m.currentState, false
 }
+
+type GrantTransitionEvent string
+
+const (
+	GrantEventActivate GrantTransitionEvent = "GRANT_ACTIVATE"
+	GrantEventRevoke   GrantTransitionEvent = "GRANT_REVOKE"
+	GrantEventExpire   GrantTransitionEvent = "GRANT_EXPIRE"
+)
+
+func TransitionGrantStatus(current string, event GrantTransitionEvent) (string, bool) {
+	switch current {
+	case "PENDING":
+		if event == GrantEventActivate {
+			return "ACTIVE", true
+		}
+	case "ACTIVE":
+		if event == GrantEventRevoke {
+			return "REVOKED", true
+		}
+		if event == GrantEventExpire {
+			return "EXPIRED", true
+		}
+	}
+	return current, false
+}

@@ -32,3 +32,7 @@ type UserBindingRepositoryPort interface {
 type RBACAuditOutboxPort interface {
 	EnqueueAuditEvent(ctx context.Context, event rbacContracts.RBACAuditEvent) error
 }
+
+type UnitOfWorkPort interface {
+	Run(ctx context.Context, fn func(txCtx context.Context) error) error
+}
