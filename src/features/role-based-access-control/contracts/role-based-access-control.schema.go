@@ -34,14 +34,17 @@ type RevokeSessionRequest struct {
 }
 
 type EvaluatePolicyRequest struct {
-	TargetTenantID         string             `json:"targetTenantId"`
-	Resource               Resource           `json:"resource"`
-	Action                 Action             `json:"action"`
-	TargetEnvironment      string             `json:"targetEnvironment,omitempty"`
-	ChangeFreezeActive     bool               `json:"changeFreezeActive,omitempty"`
-	RequireStepUpMFA       bool               `json:"requireStepUpMfa,omitempty"`
-	ResourceClassification string             `json:"resourceClassification,omitempty"`
-	BreakGlass             *BreakGlassContext `json:"breakGlass,omitempty"`
+	TargetTenantID         string               `json:"targetTenantId"`
+	TargetNamespace        string               `json:"targetNamespace,omitempty"`
+	Resource               Resource             `json:"resource"`
+	Action                 Action               `json:"action"`
+	TargetEnvironment      string               `json:"targetEnvironment,omitempty"`
+	ChangeFreezeActive     bool                 `json:"changeFreezeActive,omitempty"`
+	RequireStepUpMFA       bool                 `json:"requireStepUpMfa,omitempty"`
+	ResourceClassification string               `json:"resourceClassification,omitempty"`
+	CurrentQuotaUsage      int                  `json:"currentQuotaUsage,omitempty"`
+	BreakGlass             *BreakGlassContext   `json:"breakGlass,omitempty"`
+	CrossTenantFederation  *FederationHandshake `json:"crossTenantFederation,omitempty"`
 }
 
 type ValidateRoleHierarchyRequest struct {
@@ -144,13 +147,16 @@ func EvaluationRequestFromAPI(sub Subject, req EvaluatePolicyRequest) Evaluation
 	return EvaluationRequest{
 		Subject:                sub,
 		TargetTenantID:         req.TargetTenantID,
+		TargetNamespace:        req.TargetNamespace,
 		Resource:               req.Resource,
 		Action:                 req.Action,
 		TargetEnvironment:      req.TargetEnvironment,
 		ChangeFreezeActive:     req.ChangeFreezeActive,
 		RequireStepUpMFA:       req.RequireStepUpMFA,
 		ResourceClassification: req.ResourceClassification,
+		CurrentQuotaUsage:      req.CurrentQuotaUsage,
 		BreakGlass:             req.BreakGlass,
+		CrossTenantFederation:  req.CrossTenantFederation,
 	}
 }
 

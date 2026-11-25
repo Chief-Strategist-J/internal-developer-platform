@@ -112,6 +112,12 @@ const (
 		ORDER BY parent_role ASC, child_role ASC;
 	`
 
+	FLOW_GET_ALL_ROLE_DEFINITIONS = `
+		SELECT name, permissions
+		FROM rbac_roles
+		ORDER BY name ASC;
+	`
+
 	FLOW_CLAIM_EXCLUSIVE_ROLE_BINDING = `
 		UPDATE rbac_user_bindings
 		SET subject_id = $1, version = version + 1, updated_at = $4

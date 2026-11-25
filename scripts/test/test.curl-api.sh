@@ -1055,6 +1055,46 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 44] POST /api/v1/rbac/authorize -> Contextual RBAC Authorization"
+echo "--------------------------------------------------------------------------------"
+RBAC_AUTH_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/authorize" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d "{
+    \"tenantId\": \"fintech-team\",
+    \"resource\": \"services\",
+    \"action\": \"read\"
+  }")
+
+echo "${RBAC_AUTH_RESP}"
+if echo "${RBAC_AUTH_RESP}" | grep -q "200 OK" && echo "${RBAC_AUTH_RESP}" | grep -q "\"granted\":true"; then
+    echo -e "\033[1;32m[PASS]\033[0m Contextual RBAC authorization granted"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK and granted=true for /api/v1/rbac/authorize"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 45] POST /api/v1/rbac/roles/validate-hierarchy -> DAG Validation"
+echo "--------------------------------------------------------------------------------"
+RBAC_DAG_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/roles/validate-hierarchy" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d "{\"edges\":{\"PlatformAdmin\":[\"Developer\"],\"Developer\":[\"Viewer\"]}}")
+
+echo "${RBAC_DAG_RESP}"
+if echo "${RBAC_DAG_RESP}" | grep -q "200 OK" && echo "${RBAC_DAG_RESP}" | grep -q "\"valid\":true"; then
+    echo -e "\033[1;32m[PASS]\033[0m Validated acyclic RBAC role hierarchy DAG"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK and valid=true for /api/v1/rbac/roles/validate-hierarchy"
+    exit 1
+fi
+
 
 
 

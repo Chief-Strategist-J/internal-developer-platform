@@ -2,6 +2,10 @@ package rules
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -71,10 +75,12 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 	}
 	if !isGlobalAdmin {
 		if req.TargetTenantID != "" && req.Subject.TenantID != "" && req.Subject.TenantID != req.TargetTenantID {
-			return rbacContracts.EvaluationResult{
-				Granted:       false,
-				Reason:        "tenant isolation violation: subject tenant does not match target tenant",
-				ViolationCode: "ERR_TENANT_ISOLATION",
+			if !VerifyCrossTenantFederationHandshake(req.CrossTenantFederation, req.Subject.TenantID, req.TargetTenantID, req.FederationHMACSecret, now) {
+				return rbacContracts.EvaluationResult{
+					Granted:       false,
+					Reason:        "tenant isolation violation: subject tenant does not match target tenant",
+					ViolationCode: "ERR_TENANT_ISOLATION",
+				}
 			}
 		}
 	}
@@ -87,10 +93,14 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 			}
 		}
 	}
+	roleDefs := req.ResolvedRolePermissions
+	if len(roleDefs) == 0 {
+		roleDefs = DefaultRoleDefinitions
+	}
 	var effectivePermissions []rbacContracts.Permission
 	effectivePermissions = append(effectivePermissions, req.Subject.Permissions...)
 	for _, roleName := range req.Subject.Roles {
-		if perms, ok := DefaultRoleDefinitions[roleName]; ok {
+		if perms, ok := roleDefs[roleName]; ok {
 			effectivePermissions = append(effectivePermissions, perms...)
 		}
 	}
@@ -115,7 +125,7 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 			ViolationCode: "ERR_INSUFFICIENT_PERMISSIONS",
 		}
 	}
-	if abacRes := evaluateABACGuards(req); !abacRes.Granted {
+	if abacRes := evaluateABACGuards(req, now); !abacRes.Granted {
 		return abacRes
 	}
 	return rbacContracts.EvaluationResult{
@@ -218,7 +228,26 @@ func isRootGuardrailViolated(resource rbacContracts.Resource, action rbacContrac
 	return false
 }
 
-func evaluateABACGuards(req rbacContracts.EvaluationRequest) rbacContracts.EvaluationResult {
+func evaluateABACGuards(req rbacContracts.EvaluationRequest, now time.Time) rbacContracts.EvaluationResult {
+	if req.AllowedEndHourUTC > req.AllowedStartHourUTC {
+		hour := now.UTC().Hour()
+		if hour < req.AllowedStartHourUTC || hour >= req.AllowedEndHourUTC {
+			return rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "attribute policy deny: outside allowed UTC time-of-day window",
+				ViolationCode: "ERR_OUTSIDE_ALLOWED_HOURS",
+			}
+		}
+	}
+	if strings.EqualFold(req.TargetEnvironment, rbacContracts.EnvDevelopment) || strings.EqualFold(req.TargetEnvironment, rbacContracts.EnvStaging) {
+		if req.MaxTenantQuota > 0 && req.CurrentQuotaUsage >= req.MaxTenantQuota {
+			return rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "tenant quota exceeded in dev/staging environment",
+				ViolationCode: "ERR_TENANT_QUOTA_EXCEEDED",
+			}
+		}
+	}
 	if strings.EqualFold(req.TargetEnvironment, rbacContracts.EnvProduction) {
 		if req.ChangeFreezeActive {
 			return rbacContracts.EvaluationResult{
@@ -243,6 +272,75 @@ func evaluateABACGuards(req rbacContracts.EvaluationRequest) rbacContracts.Evalu
 		}
 	}
 	return rbacContracts.EvaluationResult{Granted: true}
+}
+
+func VerifyCrossTenantFederationHandshake(hs *rbacContracts.FederationHandshake, sourceTenant string, targetTenant string, hmacSecret string, now time.Time) bool {
+	if hs == nil || hmacSecret == "" || hs.Signature == "" {
+		return false
+	}
+	if hs.SourceTenantID != sourceTenant || hs.TargetTenantID != targetTenant {
+		return false
+	}
+	if hs.ExpiresAtUnix <= now.Unix() {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(hmacSecret))
+	mac.Write([]byte(fmt.Sprintf("%s|%s|%d", hs.SourceTenantID, hs.TargetTenantID, hs.ExpiresAtUnix)))
+	expected := mac.Sum(nil)
+	provided, err := hex.DecodeString(hs.Signature)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(expected, provided)
+}
+
+func FlattenRoleHierarchyPermissions(
+	roles []rbacContracts.RoleName,
+	groupMemberships []string,
+	roleDefs map[rbacContracts.RoleName][]rbacContracts.Permission,
+	hierarchy map[string][]string,
+) map[rbacContracts.RoleName][]rbacContracts.Permission {
+	if len(roleDefs) == 0 {
+		roleDefs = DefaultRoleDefinitions
+	}
+	flattened := make(map[rbacContracts.RoleName][]rbacContracts.Permission, len(roleDefs))
+	for k, v := range roleDefs {
+		copied := make([]rbacContracts.Permission, len(v))
+		copy(copied, v)
+		flattened[k] = copied
+	}
+	if len(hierarchy) == 0 {
+		return flattened
+	}
+	seeds := make([]rbacContracts.RoleName, 0, len(roles)+len(groupMemberships))
+	seeds = append(seeds, roles...)
+	for _, g := range groupMemberships {
+		seeds = append(seeds, rbacContracts.RoleName(g))
+	}
+	for _, root := range seeds {
+		visited := map[string]bool{string(root): true}
+		queue := []string{string(root)}
+		depth := 0
+		var merged []rbacContracts.Permission
+		for len(queue) > 0 && depth <= MaxRoleHierarchyDepth {
+			nextQueue := []string{}
+			for _, curr := range queue {
+				merged = append(merged, roleDefs[rbacContracts.RoleName(curr)]...)
+				for _, child := range hierarchy[curr] {
+					if !visited[child] {
+						visited[child] = true
+						nextQueue = append(nextQueue, child)
+					}
+				}
+			}
+			queue = nextQueue
+			depth++
+		}
+		if len(merged) > 0 {
+			flattened[root] = merged
+		}
+	}
+	return flattened
 }
 
 func ValidateJITRequest(req rbacContracts.AccessGrantRequest) error {

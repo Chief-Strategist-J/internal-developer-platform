@@ -93,13 +93,30 @@ func describeService() chassis.ServiceSpec {
 			tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(deps.Config.Auth.JWTSecret, deps.Config.Auth.Issuer)
 			rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
 			rbacAuditOutbox := rbacAdapters.NewPostgresRBACAuditOutboxAdapter(deps.DB)
+			ticketVerifier := rbacAdapters.NewHTTPBreakGlassTicketAdapter(
+				deps.Config.RBAC.PagerDutyEndpoint,
+				deps.Config.RBAC.PagerDutyAPIToken,
+				deps.Config.RBAC.JiraEndpoint,
+				deps.Config.RBAC.JiraAPIToken,
+			)
+			siemEmitter := rbacAdapters.NewHTTPSIEMAlertAdapter(
+				deps.Config.RBAC.SIEMWebhookURL,
+				deps.Config.RBAC.SIEMAPIToken,
+			)
 			rbacSvc := rbacService.NewRBACServiceWithDeps(rbacService.RBACServiceDeps{
-				TokenVerifier:   tokenVerifier,
-				RevocationStore: revocationRepo,
-				GrantRepo:       rbacPostgres,
-				BindingRepo:     rbacPostgres,
-				AuditOutbox:     rbacAuditOutbox,
-				UnitOfWork:      rbacPostgres,
+				TokenVerifier:        tokenVerifier,
+				RevocationStore:      revocationRepo,
+				GrantRepo:            rbacPostgres,
+				BindingRepo:          rbacPostgres,
+				AuditOutbox:          rbacAuditOutbox,
+				UnitOfWork:           rbacPostgres,
+				TicketVerifier:       ticketVerifier,
+				SIEMAlertEmitter:     siemEmitter,
+				RoleDefRepo:          rbacPostgres,
+				FederationHMACSecret: deps.Config.RBAC.FederationHMACSecret,
+				DevStagingMaxQuota:   deps.Config.RBAC.DevStagingMaxQuota,
+				AllowedStartHourUTC:  deps.Config.RBAC.ABACAllowedStartHour,
+				AllowedEndHourUTC:    deps.Config.RBAC.ABACAllowedEndHour,
 			})
 			revocationRepo.SubscribeInvalidation(context.Background(), rbacSvc.InvalidateLocalCache)
 			rbacMW := middleware.NewRBACMiddleware(rbacSvc)
@@ -118,6 +135,9 @@ func describeService() chassis.ServiceSpec {
 							continue
 						}
 						for _, ev := range events {
+							if err := siemEmitter.EmitSecurityAlert(relayCtx, ev); err != nil {
+								continue
+							}
 							_ = rbacAuditOutbox.MarkAuditEventPublished(relayCtx, ev.ID)
 						}
 					}

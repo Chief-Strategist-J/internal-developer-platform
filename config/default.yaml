@@ -33,5 +33,17 @@ gcp:
   cloud_sql_admin_url: "https://sqladmin.googleapis.com/sql/v1beta4"
   cloud_dns_url: "https://dns.googleapis.com/dns/v1"
 
+rbac:
+  pagerduty_endpoint: ""
+  pagerduty_api_token: ""
+  jira_endpoint: ""
+  jira_api_token: ""
+  siem_webhook_url: ""
+  siem_api_token: ""
+  federation_hmac_secret: ""
+  abac_allowed_start_hour_utc: 0
+  abac_allowed_end_hour_utc: 24
+  dev_staging_max_quota: 100
+
 endpoints:
   base_path: "/api/v1"

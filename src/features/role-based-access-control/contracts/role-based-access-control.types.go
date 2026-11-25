@@ -66,16 +66,31 @@ type BreakGlassContext struct {
 	DualApprovalGranted bool   `json:"dualApprovalGranted"`
 }
 
+type FederationHandshake struct {
+	SourceTenantID string `json:"sourceTenantId"`
+	TargetTenantID string `json:"targetTenantId"`
+	Signature      string `json:"signature"`
+	ExpiresAtUnix  int64  `json:"expiresAtUnix"`
+}
+
 type EvaluationRequest struct {
-	Subject                Subject            `json:"subject"`
-	TargetTenantID         string             `json:"targetTenantId"`
-	Resource               Resource           `json:"resource"`
-	Action                 Action             `json:"action"`
-	TargetEnvironment      string             `json:"targetEnvironment,omitempty"`
-	ChangeFreezeActive     bool               `json:"changeFreezeActive,omitempty"`
-	RequireStepUpMFA       bool               `json:"requireStepUpMfa,omitempty"`
-	ResourceClassification string             `json:"resourceClassification,omitempty"`
-	BreakGlass             *BreakGlassContext `json:"breakGlass,omitempty"`
+	Subject                 Subject                    `json:"subject"`
+	TargetTenantID          string                     `json:"targetTenantId"`
+	TargetNamespace         string                     `json:"targetNamespace,omitempty"`
+	Resource                Resource                   `json:"resource"`
+	Action                  Action                     `json:"action"`
+	TargetEnvironment       string                     `json:"targetEnvironment,omitempty"`
+	ChangeFreezeActive      bool                       `json:"changeFreezeActive,omitempty"`
+	RequireStepUpMFA        bool                       `json:"requireStepUpMfa,omitempty"`
+	ResourceClassification  string                     `json:"resourceClassification,omitempty"`
+	CurrentQuotaUsage       int                        `json:"currentQuotaUsage,omitempty"`
+	MaxTenantQuota          int                        `json:"maxTenantQuota,omitempty"`
+	AllowedStartHourUTC     int                        `json:"allowedStartHourUtc,omitempty"`
+	AllowedEndHourUTC       int                        `json:"allowedEndHourUtc,omitempty"`
+	BreakGlass              *BreakGlassContext         `json:"breakGlass,omitempty"`
+	CrossTenantFederation   *FederationHandshake       `json:"crossTenantFederation,omitempty"`
+	FederationHMACSecret    string                     `json:"-"`
+	ResolvedRolePermissions map[RoleName][]Permission  `json:"-"`
 }
 
 type EvaluationResult struct {

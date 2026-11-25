@@ -10,9 +10,13 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC AUDIT OUTBOX ADAPTERS
 package adapters
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,4 +155,97 @@ func (a *MemoryRBACAuditOutboxAdapter) ListEvents() []rbacContracts.RBACAuditEve
 	copied := make([]rbacContracts.RBACAuditEvent, len(a.events))
 	copy(copied, a.events)
 	return copied
+}
+
+type HTTPBreakGlassTicketAdapter struct {
+	pagerDutyEndpoint string
+	pagerDutyToken    string
+	jiraEndpoint      string
+	jiraToken         string
+	httpClient        *http.Client
+}
+
+func NewHTTPBreakGlassTicketAdapter(pdEndpoint string, pdToken string, jiraEndpoint string, jiraToken string) *HTTPBreakGlassTicketAdapter {
+	return &HTTPBreakGlassTicketAdapter{
+		pagerDutyEndpoint: strings.TrimRight(pdEndpoint, "/"),
+		pagerDutyToken:    pdToken,
+		jiraEndpoint:      strings.TrimRight(jiraEndpoint, "/"),
+		jiraToken:         jiraToken,
+		httpClient:        &http.Client{Timeout: 5 * time.Second},
+	}
+}
+
+func (a *HTTPBreakGlassTicketAdapter) VerifyTicketApproval(ctx context.Context, ticketID string) (bool, error) {
+	return observability.RunTraced(ctx, "http.rbac.verify_breakglass_ticket", func(ctx context.Context) (bool, error) {
+		if ticketID == "" {
+			return false, errors.NewValidationError("break-glass ticketId is required")
+		}
+		targetURL := ""
+		authHeader := ""
+		if strings.HasPrefix(strings.ToUpper(ticketID), "PD-") && a.pagerDutyEndpoint != "" && a.pagerDutyToken != "" {
+			targetURL = fmt.Sprintf("%s/incidents/%s", a.pagerDutyEndpoint, ticketID)
+			authHeader = "Token token=" + a.pagerDutyToken
+		} else if a.jiraEndpoint != "" && a.jiraToken != "" {
+			targetURL = fmt.Sprintf("%s/rest/api/3/issue/%s", a.jiraEndpoint, ticketID)
+			authHeader = "Bearer " + a.jiraToken
+		}
+		if targetURL == "" {
+			return false, errors.NewDownstreamUnavailableError("break-glass ticket verification provider is not configured")
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+		if err != nil {
+			return false, fmt.Errorf("failed to build ticket verification request: %w", err)
+		}
+		req.Header.Set("Authorization", authHeader)
+		req.Header.Set("Accept", "application/json")
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("ticket verification request failed: %w", err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode >= 200 && resp.StatusCode < 300, nil
+	}, attribute.String("ticket.id", ticketID))
+}
+
+type HTTPSIEMAlertAdapter struct {
+	webhookURL string
+	apiToken   string
+	httpClient *http.Client
+}
+
+func NewHTTPSIEMAlertAdapter(webhookURL string, apiToken string) *HTTPSIEMAlertAdapter {
+	return &HTTPSIEMAlertAdapter{
+		webhookURL: strings.TrimSpace(webhookURL),
+		apiToken:   apiToken,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+}
+
+func (a *HTTPSIEMAlertAdapter) EmitSecurityAlert(ctx context.Context, event rbacContracts.RBACAuditEvent) error {
+	return observability.WithSpan(ctx, "http.rbac.emit_siem_alert", func(ctx context.Context) error {
+		if a.webhookURL == "" {
+			return nil
+		}
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("failed to marshal siem alert event: %w", err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.webhookURL, bytes.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("failed to build siem alert request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if a.apiToken != "" {
+			req.Header.Set("Authorization", "Bearer "+a.apiToken)
+		}
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("siem alert dispatch failed: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return fmt.Errorf("siem webhook returned status %d", resp.StatusCode)
+		}
+		return nil
+	}, attribute.String("event.id", event.ID), attribute.String("decision", event.Decision))
 }
