@@ -928,6 +928,11 @@ GITOPS_SYNC_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT
     \"serviceId\": \"svc-gitops-curl\",
     \"appName\": \"orders-dev\",
     \"targetRevision\": \"main\",
+    \"projectEnforcesSig\": true,
+    \"commitSigned\": true,
+    \"allowedSigningKey\": true,
+    \"roleReviewed\": true,
+    \"inAllowWindow\": true,
     \"idempotencyKey\": \"${GITOPS_IDEM_KEY}\"
   }")
 
