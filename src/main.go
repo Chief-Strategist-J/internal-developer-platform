@@ -132,6 +132,22 @@ func describeService() chassis.ServiceSpec {
 			gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
 			gitopsSvc.SetSecretAdapter(gitopsreconciliation.NewSecretAdapterWithDB(deps.DB))
 			gitopsSvc.SetOutboxPort(gitopsreconciliation.NewOutboxAdapterWithDB(deps.DB))
+			if deps.DB != nil {
+				go func(relayCtx context.Context) {
+					ticker := time.NewTicker(5 * time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-relayCtx.Done():
+							return
+						case <-ticker.C:
+							_, _ = gitopsSvc.RelayPendingOutboxEvents(relayCtx, 50, func(ctx context.Context, ev gitopsreconciliation.OutboxEvent) error {
+								return nil
+							})
+						}
+					}
+				}(context.Background())
+			}
 			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
 			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
 
