@@ -29,3 +29,7 @@ type SecretMechanismPort interface {
 	GetSecretMechanismConfig(ctx context.Context, tenantID string) (*contracts.SecretBackendConfig, error)
 	ResolveSecretReference(ctx context.Context, tenantID string, ref contracts.SecretReference) (map[string]string, error)
 }
+
+type OutboxPort interface {
+	Enqueue(ctx context.Context, event contracts.OutboxEvent) error
+}

@@ -164,3 +164,21 @@ type SecretSyncValidationResult struct {
 	Reason        string              `json:"reason"`
 	ViolationCode string              `json:"violationCode,omitempty"`
 }
+
+type OutboxEventType string
+
+const (
+	OutboxEventReconciliationSucceeded OutboxEventType = "ReconciliationSucceeded"
+	OutboxEventReconciliationFailed    OutboxEventType = "ReconciliationFailed"
+	OutboxEventRollbackTriggered       OutboxEventType = "RollbackTriggered"
+)
+
+type OutboxEvent struct {
+	ID            string          `json:"id"`
+	TenantID      string          `json:"tenantId"`
+	AggregateID   string          `json:"aggregateId"`
+	EventType     OutboxEventType `json:"eventType"`
+	AppName       string          `json:"appName"`
+	Revision      string          `json:"revision"`
+	OccurredAt    time.Time       `json:"occurredAt"`
+}
