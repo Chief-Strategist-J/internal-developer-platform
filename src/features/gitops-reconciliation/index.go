@@ -15,6 +15,7 @@ type StorePort = ports.GitOpsStorePort
 type ClientPort = ports.ArgoCDClientPort
 
 var NewService = service.NewGitOpsReconciliationService
+var NewSecretAdapterWithDB = adapters.NewConfigurableSecretAdapterWithDB
 var NewMemoryStore = adapters.NewMemoryGitOpsRepositoryAdapter
 var NewPostgresStore = adapters.NewPostgresGitOpsRepositoryAdapter
 var NewArgoCDClient = adapters.NewArgoCDClientAdapter

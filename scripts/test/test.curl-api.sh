@@ -909,6 +909,147 @@ else
     exit 1
 fi
 
+GITOPS_TENANT_ID="tenant-gitops-curl-$(date +%s)"
+GITOPS_REC_ID="rec-curl-$(date +%s)"
+GITOPS_IDEM_KEY="idem-curl-$(date +%s)"
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 37] POST /api/v1/reconciliations -> Trigger GitOps Sync with W3C Trace"
+echo "--------------------------------------------------------------------------------"
+GITOPS_SYNC_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/reconciliations" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+  -d "{
+    \"id\": \"${GITOPS_REC_ID}\",
+    \"tenantId\": \"${GITOPS_TENANT_ID}\",
+    \"serviceId\": \"svc-gitops-curl\",
+    \"appName\": \"orders-dev\",
+    \"targetRevision\": \"main\",
+    \"idempotencyKey\": \"${GITOPS_IDEM_KEY}\"
+  }")
+
+echo "${GITOPS_SYNC_RESP}"
+if echo "${GITOPS_SYNC_RESP}" | grep -q "202 Accepted" && echo "${GITOPS_SYNC_RESP}" | grep -qi "X-Trace-Id: 4bf92f3577b34da6a3ce929d0e0e4736"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully triggered GitOps reconciliation with W3C trace propagation"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 202 Accepted and X-Trace-Id propagation for GitOps sync"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 38] GET /api/v1/reconciliations/{id} -> Query Reconciliation Record"
+echo "--------------------------------------------------------------------------------"
+GITOPS_GET_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/reconciliations/${GITOPS_REC_ID}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}")
+
+echo "${GITOPS_GET_RESP}"
+if echo "${GITOPS_GET_RESP}" | grep -q "200 OK" && echo "${GITOPS_GET_RESP}" | grep -q "${GITOPS_REC_ID}"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully retrieved GitOps reconciliation record"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for GitOps reconciliation lookup"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 39] GET /api/v1/reconciliations/{id}/diff -> Inspect Drift Diff"
+echo "--------------------------------------------------------------------------------"
+GITOPS_DIFF_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/reconciliations/${GITOPS_REC_ID}/diff" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}")
+
+echo "${GITOPS_DIFF_RESP}"
+if echo "${GITOPS_DIFF_RESP}" | grep -q "200 OK" && echo "${GITOPS_DIFF_RESP}" | grep -q "orders-dev"; then
+    echo -e "\033[1;32m[PASS]\033[0m Successfully inspected GitOps drift diff"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for GitOps drift diff"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 40] POST /api/v1/reconciliations -> Invalid Payload Returns 400"
+echo "--------------------------------------------------------------------------------"
+GITOPS_ERR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/reconciliations" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
+  -d "{\"appName\":\"\"}")
+
+echo "${GITOPS_ERR_RESP}"
+if echo "${GITOPS_ERR_RESP}" | grep -q "400 Bad Request" && echo "${GITOPS_ERR_RESP}" | grep -qi "X-Trace-Id:"; then
+    echo -e "\033[1;32m[PASS]\033[0m Rejected invalid GitOps sync payload with 400 and X-Trace-Id"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 400 Bad Request with X-Trace-Id for invalid GitOps sync payload"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 41] PUT & GET /api/v1/gitops/secrets/config -> Secret Mechanism"
+echo "--------------------------------------------------------------------------------"
+GITOPS_SEC_PUT=$(curl --noproxy "*" -s -i -X PUT "http://127.0.0.1:${CLI_PORT}/api/v1/gitops/secrets/config" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
+  -d "{
+    \"tenantId\": \"${GITOPS_TENANT_ID}\",
+    \"mechanism\": \"SEALED_SECRETS\",
+    \"clusterScope\": \"namespace\",
+    \"encryptionKeyRef\": \"sealed-secrets-key\",
+    \"enabled\": true
+  }")
+
+echo "${GITOPS_SEC_PUT}"
+if echo "${GITOPS_SEC_PUT}" | grep -q "200 OK" && echo "${GITOPS_SEC_PUT}" | grep -q "SEALED_SECRETS"; then
+    echo -e "\033[1;32m[PASS]\033[0m Configured GitOps secret mechanism"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for GitOps secret mechanism configuration"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 42] GET /api/v1/gitops/secrets/config -> Fetch Secret Mechanism"
+echo "--------------------------------------------------------------------------------"
+GITOPS_SEC_GET=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/gitops/secrets/config" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}")
+
+echo "${GITOPS_SEC_GET}"
+if echo "${GITOPS_SEC_GET}" | grep -q "200 OK" && echo "${GITOPS_SEC_GET}" | grep -q "SEALED_SECRETS"; then
+    echo -e "\033[1;32m[PASS]\033[0m Retrieved GitOps secret mechanism config"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for GitOps secret mechanism retrieval"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 43] POST /api/v1/webhooks/gitops -> Ingest GitOps Webhook"
+echo "--------------------------------------------------------------------------------"
+GITOPS_WH_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/webhooks/gitops" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
+  -d "{
+    \"repositoryUrl\": \"https://github.com/org/orders-repo.git\",
+    \"branch\": \"main\",
+    \"commitSha\": \"deadbeef1234\"
+  }")
+
+echo "${GITOPS_WH_RESP}"
+if echo "${GITOPS_WH_RESP}" | grep -q "200 OK" && echo "${GITOPS_WH_RESP}" | grep -q "\"accepted\":true"; then
+    echo -e "\033[1;32m[PASS]\033[0m Accepted GitOps webhook ingress"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK for GitOps webhook ingress"
+    exit 1
+fi
+
 
 
 

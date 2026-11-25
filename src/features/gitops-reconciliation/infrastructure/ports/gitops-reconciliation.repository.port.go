@@ -23,3 +23,9 @@ type ArgoCDClientPort interface {
 	GetDetailedDrift(ctx context.Context, appName string, revision string) (*contracts.DetailedDriftReport, error)
 	RefreshAppsForRepo(ctx context.Context, repoURL string, branch string) ([]string, error)
 }
+
+type SecretMechanismPort interface {
+	ConfigureSecretMechanism(ctx context.Context, cfg contracts.SecretBackendConfig) (*contracts.SecretBackendConfig, error)
+	GetSecretMechanismConfig(ctx context.Context, tenantID string) (*contracts.SecretBackendConfig, error)
+	ResolveSecretReference(ctx context.Context, tenantID string, ref contracts.SecretReference) (map[string]string, error)
+}

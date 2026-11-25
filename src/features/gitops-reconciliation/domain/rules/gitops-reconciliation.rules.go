@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
 )
 
@@ -180,6 +181,100 @@ func ValidatePruneSafety(kind string, annotations map[string]string) error {
 		if annotations == nil || annotations["argocd.argoproj.io/deletion-approved"] != "true" {
 			return errors.NewConflictError("data-bearing resource " + kind + " cannot be pruned without deletion-approved annotation")
 		}
+	}
+	return nil
+}
+
+func ValidateSecretMechanismConfig(cfg contracts.SecretBackendConfig) error {
+	if cfg.TenantID == "" {
+		return errors.NewValidationError(constants.ErrSecretTenantIDRequired)
+	}
+	switch cfg.Mechanism {
+	case contracts.SecretMechanismSealedSecrets:
+		if cfg.EncryptionKeyRef == "" {
+			return errors.NewValidationError(constants.ErrSecretEncryptionKeyRequired)
+		}
+	case contracts.SecretMechanismExternalSecretsOperator:
+		if cfg.SecretStoreRef == "" {
+			return errors.NewValidationError(constants.ErrSecretStoreRefRequired)
+		}
+	case contracts.SecretMechanismSecretsStoreCSI:
+		if cfg.CSIDriverName == "" {
+			return errors.NewValidationError(constants.ErrSecretCSIDriverRequired)
+		}
+	default:
+		return errors.NewValidationError(constants.ErrSecretUnsupportedMechanism)
+	}
+	return nil
+}
+
+func EvaluateSecretInGitOpsPath(
+	mechanism contracts.SecretMechanismType,
+	hasPlaintextData bool,
+	pluginInjectsValues bool,
+) contracts.SecretSyncValidationResult {
+	if hasPlaintextData {
+		return contracts.SecretSyncValidationResult{
+			Allowed:       false,
+			Mechanism:     mechanism,
+			Reason:        constants.MsgPlaintextSecretInGit,
+			ViolationCode: constants.ViolationPlaintextSecretInGit,
+		}
+	}
+	if pluginInjectsValues {
+		return contracts.SecretSyncValidationResult{
+			Allowed:       false,
+			Mechanism:     mechanism,
+			Reason:        constants.MsgPluginSecretInjection,
+			ViolationCode: constants.ViolationPluginSecretInjection,
+		}
+	}
+	return contracts.SecretSyncValidationResult{
+		Allowed:   true,
+		Mechanism: mechanism,
+		Reason:    constants.MsgSecretReferencePermitted,
+	}
+}
+
+func EvaluateSourceTrust(projectEnforcesSig bool, commitSigned bool, allowedKey bool, roleReviewed bool) error {
+	if !projectEnforcesSig {
+		return errors.NewForbiddenError(constants.ErrSourceTrustSigNotEnforced)
+	}
+	if !commitSigned || !allowedKey {
+		return errors.NewUnauthorizedError(constants.ErrSourceTrustSigInvalid)
+	}
+	if !roleReviewed {
+		return errors.NewForbiddenError(constants.ErrSourceTrustReviewRequired)
+	}
+	return nil
+}
+
+func EvaluateSyncWindow(allowWindowExists bool, inAllowWindow bool, inDenyWindow bool, isManualSync bool, windowAllowsManual bool) error {
+	if inDenyWindow {
+		if isManualSync && windowAllowsManual {
+			return nil
+		}
+		return errors.NewConflictError(constants.ErrSyncBlockedDenyWindow)
+	}
+	if allowWindowExists && !inAllowWindow {
+		if isManualSync && windowAllowsManual {
+			return nil
+		}
+		return errors.NewConflictError(constants.ErrSyncBlockedOutsideAllow)
+	}
+	return nil
+}
+
+func ShouldRetryFailedSHA(currentSHA string, lastFailedSHA string) bool {
+	if currentSHA == "" || lastFailedSHA == "" {
+		return true
+	}
+	return currentSHA != lastFailedSHA
+}
+
+func ValidateSharedResourceOwnership(existingOwnerApp string, requestingApp string) error {
+	if existingOwnerApp != "" && existingOwnerApp != requestingApp {
+		return errors.NewConflictError(constants.ErrSharedResourcePrefix + existingOwnerApp)
 	}
 	return nil
 }

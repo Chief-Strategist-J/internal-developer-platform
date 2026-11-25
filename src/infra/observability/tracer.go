@@ -80,10 +80,7 @@ func InitTracer(serviceName string) (*sdktrace.TracerProvider, func(context.Cont
 }
 
 func GetTracer() *Tracer {
-	if defaultTracer == nil {
-		defaultTracer = &Tracer{tracer: otel.Tracer("internal-developer-platform")}
-	}
-	return defaultTracer
+	return &Tracer{tracer: otel.Tracer("internal-developer-platform")}
 }
 
 func (t *Tracer) StartSpan(ctx context.Context, spanName string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
