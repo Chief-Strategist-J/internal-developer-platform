@@ -26,9 +26,22 @@ type RevokeSessionRequest struct {
 }
 
 type EvaluatePolicyRequest struct {
-	TargetTenantID string   `json:"targetTenantId"`
-	Resource       Resource `json:"resource"`
-	Action         Action   `json:"action"`
+	TargetTenantID         string   `json:"targetTenantId"`
+	Resource               Resource `json:"resource"`
+	Action                 Action   `json:"action"`
+	TargetEnvironment      string   `json:"targetEnvironment,omitempty"`
+	ChangeFreezeActive     bool     `json:"changeFreezeActive,omitempty"`
+	RequireStepUpMFA       bool     `json:"requireStepUpMfa,omitempty"`
+	ResourceClassification string   `json:"resourceClassification,omitempty"`
+}
+
+type ValidateRoleHierarchyRequest struct {
+	Edges map[string][]string `json:"edges"`
+}
+
+type ValidateRoleHierarchyResponse struct {
+	Valid   bool   `json:"valid"`
+	Message string `json:"message"`
 }
 
 type CallerIdentityResponse struct {

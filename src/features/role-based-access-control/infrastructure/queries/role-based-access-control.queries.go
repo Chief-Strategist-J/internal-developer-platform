@@ -76,4 +76,12 @@ const (
 		WHERE tenant_id = $1 AND subject_id = $2
 		ORDER BY role_name ASC;
 	`
+
+	FlowInsertRBACAuditOutbox = `
+		INSERT INTO rbac_audit_outbox (
+			id, tenant_id, subject_id, resource, action, decision,
+			reason, violation_code, occurred_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (id) DO NOTHING;
+	`
 )

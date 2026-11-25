@@ -76,6 +76,8 @@ const (
 	EndpointRegimesActive         = "/api/v1/regimes/active"
 	EndpointAuthBindings          = "/api/v1/auth/bindings"
 	EndpointAuthBindingsPrefix    = "/api/v1/auth/bindings/"
+	EndpointRBACAuthorize         = "/api/v1/rbac/authorize"
+	EndpointRBACValidateHierarchy = "/api/v1/rbac/roles/validate-hierarchy"
 	EndpointClusters              = "/api/v1/clusters"
 	EndpointClustersPrefix        = "/api/v1/clusters/"
 	EndpointClustersPosture       = "/api/v1/clusters/posture"
@@ -111,6 +113,7 @@ const (
 	ErrCodeConflict           = "CONFLICT"
 	ErrCodeNotFound           = "RESOURCE_NOT_FOUND"
 	ErrCodePreconditionFailed = "PRECONDITION_FAILED"
+	ErrCodeForbidden          = "FORBIDDEN"
 	ErrCodeInternalError      = "INTERNAL_SERVER_ERROR"
 )
 

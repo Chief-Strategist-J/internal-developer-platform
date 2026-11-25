@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"context"
+	"net/http"
 	"strings"
 	"time"
 
@@ -13,6 +15,8 @@ const (
 	MinJITSessionDurationSeconds   = 60
 	MaxBreakGlassTTLSeconds        = 7200
 	MaxRoleHierarchyDepth          = 5
+	MaxPermissibleQueueDrift       = 5 * time.Minute
+	SplitBrainStaleGraceWindow     = 2 * time.Hour
 )
 
 var DefaultRoleDefinitions = map[rbacContracts.RoleName][]rbacContracts.Permission{
@@ -299,4 +303,141 @@ func matchesPermission(perm rbacContracts.Permission, targetResource rbacContrac
 		perm.Action == targetAction ||
 		strings.EqualFold(string(perm.Action), string(targetAction))
 	return actionMatch
+}
+
+func EvaluateTaskExecutionLease(req rbacContracts.TaskExecutionLeaseRequest) rbacContracts.TaskExecutionLeaseResult {
+	if !req.TokenExpired {
+		return rbacContracts.TaskExecutionLeaseResult{
+			Granted:   true,
+			Directive: "NORMAL",
+			Reason:    "token valid; proceed with standard verification",
+		}
+	}
+	if !req.IsIdempotentBatchStep {
+		return rbacContracts.TaskExecutionLeaseResult{
+			Granted:       false,
+			Directive:     "ABORT",
+			Reason:        "token expired during non-idempotent operation",
+			ViolationCode: "ERR_TOKEN_EXPIRED",
+		}
+	}
+	if req.HasSignedTaskLease && !req.LeaseExpired {
+		return rbacContracts.TaskExecutionLeaseResult{
+			Granted:   true,
+			Directive: "ALLOW_LEASE",
+			Reason:    "cryptographically signed task execution lease is valid",
+		}
+	}
+	if req.RefreshSucceeded {
+		return rbacContracts.TaskExecutionLeaseResult{
+			Granted:   true,
+			Directive: "RESUME_RENEWED_LEASE",
+			Reason:    "token refreshed via platform agent; resume with renewed lease",
+		}
+	}
+	return rbacContracts.TaskExecutionLeaseResult{
+		Granted:       false,
+		Directive:     "ABORT",
+		Reason:        "task lease missing or expired and refresh failed; graceful compensation required",
+		ViolationCode: "ERR_TASK_LEASE_EXPIRED",
+	}
+}
+
+func EvaluateAsyncJobRevocationDrift(
+	ctx context.Context,
+	subjectRevoked bool,
+	queueLatency time.Duration,
+	oidcIntrospect func(ctx context.Context) (bool, error),
+) rbacContracts.AsyncJobRevocationResult {
+	if subjectRevoked {
+		return rbacContracts.AsyncJobRevocationResult{
+			Granted:       false,
+			Directive:     "DISCARD",
+			Reason:        "subject present in revocation register; poison job terminated",
+			ViolationCode: "ERR_SUBJECT_REVOKED",
+		}
+	}
+	if queueLatency > MaxPermissibleQueueDrift {
+		if oidcIntrospect == nil {
+			return rbacContracts.AsyncJobRevocationResult{
+				Granted:       false,
+				Directive:     "DISCARD",
+				Reason:        "queue drift exceeded 5m and OIDC introspect callback is unavailable",
+				ViolationCode: "ERR_OIDC_INTROSPECT_UNAVAILABLE",
+			}
+		}
+		active, err := oidcIntrospect(ctx)
+		if err != nil || !active {
+			return rbacContracts.AsyncJobRevocationResult{
+				Granted:       false,
+				Directive:     "DISCARD",
+				Reason:        "OIDC introspection reported inactive or unreachable subject after queue drift",
+				ViolationCode: "ERR_OIDC_INACTIVE",
+			}
+		}
+	}
+	return rbacContracts.AsyncJobRevocationResult{
+		Granted:   true,
+		Directive: "EXECUTE",
+		Reason:    "async job dispatched",
+	}
+}
+
+func EvaluateRegionalSplitBrain(globalAuthorityReachable bool, isRoleMutation bool, snapshotAge time.Duration) rbacContracts.RegionalSplitBrainResult {
+	if globalAuthorityReachable {
+		return rbacContracts.RegionalSplitBrainResult{
+			Granted:    true,
+			HTTPStatus: http.StatusOK,
+			Reason:     "global policy authority reachable",
+		}
+	}
+	if isRoleMutation {
+		return rbacContracts.RegionalSplitBrainResult{
+			Granted:       false,
+			HTTPStatus:    http.StatusServiceUnavailable,
+			Reason:        "cannot mutate roles during regional network partition",
+			ViolationCode: "ERR_SPLIT_BRAIN_MUTATION_BLOCKED",
+		}
+	}
+	if snapshotAge >= 0 && snapshotAge <= SplitBrainStaleGraceWindow {
+		return rbacContracts.RegionalSplitBrainResult{
+			Granted:       true,
+			Degraded:      true,
+			HTTPStatus:    http.StatusOK,
+			WarningHeader: "299 - Degraded Regional Policy Snapshot",
+			Reason:        "evaluated against local read-replica snapshot within 2h grace window",
+		}
+	}
+	return rbacContracts.RegionalSplitBrainResult{
+		Granted:       false,
+		HTTPStatus:    http.StatusForbidden,
+		Reason:        "regional policy snapshot expired beyond 2h stale grace window",
+		ViolationCode: "ERR_SNAPSHOT_EXPIRED",
+	}
+}
+
+func EvaluateExclusiveRoleClaim(rowsAffected int64) error {
+	if rowsAffected != 1 {
+		return errors.NewConflictError("role binding already claimed")
+	}
+	return nil
+}
+
+func EvaluateStreamingSessionHeartbeat(grantExpiresAt time.Time, now time.Time, sessionStartedAt time.Time) rbacContracts.StreamingHeartbeatResult {
+	duration := now.Sub(sessionStartedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	if grantExpiresAt.IsZero() || !now.Before(grantExpiresAt) {
+		return rbacContracts.StreamingHeartbeatResult{
+			Terminate:       true,
+			SessionDuration: duration,
+			Reason:          "JIT grant or session window expired; terminate socket and flush TTY buffer",
+		}
+	}
+	return rbacContracts.StreamingHeartbeatResult{
+		Terminate:       false,
+		SessionDuration: duration,
+		Reason:          "session active",
+	}
 }

@@ -128,4 +128,30 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		rbacContracts.ActionRead,
 		bindingSubjectHandler,
 	))
+
+	authorizeHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.Authorize(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACAuthorize, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionRead,
+		authorizeHandler,
+	))
+
+	validateHierarchyHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.ValidateRoleHierarchy(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACValidateHierarchy, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionWrite,
+		validateHierarchyHandler,
+	))
 }
