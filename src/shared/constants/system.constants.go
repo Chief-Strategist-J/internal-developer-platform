@@ -32,6 +32,7 @@ const (
 	EndpointReconciliations       = "/api/v1/reconciliations"
 	EndpointReconciliationsPrefix = "/api/v1/reconciliations/"
 	EndpointGitOpsSecretsConfig   = "/api/v1/gitops/secrets/config"
+	EndpointGitOpsSecretsValidate = "/api/v1/gitops/secrets/validate"
 
 	ViolationPlaintextSecretInGit   = "P0_03_PLAINTEXT_SECRET_IN_GIT"
 	ViolationPluginSecretInjection  = "P0_03_PLUGIN_SECRET_INJECTION"

@@ -113,6 +113,30 @@ func (c *ArgoCDClientAdapter) DiffManifests(ctx context.Context, appName string,
 	)
 	defer span.End()
 
+	if c.client != nil {
+		app, err := c.client.GetApplication(ctx, appName)
+		if err != nil {
+			observability.RecordError(span, err)
+			return nil, rules.DriftReport{}, err
+		}
+		manifests := make([]rules.ResourceManifest, 0)
+		modifiedCount := 0
+		if app.Status.OperationState != nil && app.Status.OperationState.SyncResult.Resources != nil {
+			for _, res := range app.Status.OperationState.SyncResult.Resources {
+				manifests = append(manifests, rules.ResourceManifest{
+					Kind:      res.Kind,
+					Name:      res.Name,
+					Namespace: res.Namespace,
+					SyncWave:  res.SyncWave,
+				})
+				if res.Status != "Synced" {
+					modifiedCount++
+				}
+			}
+		}
+		return manifests, rules.EvaluateDriftSeverity(modifiedCount, 0), nil
+	}
+
 	manifests := []rules.ResourceManifest{
 		{Kind: "Namespace", Name: appName, Namespace: "", SyncWave: -1},
 		{Kind: "ConfigMap", Name: appName + "-config", Namespace: appName, SyncWave: 0},
