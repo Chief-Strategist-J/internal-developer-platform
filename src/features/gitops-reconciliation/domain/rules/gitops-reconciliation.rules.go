@@ -13,10 +13,11 @@ import (
 )
 
 type ResourceManifest struct {
-	Kind      string
-	Name      string
-	Namespace string
-	SyncWave  int
+	Kind        string
+	Name        string
+	Namespace   string
+	SyncWave    int
+	Annotations map[string]string
 }
 
 type DriftReport struct {

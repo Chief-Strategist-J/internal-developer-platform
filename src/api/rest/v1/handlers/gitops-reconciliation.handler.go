@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +72,9 @@ func (h *GitOpsReconciliationHandler) startHandlerSpan(w http.ResponseWriter, r 
 	if sc.IsValid() {
 		w.Header().Set("X-Trace-Id", sc.TraceID().String())
 		w.Header().Set("X-Span-Id", sc.SpanID().String())
+		if meta.Traceparent == "" {
+			w.Header().Set(constants.HeaderTraceparent, fmt.Sprintf("00-%s-%s-01", sc.TraceID().String(), sc.SpanID().String()))
+		}
 	}
 	return ctx, func() { span.End() }
 }
@@ -158,6 +162,9 @@ func (h *GitOpsReconciliationHandler) TriggerSync(w http.ResponseWriter, r *http
 		return
 	}
 
+	if cmd.ID == "" {
+		cmd.ID = fmt.Sprintf("rec-%d", time.Now().UnixNano())
+	}
 	if cmd.TenantID == "" {
 		cmd.TenantID = meta.TenantID
 	}
@@ -177,6 +184,57 @@ func (h *GitOpsReconciliationHandler) TriggerSync(w http.ResponseWriter, r *http
 		Success:    true,
 		StatusCode: http.StatusAccepted,
 		Data:       result,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *GitOpsReconciliationHandler) ListReconciliations(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+	ctx, endSpan := h.startHandlerSpan(w, r, "gitops_reconciliation.list_reconciliations", meta)
+	defer endSpan()
+
+	q := r.URL.Query()
+	limitStr := q.Get("limit")
+	offsetStr := q.Get("offset")
+	limit := 50
+	offset := 0
+	if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
+		limit = v
+	}
+	if v, err := strconv.Atoi(offsetStr); err == nil && v >= 0 {
+		offset = v
+	}
+
+	filter := contracts.FilterCriteria{
+		TenantID:  meta.TenantID,
+		ServiceID: q.Get("serviceId"),
+		SyncPhase: contracts.SyncPhase(q.Get("syncPhase")),
+		Limit:     limit,
+		Offset:    offset,
+	}
+
+	records, err := h.service.ListReconciliations(ctx, filter)
+	if err != nil {
+		status, code := resolveErrorStatus(err)
+		h.writeError(ctx, w, status, code, err.Error(), start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       records,
 		Meta: types.ResponseMeta{
 			RequestID:       meta.RequestID,
 			CorrelationID:   meta.CorrelationID,

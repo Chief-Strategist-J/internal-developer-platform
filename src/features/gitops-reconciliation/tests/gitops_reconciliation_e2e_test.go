@@ -65,12 +65,17 @@ func TestGitOpsReconciliationE2ETraceHierarchyAndPropagation(t *testing.T) {
 	defer cleanup()
 
 	body, err := json.Marshal(contracts.SyncCommand{
-		ID:             "rec-e2e-001",
-		TenantID:       "tenant-e2e-1",
-		ServiceID:      "svc-orders",
-		AppName:        "orders-dev",
-		TargetRevision: "abc1234",
-		IdempotencyKey: "idem-e2e-001",
+		ID:                 "rec-e2e-001",
+		TenantID:           "tenant-e2e-1",
+		ServiceID:          "svc-orders",
+		AppName:            "orders-dev",
+		TargetRevision:     "abc1234",
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "idem-e2e-001",
 	})
 	if err != nil {
 		t.Fatalf("failed to marshal sync command: %v", err)

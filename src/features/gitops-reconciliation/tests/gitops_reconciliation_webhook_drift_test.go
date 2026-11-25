@@ -132,12 +132,17 @@ func TestGitOpsDriftInspectionEndpoint(t *testing.T) {
 	svc := gitopsreconciliation.NewService(store, argoClient)
 
 	cmd := contracts.SyncCommand{
-		ID:             "rec-drift-01",
-		TenantID:       "fintech",
-		ServiceID:      "payments",
-		AppName:        "payments-service",
-		TargetRevision: "v1.2.0",
-		IdempotencyKey: "drift-key-01",
+		ID:                 "rec-drift-01",
+		TenantID:           "fintech",
+		ServiceID:          "payments",
+		AppName:            "payments-service",
+		TargetRevision:     "v1.2.0",
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "drift-key-01",
 	}
 
 	res, err := svc.TriggerReconciliation(ctx, cmd)

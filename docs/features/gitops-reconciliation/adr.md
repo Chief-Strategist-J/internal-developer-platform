@@ -22,3 +22,14 @@
 - **Decision**: Wrap the Argo CD REST client (`src/infra/clients/argocd/`) in the downstream resilience executor with retry budgets, circuit breakers, and explicit application sync triggering. Transition internal reconciliation records through a formal state machine (`SYNCING`, `HEALTHY`, `DEGRADED`, `UNKNOWN`).
 - **Consequences**: Transient Argo CD restarts do not fail workload deployments; applications maintain clear observability into active synchronization phases.
 
+
+---
+
+## ADR-004: API-Configurable Destination-Cluster Secret Mechanism (D-SEC) & Policy-Gated Reconciliation
+- **Status**: Accepted
+- **Context**: Designating Argo CD as the sole writer (ADR-001) collides with storing Kubernetes `Secret` values in Git or injecting them during manifest generation, because Argo CD's `repo-server` caches rendered manifests in plaintext in Redis. Additionally, reconciliation requires explicit policy gates for signed commits (`P0-02`), sync windows, same-SHA retry prevention, and shared resource ownership.
+- **Decision**:
+  1. Introduce `SecretMechanismPort` and `ConfigurableSecretAdapter` (`PUT/GET /api/v1/gitops/secrets/config`, persisted in `gitops_secret_mechanisms`) so each tenant configures its destination-cluster secret controller (`SEALED_SECRETS`, `EXTERNAL_SECRETS_OPERATOR`, or `SECRETS_STORE_CSI_DRIVER`) via API.
+  2. Enforce `P0-03` (`EvaluateSecretInGitOpsPath`) to block plaintext `Secret` `data`/`stringData` in Git and block generation plugins injecting secret values.
+  3. Enforce `EvaluateSourceTrust` (`P0-02`), `EvaluateSyncWindow`, `ShouldRetryFailedSHA`, and `ValidateSharedResourceOwnership` (`FailOnSharedResource`) as pure domain rules.
+- **Consequences**: Secret values never pass through Git or Argo CD's Redis cache; tenants can switch secret backends via API without code changes; reconciliation is deterministic, auditable, and drift-safe.

@@ -45,6 +45,22 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 		return nil, err
 	}
 
+	if err := rules.EvaluateSourceTrust(cmd.ProjectEnforcesSig, cmd.CommitSigned, cmd.AllowedSigningKey, cmd.RoleReviewed); err != nil {
+		recordServiceFailure(ctx, span, err, "source trust gate rejected sync", true, observability.String("app_name", cmd.AppName))
+		return nil, err
+	}
+
+	if err := rules.EvaluateSyncWindow(cmd.AllowWindowExists, cmd.InAllowWindow, cmd.InDenyWindow, cmd.IsManualSync, cmd.WindowAllowsManual); err != nil {
+		recordServiceFailure(ctx, span, err, "sync window gate rejected sync", true, observability.String("app_name", cmd.AppName))
+		return nil, err
+	}
+
+	if !rules.ShouldRetryFailedSHA(cmd.TargetRevision, cmd.LastFailedSHA) {
+		err := errors.NewConflictError("sync refused: target revision matches last failed SHA — resolve the failure before retrying")
+		recordServiceFailure(ctx, span, err, "SHA retry dedup rejected sync", true, observability.String("target_revision", cmd.TargetRevision))
+		return nil, err
+	}
+
 	existing, err := s.store.GetByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey)
 	if err != nil {
 		recordServiceFailure(ctx, span, err, "idempotency lookup failed", false, observability.String("idempotency_key", cmd.IdempotencyKey))
@@ -77,6 +93,18 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 		if err := rules.ValidateTenantProjectGuardrails(true, m.Kind); err != nil {
 			recordServiceFailure(ctx, span, err, "tenant project guardrail violation", true, observability.String("resource_kind", m.Kind))
 			return nil, err
+		}
+		if ownerApp, exists := cmd.OwnerAppMap[m.Kind+"/"+m.Name]; exists {
+			if err := rules.ValidateSharedResourceOwnership(ownerApp, cmd.AppName); err != nil {
+				recordServiceFailure(ctx, span, err, "shared resource ownership conflict", true, observability.String("resource_kind", m.Kind), observability.String("owner_app", ownerApp))
+				return nil, err
+			}
+		}
+		if cmd.Prune {
+			if err := rules.ValidatePruneSafety(m.Kind, m.Annotations); err != nil {
+				recordServiceFailure(ctx, span, err, "prune safety check failed", true, observability.String("resource_kind", m.Kind))
+				return nil, err
+			}
 		}
 	}
 
@@ -130,6 +158,7 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 		failedPhase, _ := machines.TransitionSyncState(inProgressPhase, machines.EventFailSync)
 		initialRecord.SyncPhase = failedPhase
 		initialRecord.HealthStatus = contracts.HealthStatusDegraded
+		initialRecord.LastFailedSHA = cmd.TargetRevision
 		initialRecord.Version = 2
 		_ = s.store.Update(ctx, initialRecord)
 		recordServiceFailure(ctx, span, syncErr, "argocd sync failed", false, observability.String("app_name", cmd.AppName))
@@ -350,6 +379,10 @@ func (s *GitOpsReconciliationService) ConfigureSecretMechanism(
 	if s.secretPort == nil {
 		err := errors.NewInternalError("secret mechanism port not configured")
 		recordServiceFailure(ctx, span, err, "secret mechanism port not configured", false)
+		return nil, err
+	}
+	if err := rules.ValidateSecretMechanismConfig(cfg); err != nil {
+		recordServiceFailure(ctx, span, err, "secret mechanism config domain validation failed", true, observability.String("mechanism", string(cfg.Mechanism)))
 		return nil, err
 	}
 	saved, err := s.secretPort.ConfigureSecretMechanism(ctx, cfg)
