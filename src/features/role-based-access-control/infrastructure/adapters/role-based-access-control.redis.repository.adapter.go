@@ -1,125 +1,136 @@
 /*
-ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC REDIS REVOCATION ADAPTER
+ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC REDIS REVOCATION & INVALIDATION ADAPTER
 
 1. Architecture Role:
-  - Outbound infrastructure adapter implementing RevocationRepositoryPort.
-  - Communicates with Redis over raw TCP using RESP-compatible query builders.
-  - Enforces Tier-4 infrastructure spans for all revocation checks and writes.
-  - Zero inline comments inside method bodies.
+  - Step 11 Outbound Adapter: Implements ports.RevocationStorePort using github.com/redis/go-redis/v9.
+  - Fails closed by returning explicit infrastructure errors on Redis unavailability.
+  - Supports distributed PDP cache invalidation via Redis Pub/Sub channel ("rbac:cache:invalidate").
+  - Enforces Tier-4 OpenTelemetry spans and zero inline comments inside function bodies.
 */
 package adapters
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"net"
-	"strings"
-	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	rbacQueries "internal-developer-platform/src/features/role-based-access-control/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
+	"internal-developer-platform/src/shared/constants"
 )
 
 type RedisRevocationAdapter struct {
-	addr    string
-	timeout time.Duration
-	mu      sync.Mutex
+	client *redis.Client
+	addr   string
 }
 
 func NewRedisRevocationAdapter(addr string, timeout time.Duration) *RedisRevocationAdapter {
-	if addr == "" {
-		addr = "127.0.0.1:6379"
-	}
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
+	var client *redis.Client
+	if addr != "" {
+		client = redis.NewClient(&redis.Options{
+			Addr:         addr,
+			DialTimeout:  timeout,
+			ReadTimeout:  timeout,
+			WriteTimeout: timeout,
+		})
+	}
 	return &RedisRevocationAdapter{
-		addr:    addr,
-		timeout: timeout,
+		client: client,
+		addr:   addr,
 	}
-}
-
-func (a *RedisRevocationAdapter) sendCommand(cmd string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	conn, err := net.DialTimeout("tcp", a.addr, a.timeout)
-	if err != nil {
-		return "", fmt.Errorf("redis dial failed: %w", err)
-	}
-	defer conn.Close()
-
-	_ = conn.SetDeadline(time.Now().Add(a.timeout))
-
-	if _, err := conn.Write([]byte(cmd + "\r\n")); err != nil {
-		return "", fmt.Errorf("redis write failed: %w", err)
-	}
-
-	reader := bufio.NewReader(conn)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("redis read failed: %w", err)
-	}
-
-	return strings.TrimSpace(line), nil
 }
 
 func (a *RedisRevocationAdapter) IsRevoked(ctx context.Context, subjectID string, jti string) (bool, error) {
 	return observability.RunTraced(ctx, "redis.revocation.is_revoked", func(ctx context.Context) (bool, error) {
+		if a.client == nil {
+			return false, fmt.Errorf("redis client is not configured")
+		}
 		if subjectID != "" {
-			cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationSubKey(subjectID))
-			resp, err := a.sendCommand(cmd)
-			if err == nil && resp == rbacQueries.ExistsPositiveResult {
+			count, err := a.client.Exists(ctx, rbacQueries.BuildRevocationSubKey(subjectID)).Result()
+			if err != nil {
+				return false, fmt.Errorf("redis revocation subject lookup failed: %w", err)
+			}
+			if count > 0 {
 				return true, nil
 			}
 		}
-
 		if jti != "" {
-			cmd := rbacQueries.BuildExistsCommand(rbacQueries.BuildRevocationJTIKey(jti))
-			resp, err := a.sendCommand(cmd)
-			if err == nil && resp == rbacQueries.ExistsPositiveResult {
+			count, err := a.client.Exists(ctx, rbacQueries.BuildRevocationJTIKey(jti)).Result()
+			if err != nil {
+				return false, fmt.Errorf("redis revocation jti lookup failed: %w", err)
+			}
+			if count > 0 {
 				return true, nil
 			}
 		}
-
 		return false, nil
 	})
 }
 
 func (a *RedisRevocationAdapter) RevokeSubject(ctx context.Context, subjectID string) error {
 	return observability.WithSpan(ctx, "redis.revocation.revoke_subject", func(ctx context.Context) error {
-		cmd := rbacQueries.BuildSetexCommand(
-			rbacQueries.BuildRevocationSubKey(subjectID),
-			rbacQueries.DefaultTTLSeconds,
-			rbacQueries.RevokedSentinelValue,
-		)
-		resp, err := a.sendCommand(cmd)
-		if err != nil {
-			return err
+		if a.client == nil {
+			return fmt.Errorf("redis client is not configured")
 		}
-		if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
-			return fmt.Errorf("unexpected redis response: %s", resp)
+		ttl := time.Duration(rbacQueries.DefaultTTLSeconds) * time.Second
+		if err := a.client.Set(ctx, rbacQueries.BuildRevocationSubKey(subjectID), rbacQueries.RevokedSentinelValue, ttl).Err(); err != nil {
+			return fmt.Errorf("redis revoke subject failed: %w", err)
 		}
+		_ = a.client.Publish(ctx, constants.RBACInvalidationChannel, subjectID).Err()
 		return nil
 	})
 }
 
 func (a *RedisRevocationAdapter) RevokeJTI(ctx context.Context, jti string) error {
 	return observability.WithSpan(ctx, "redis.revocation.revoke_jti", func(ctx context.Context) error {
-		cmd := rbacQueries.BuildSetexCommand(
-			rbacQueries.BuildRevocationJTIKey(jti),
-			rbacQueries.DefaultTTLSeconds,
-			rbacQueries.RevokedSentinelValue,
-		)
-		resp, err := a.sendCommand(cmd)
-		if err != nil {
-			return err
+		if a.client == nil {
+			return fmt.Errorf("redis client is not configured")
 		}
-		if !strings.HasPrefix(resp, rbacQueries.OkResponsePrefix) {
-			return fmt.Errorf("unexpected redis response: %s", resp)
+		ttl := time.Duration(rbacQueries.DefaultTTLSeconds) * time.Second
+		if err := a.client.Set(ctx, rbacQueries.BuildRevocationJTIKey(jti), rbacQueries.RevokedSentinelValue, ttl).Err(); err != nil {
+			return fmt.Errorf("redis revoke jti failed: %w", err)
 		}
 		return nil
 	})
+}
+
+func (a *RedisRevocationAdapter) PublishInvalidation(ctx context.Context, subjectID string) error {
+	return observability.WithSpan(ctx, "redis.revocation.publish_invalidation", func(ctx context.Context) error {
+		if a.client == nil {
+			return fmt.Errorf("redis client is not configured")
+		}
+		if err := a.client.Publish(ctx, constants.RBACInvalidationChannel, subjectID).Err(); err != nil {
+			return fmt.Errorf("redis publish invalidation failed: %w", err)
+		}
+		return nil
+	})
+}
+
+func (a *RedisRevocationAdapter) SubscribeInvalidation(ctx context.Context, onInvalidate func(subjectID string)) {
+	if a.client == nil {
+		return
+	}
+	pubsub := a.client.Subscribe(ctx, constants.RBACInvalidationChannel)
+	go func() {
+		defer pubsub.Close()
+		ch := pubsub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				if msg.Payload != "" && onInvalidate != nil {
+					onInvalidate(msg.Payload)
+				}
+			}
+		}
+	}()
 }

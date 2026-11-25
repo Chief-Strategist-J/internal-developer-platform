@@ -22,12 +22,10 @@ import (
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
 	policyAdapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
-	policyPorts "internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
 	policyService "internal-developer-platform/src/features/policy-as-code/service"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
-	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 	"internal-developer-platform/src/infra/chassis"
 	argocdClientPkg "internal-developer-platform/src/infra/clients/argocd"
@@ -88,44 +86,50 @@ func describeService() chassis.ServiceSpec {
 			}
 		},
 		BuildServices: func(deps chassis.Dependencies) (interface{}, error) {
+			if deps.DB == nil {
+				return nil, fmt.Errorf("database connection is required for production persistence")
+			}
 			revocationRepo := rbacAdapters.NewRedisRevocationAdapter(deps.Config.Redis.Address, time.Duration(deps.Config.Redis.TimeoutSeconds)*time.Second)
 			tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(deps.Config.Auth.JWTSecret, deps.Config.Auth.Issuer)
-			rbacSvc := rbacService.NewRBACService(tokenVerifier, revocationRepo)
+			rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
+			rbacAuditOutbox := rbacAdapters.NewPostgresRBACAuditOutboxAdapter(deps.DB)
+			rbacSvc := rbacService.NewRBACServiceWithDeps(rbacService.RBACServiceDeps{
+				TokenVerifier:   tokenVerifier,
+				RevocationStore: revocationRepo,
+				GrantRepo:       rbacPostgres,
+				BindingRepo:     rbacPostgres,
+				AuditOutbox:     rbacAuditOutbox,
+				UnitOfWork:      rbacPostgres,
+			})
+			revocationRepo.SubscribeInvalidation(context.Background(), rbacSvc.InvalidateLocalCache)
 			rbacMW := middleware.NewRBACMiddleware(rbacSvc)
 			rbacHandler := handlers.NewRBACHandler(rbacSvc)
 			rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
+			go func(relayCtx context.Context) {
+				ticker := time.NewTicker(5 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-relayCtx.Done():
+						return
+					case <-ticker.C:
+						events, err := rbacAuditOutbox.ListPendingAuditEvents(relayCtx, 50)
+						if err != nil {
+							continue
+						}
+						for _, ev := range events {
+							_ = rbacAuditOutbox.MarkAuditEventPublished(relayCtx, ev.ID)
+						}
+					}
+				}
+			}(context.Background())
 
-			var catalogRepo catalogPorts.ServiceCatalogRepositoryPort
-			var gitopsStore gitopsreconciliation.StorePort
-			var workloadStore kubernetesworkloadprovisioning.StorePort
-			var regimeRepo platformregime.PlatformRegimeRepositoryPort
-			var policyRepo policyPorts.PolicyRepositoryPort
-			var drStore disasterrecovery.DRPlanStorePort
-
-			if deps.DB != nil {
-				rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
-				rbacSvc.SetGrantRepository(rbacPostgres)
-				rbacSvc.SetUserBindingRepository(rbacPostgres)
-				rbacSvc.SetAuditOutbox(rbacAdapters.NewPostgresRBACAuditOutboxAdapter(deps.DB))
-				catalogRepo = catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
-				gitopsStore = gitopsreconciliation.NewPostgresStore(deps.DB)
-				workloadStore = workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
-				regimeRepo = platformregime.NewPostgresRepository(deps.DB)
-				policyRepo = policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
-				drStore = drAdapters.NewPostgresDRRepositoryAdapter(deps.DB)
-			} else {
-				rbacMemGrants := rbacAdapters.NewMemoryAccessGrantAdapter()
-				rbacMemBindings := rbacAdapters.NewMemoryUserBindingAdapter()
-				rbacSvc.SetGrantRepository(rbacMemGrants)
-				rbacSvc.SetUserBindingRepository(rbacMemBindings)
-				rbacSvc.SetAuditOutbox(rbacAdapters.NewMemoryRBACAuditOutboxAdapter())
-				catalogRepo = catalogAdapters.NewMemoryServiceCatalogAdapter()
-				gitopsStore = gitopsreconciliation.NewMemoryStore()
-				workloadStore = workloadAdapters.NewMemoryWorkloadRepositoryAdapter()
-				regimeRepo = platformregime.NewMemoryRepository()
-				policyRepo = policyAdapters.NewMemoryPolicyRepositoryAdapter()
-				drStore = drAdapters.NewMemoryDRStoreAdapter()
-			}
+			catalogRepo := catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
+			gitopsStore := gitopsreconciliation.NewPostgresStore(deps.DB)
+			workloadStore := workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
+			regimeRepo := platformregime.NewPostgresRepository(deps.DB)
+			policyRepo := policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
+			drStore := drAdapters.NewPostgresDRRepositoryAdapter(deps.DB)
 
 			catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
 			catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)

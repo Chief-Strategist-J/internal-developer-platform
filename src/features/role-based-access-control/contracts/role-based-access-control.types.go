@@ -7,11 +7,14 @@ type Action string
 type Resource string
 
 const (
-	ActionRead   Action = "read"
-	ActionWrite  Action = "write"
-	ActionUpdate Action = "update"
-	ActionDelete Action = "delete"
-	ActionAll    Action = "*"
+	ActionRead          Action = "read"
+	ActionWrite         Action = "write"
+	ActionUpdate        Action = "update"
+	ActionDelete        Action = "delete"
+	ActionScale         Action = "scale"
+	ActionExecute       Action = "execute"
+	ActionManageSecrets Action = "manage-secrets"
+	ActionAll           Action = "*"
 
 	ResourceAll            Resource = "*"
 	ResourceAuth           Resource = "auth"
@@ -41,16 +44,18 @@ type Role struct {
 }
 
 type Subject struct {
-	ID              string       `json:"id"`
-	TenantID        string       `json:"tenantId"`
-	Roles           []RoleName   `json:"roles"`
-	Permissions     []Permission `json:"permissions,omitempty"`
-	DenyPermissions []Permission `json:"denyPermissions,omitempty"`
-	MFAVerified     bool         `json:"mfaVerified,omitempty"`
-	Classification  string       `json:"classification,omitempty"`
-	Issuer          string       `json:"issuer"`
-	ExpiresAt       time.Time    `json:"expiresAt"`
-	JTI             string       `json:"jti,omitempty"`
+	ID               string       `json:"id"`
+	TenantID         string       `json:"tenantId"`
+	Roles            []RoleName   `json:"roles"`
+	GroupMemberships []string     `json:"groupMemberships,omitempty"`
+	ClientType       string       `json:"clientType,omitempty"`
+	Permissions      []Permission `json:"permissions,omitempty"`
+	DenyPermissions  []Permission `json:"denyPermissions,omitempty"`
+	MFAVerified      bool         `json:"mfaVerified,omitempty"`
+	Classification   string       `json:"classification,omitempty"`
+	Issuer           string       `json:"issuer"`
+	ExpiresAt        time.Time    `json:"expiresAt"`
+	JTI              string       `json:"jti,omitempty"`
 }
 
 type BreakGlassContext struct {
@@ -127,4 +132,10 @@ type StreamingHeartbeatResult struct {
 	Terminate       bool          `json:"terminate"`
 	SessionDuration time.Duration `json:"sessionDuration"`
 	Reason          string        `json:"reason"`
+}
+
+type AccessGrantPage struct {
+	Items      []AccessGrantRecord `json:"items"`
+	NextCursor string              `json:"nextCursor,omitempty"`
+	HasMore    bool                `json:"hasMore"`
 }

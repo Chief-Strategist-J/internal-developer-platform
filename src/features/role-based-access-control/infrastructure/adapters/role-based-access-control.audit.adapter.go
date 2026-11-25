@@ -44,24 +44,85 @@ func (a *PostgresRBACAuditOutboxAdapter) EnqueueAuditEvent(ctx context.Context, 
 		if occurredAt.IsZero() {
 			occurredAt = time.Now().UTC()
 		}
-		_, err := a.db.ExecContext(
-			ctx,
-			rbacQueries.FlowInsertRBACAuditOutbox,
-			event.ID,
-			event.TenantID,
-			event.SubjectID,
-			string(event.Resource),
-			string(event.Action),
-			event.Decision,
-			event.Reason,
-			event.ViolationCode,
-			occurredAt,
-		)
+		var err error
+		if tx, ok := TxFromContext(ctx); ok {
+			_, err = tx.ExecContext(
+				ctx,
+				rbacQueries.FlowInsertRBACAuditOutbox,
+				event.ID,
+				event.TenantID,
+				event.SubjectID,
+				string(event.Resource),
+				string(event.Action),
+				event.Decision,
+				event.Reason,
+				event.ViolationCode,
+				occurredAt,
+			)
+		} else {
+			_, err = a.db.ExecContext(
+				ctx,
+				rbacQueries.FlowInsertRBACAuditOutbox,
+				event.ID,
+				event.TenantID,
+				event.SubjectID,
+				string(event.Resource),
+				string(event.Action),
+				event.Decision,
+				event.Reason,
+				event.ViolationCode,
+				occurredAt,
+			)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to enqueue rbac audit outbox event: %w", err)
 		}
 		return nil
 	}, attribute.String("event.id", event.ID), attribute.String("decision", event.Decision), attribute.String("subject.id", event.SubjectID))
+}
+
+func (a *PostgresRBACAuditOutboxAdapter) ListPendingAuditEvents(ctx context.Context, limit int) ([]rbacContracts.RBACAuditEvent, error) {
+	return observability.RunTraced(ctx, "postgres.rbac_audit_outbox.list_pending", func(ctx context.Context) ([]rbacContracts.RBACAuditEvent, error) {
+		if a.db == nil {
+			return nil, errors.NewInternalError("database connection is nil for rbac audit outbox")
+		}
+		if limit <= 0 {
+			limit = 50
+		}
+		rows, err := a.db.QueryContext(ctx, rbacQueries.FLOW_LIST_PENDING_RBAC_AUDIT_OUTBOX, limit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list pending rbac audit outbox events: %w", err)
+		}
+		defer rows.Close()
+		var events []rbacContracts.RBACAuditEvent
+		for rows.Next() {
+			var ev rbacContracts.RBACAuditEvent
+			var res, act string
+			if err := rows.Scan(&ev.ID, &ev.TenantID, &ev.SubjectID, &res, &act, &ev.Decision, &ev.Reason, &ev.ViolationCode, &ev.OccurredAt); err != nil {
+				return nil, fmt.Errorf("failed to scan rbac audit outbox event: %w", err)
+			}
+			ev.Resource = rbacContracts.Resource(res)
+			ev.Action = rbacContracts.Action(act)
+			events = append(events, ev)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("rows iteration error: %w", err)
+		}
+		return events, nil
+	})
+}
+
+func (a *PostgresRBACAuditOutboxAdapter) MarkAuditEventPublished(ctx context.Context, id string) error {
+	return observability.WithSpan(ctx, "postgres.rbac_audit_outbox.mark_published", func(ctx context.Context) error {
+		if a.db == nil {
+			return errors.NewInternalError("database connection is nil for rbac audit outbox")
+		}
+		_, err := a.db.ExecContext(ctx, rbacQueries.FLOW_MARK_RBAC_AUDIT_OUTBOX_PUBLISHED, id, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to mark rbac audit outbox event published: %w", err)
+		}
+		return nil
+	}, attribute.String("event.id", id))
 }
 
 type MemoryRBACAuditOutboxAdapter struct {

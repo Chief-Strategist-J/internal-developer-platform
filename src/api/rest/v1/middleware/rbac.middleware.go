@@ -1,3 +1,12 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC INGRESS MIDDLEWARE
+
+1. Ingress Execution:
+  - Extracts Bearer JWT from Authorization header and X-Tenant-ID header.
+  - Invokes RBACService.AuthenticateAndAuthorize under active request context.
+  - Maps typed ApplicationError (401 Unauthorized vs 403 Forbidden) without string matching.
+  - Zero mid-function inline comments.
+*/
 package middleware
 
 import (
@@ -7,6 +16,8 @@ import (
 
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	"internal-developer-platform/src/shared/constants"
+	sharedErrors "internal-developer-platform/src/shared/errors"
 )
 
 type contextKey string
@@ -23,22 +34,19 @@ func NewRBACMiddleware(rbacSvc *rbacService.RBACService) *RBACMiddleware {
 
 func (m *RBACMiddleware) RequirePermission(resource rbacContracts.Resource, action rbacContracts.Action, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			http.Error(w, `{"error":"missing or invalid authorization header"}`, http.StatusUnauthorized)
+		authHeader := r.Header.Get(constants.HeaderAuthorization)
+		if authHeader == "" || !strings.HasPrefix(authHeader, constants.BearerPrefix) {
+			http.Error(w, constants.ErrMissingAuthHeaderJSON, http.StatusUnauthorized)
 			return
 		}
 
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		targetTenant := r.Header.Get("X-Tenant-ID")
+		rawToken := strings.TrimPrefix(authHeader, constants.BearerPrefix)
+		targetTenant := r.Header.Get(constants.HeaderXTenantID)
 
 		subject, err := m.rbacSvc.AuthenticateAndAuthorize(r.Context(), rawToken, targetTenant, resource, action)
 		if err != nil {
 			status := http.StatusForbidden
-			if strings.Contains(strings.ToLower(err.Error()), "token") ||
-				strings.Contains(strings.ToLower(err.Error()), "signature") ||
-				strings.Contains(strings.ToLower(err.Error()), "revoked") ||
-				strings.Contains(strings.ToLower(err.Error()), "unauthorized") {
+			if sharedErrors.IsUnauthorizedError(err) {
 				status = http.StatusUnauthorized
 			}
 			http.Error(w, `{"error":"`+err.Error()+`"}`, status)

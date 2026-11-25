@@ -141,4 +141,11 @@ const (
 	EnvCloudSQLAdminBaseURL     = "CLOUD_SQL_ADMIN_BASE_URL"
 	EnvCloudDNSBaseURL          = "CLOUD_DNS_BASE_URL"
 	EnvDRAPIBaseURL             = "DR_API_BASE_URL"
+
+	BearerPrefix                  = "Bearer "
+	DefaultJWTIssuer              = "internal-developer-platform"
+	RBACInvalidationChannel       = "rbac:cache:invalidate"
+	RBACDenyFailoverLogName       = "rbac-deny-failover.log"
+	ErrMissingAuthHeaderJSON      = `{"error":"missing or invalid authorization header"}`
+	ErrRevocationStoreUnavailable = "revocation store unavailable: fail closed"
 )

@@ -1,34 +1,36 @@
-// Package adapters provides outbound token verification adapters for RBAC.
-//
-// Architectural Blueprint:
-// - Step 11 Adapter: JWT cryptographic token issuer and verifier adapter.
-// - Traced under OpenTelemetry child spans using observability.RunTraced.
-// - 100% comment-free function bodies.
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC JWT ADAPTER (NATIVE GOLANG-JWT)
+
+1. Architecture Role:
+  - Step 11 Adapter: JWT cryptographic token issuer and verifier implementing ports.TokenVerifierPort.
+  - Uses github.com/golang-jwt/jwt/v5 with HS256 signing and strict expiration/method validation.
+  - Preserves Subject, TenantID, Roles, GroupMemberships, ClientType, MFAVerified, Classification, and JTI.
+  - Zero mid-function inline comments.
+*/
 package adapters
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 	"internal-developer-platform/src/infra/observability"
+	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
 )
 
 type JWTClaims struct {
-	Sub         string                     `json:"sub"`
-	TenantID    string                     `json:"tenantId"`
-	Roles       []rbacContracts.RoleName   `json:"roles"`
-	Permissions []rbacContracts.Permission `json:"permissions,omitempty"`
-	Iss         string                     `json:"iss"`
-	Exp         int64                      `json:"exp"`
-	Jti         string                     `json:"jti,omitempty"`
+	TenantID         string                     `json:"tenantId"`
+	Roles            []rbacContracts.RoleName   `json:"roles"`
+	GroupMemberships []string                   `json:"groupMemberships,omitempty"`
+	ClientType       string                     `json:"clientType,omitempty"`
+	Permissions      []rbacContracts.Permission `json:"permissions,omitempty"`
+	MFAVerified      bool                       `json:"mfaVerified,omitempty"`
+	Classification   string                     `json:"classification,omitempty"`
+	jwt.RegisteredClaims
 }
 
 type JWTTokenVerifierAdapter struct {
@@ -37,11 +39,8 @@ type JWTTokenVerifierAdapter struct {
 }
 
 func NewJWTTokenVerifierAdapter(secret string, issuer string) *JWTTokenVerifierAdapter {
-	if secret == "" {
-		secret = "internal-developer-platform-dev-signing-secret"
-	}
 	if issuer == "" {
-		issuer = "internal-developer-platform"
+		issuer = constants.DefaultJWTIssuer
 	}
 	return &JWTTokenVerifierAdapter{
 		secretKey: []byte(secret),
@@ -52,84 +51,75 @@ func NewJWTTokenVerifierAdapter(secret string, issuer string) *JWTTokenVerifierA
 func (a *JWTTokenVerifierAdapter) IssueToken(subject rbacContracts.Subject) (string, error) {
 	ctx := context.Background()
 	return observability.RunTraced(ctx, "jwt.token.sign", func(ctx context.Context) (string, error) {
-		header := map[string]string{
-			"alg": "HS256",
-			"typ": "JWT",
+		if len(a.secretKey) == 0 {
+			return "", errors.NewUnauthorizedError("jwt signing secret is not configured")
 		}
-		headerBytes, _ := json.Marshal(header)
-		headerB64 := base64.RawURLEncoding.EncodeToString(headerBytes)
-
-		exp := subject.ExpiresAt.Unix()
-		if exp <= 0 {
-			exp = time.Now().Add(2 * time.Hour).Unix()
+		expTime := subject.ExpiresAt
+		if expTime.IsZero() {
+			expTime = time.Now().Add(2 * time.Hour)
 		}
-
 		claims := JWTClaims{
-			Sub:         subject.ID,
-			TenantID:    subject.TenantID,
-			Roles:       subject.Roles,
-			Permissions: subject.Permissions,
-			Iss:         a.issuer,
-			Exp:         exp,
-			Jti:         subject.JTI,
+			TenantID:         subject.TenantID,
+			Roles:            subject.Roles,
+			GroupMemberships: subject.GroupMemberships,
+			ClientType:       subject.ClientType,
+			Permissions:      subject.Permissions,
+			MFAVerified:      subject.MFAVerified,
+			Classification:   subject.Classification,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject:   subject.ID,
+				Issuer:    a.issuer,
+				ExpiresAt: jwt.NewNumericDate(expTime),
+				IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+				ID:        subject.JTI,
+			},
 		}
-		claimsBytes, err := json.Marshal(claims)
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, err := token.SignedString(a.secretKey)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal claims: %w", err)
+			return "", fmt.Errorf("failed to sign jwt token: %w", err)
 		}
-		claimsB64 := base64.RawURLEncoding.EncodeToString(claimsBytes)
-
-		signingInput := headerB64 + "." + claimsB64
-		sig := a.sign(signingInput)
-		sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-
-		return signingInput + "." + sigB64, nil
+		return signed, nil
 	})
 }
 
 func (a *JWTTokenVerifierAdapter) VerifyToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error) {
 	return observability.RunTraced(ctx, "jwt.token.verify", func(ctx context.Context) (*rbacContracts.Subject, error) {
-		parts := strings.Split(rawToken, ".")
-		if len(parts) != 3 {
-			return nil, errors.NewUnauthorizedError("invalid token format: must have 3 segments")
+		if len(a.secretKey) == 0 {
+			return nil, errors.NewUnauthorizedError("jwt signing secret is not configured")
 		}
-
-		signingInput := parts[0] + "." + parts[1]
-		expectedSig := a.sign(signingInput)
-		providedSig, err := base64.RawURLEncoding.DecodeString(parts[2])
-		if err != nil || !hmac.Equal(expectedSig, providedSig) {
-			return nil, errors.NewUnauthorizedError("cryptographic signature verification failed")
+		if rawToken == "" {
+			return nil, errors.NewUnauthorizedError("missing bearer token")
 		}
-
-		claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return nil, errors.NewUnauthorizedError("malformed claims payload in token")
+		claims := &JWTClaims{}
+		parsed, err := jwt.ParseWithClaims(
+			rawToken,
+			claims,
+			func(token *jwt.Token) (interface{}, error) {
+				return a.secretKey, nil
+			},
+			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+			jwt.WithExpirationRequired(),
+		)
+		if err != nil || !parsed.Valid {
+			return nil, errors.NewUnauthorizedError("invalid or expired jwt token")
 		}
-
-		var claims JWTClaims
-		if err := json.Unmarshal(claimsBytes, &claims); err != nil {
-			return nil, errors.NewUnauthorizedError("invalid json claims in token")
+		var expTime time.Time
+		if claims.ExpiresAt != nil {
+			expTime = claims.ExpiresAt.Time
 		}
-
-		expTime := time.Unix(claims.Exp, 0)
-		if time.Now().After(expTime) {
-			return nil, errors.NewUnauthorizedError("token has expired")
-		}
-
 		return &rbacContracts.Subject{
-			ID:          claims.Sub,
-			TenantID:    claims.TenantID,
-			Roles:       claims.Roles,
-			Permissions: claims.Permissions,
-			Issuer:      claims.Iss,
-			ExpiresAt:   expTime,
-			JTI:         claims.Jti,
+			ID:               claims.Subject,
+			TenantID:         claims.TenantID,
+			Roles:            claims.Roles,
+			GroupMemberships: claims.GroupMemberships,
+			ClientType:       claims.ClientType,
+			Permissions:      claims.Permissions,
+			MFAVerified:      claims.MFAVerified,
+			Classification:   claims.Classification,
+			Issuer:           claims.Issuer,
+			ExpiresAt:        expTime,
+			JTI:              claims.ID,
 		}, nil
 	})
-}
-
-func (a *JWTTokenVerifierAdapter) sign(input string) []byte {
-	h := hmac.New(sha256.New, a.secretKey)
-	h.Write([]byte(input))
-	return h.Sum(nil)
 }
