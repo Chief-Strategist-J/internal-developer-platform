@@ -52,6 +52,19 @@ type GCPConfig struct {
 	CloudDNSURL      string `yaml:"cloud_dns_url"`
 }
 
+type RBACConfig struct {
+	PagerDutyEndpoint      string `yaml:"pagerduty_endpoint"`
+	PagerDutyAPIToken      string `yaml:"pagerduty_api_token"`
+	JiraEndpoint           string `yaml:"jira_endpoint"`
+	JiraAPIToken           string `yaml:"jira_api_token"`
+	SIEMWebhookURL         string `yaml:"siem_webhook_url"`
+	SIEMAPIToken           string `yaml:"siem_api_token"`
+	FederationHMACSecret   string `yaml:"federation_hmac_secret"`
+	ABACAllowedStartHour   int    `yaml:"abac_allowed_start_hour_utc"`
+	ABACAllowedEndHour     int    `yaml:"abac_allowed_end_hour_utc"`
+	DevStagingMaxQuota     int    `yaml:"dev_staging_max_quota"`
+}
+
 type FeatureFlags struct {
 	EnableStatefulRollback bool `yaml:"enable_stateful_rollback"`
 	EnableStrictWaveGating bool `yaml:"enable_strict_wave_gating"`
@@ -82,6 +95,7 @@ type AppConfig struct {
 	Kubernetes   KubernetesConfig `yaml:"kubernetes"`
 	ArgoCD       ArgoCDConfig     `yaml:"argocd"`
 	GCP          GCPConfig        `yaml:"gcp"`
+	RBAC         RBACConfig       `yaml:"rbac"`
 	FeatureFlags FeatureFlags     `yaml:"feature_flags"`
 	Endpoints    EndpointsConfig  `yaml:"endpoints"`
 }
@@ -179,6 +193,28 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 
 	if dnsURL := os.Getenv("CLOUD_DNS_BASE_URL"); dnsURL != "" {
 		cfg.GCP.CloudDNSURL = dnsURL
+	}
+
+	if pdEndpoint := os.Getenv("PAGERDUTY_ENDPOINT"); pdEndpoint != "" {
+		cfg.RBAC.PagerDutyEndpoint = pdEndpoint
+	}
+	if pdToken := os.Getenv("PAGERDUTY_API_TOKEN"); pdToken != "" {
+		cfg.RBAC.PagerDutyAPIToken = pdToken
+	}
+	if jiraEndpoint := os.Getenv("JIRA_ENDPOINT"); jiraEndpoint != "" {
+		cfg.RBAC.JiraEndpoint = jiraEndpoint
+	}
+	if jiraToken := os.Getenv("JIRA_API_TOKEN"); jiraToken != "" {
+		cfg.RBAC.JiraAPIToken = jiraToken
+	}
+	if siemURL := os.Getenv("SIEM_WEBHOOK_URL"); siemURL != "" {
+		cfg.RBAC.SIEMWebhookURL = siemURL
+	}
+	if siemToken := os.Getenv("SIEM_API_TOKEN"); siemToken != "" {
+		cfg.RBAC.SIEMAPIToken = siemToken
+	}
+	if fedSecret := os.Getenv("RBAC_FEDERATION_HMAC_SECRET"); fedSecret != "" {
+		cfg.RBAC.FederationHMACSecret = fedSecret
 	}
 }
 

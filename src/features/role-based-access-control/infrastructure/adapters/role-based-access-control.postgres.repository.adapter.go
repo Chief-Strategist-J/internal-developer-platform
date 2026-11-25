@@ -9,6 +9,7 @@ package adapters
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -304,5 +305,34 @@ func (a *PostgresRBACAdapter) GetRoleHierarchyEdges(ctx context.Context) (map[st
 			return nil, fmt.Errorf("rows iteration error: %w", err)
 		}
 		return edges, nil
+	})
+}
+
+func (a *PostgresRBACAdapter) LoadRolePermissions(ctx context.Context) (map[rbacContracts.RoleName][]rbacContracts.Permission, error) {
+	return observability.RunTraced(ctx, "postgres.rbac.load_role_permissions", func(ctx context.Context) (map[rbacContracts.RoleName][]rbacContracts.Permission, error) {
+		rows, err := a.db.QueryContext(ctx, rbacQueries.FLOW_GET_ALL_ROLE_DEFINITIONS)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query role definitions: %w", err)
+		}
+		defer rows.Close()
+		defs := make(map[rbacContracts.RoleName][]rbacContracts.Permission)
+		for rows.Next() {
+			var name string
+			var rawPerms []byte
+			if err := rows.Scan(&name, &rawPerms); err != nil {
+				return nil, fmt.Errorf("failed to scan role definition: %w", err)
+			}
+			var perms []rbacContracts.Permission
+			if len(rawPerms) > 0 {
+				if err := json.Unmarshal(rawPerms, &perms); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal permissions for role %s: %w", name, err)
+				}
+			}
+			defs[rbacContracts.RoleName(name)] = perms
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("rows iteration error: %w", err)
+		}
+		return defs, nil
 	})
 }

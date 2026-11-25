@@ -74,12 +74,19 @@ const (
 )
 
 type RBACServiceDeps struct {
-	TokenVerifier   ports.TokenVerifierPort
-	RevocationStore ports.RevocationStorePort
-	GrantRepo       ports.AccessGrantRepositoryPort
-	BindingRepo     ports.UserBindingRepositoryPort
-	AuditOutbox     ports.RBACAuditOutboxPort
-	UnitOfWork      ports.UnitOfWorkPort
+	TokenVerifier        ports.TokenVerifierPort
+	RevocationStore      ports.RevocationStorePort
+	GrantRepo            ports.AccessGrantRepositoryPort
+	BindingRepo          ports.UserBindingRepositoryPort
+	AuditOutbox          ports.RBACAuditOutboxPort
+	UnitOfWork           ports.UnitOfWorkPort
+	TicketVerifier       ports.BreakGlassTicketVerifierPort
+	SIEMAlertEmitter     ports.SIEMAlertEmitterPort
+	RoleDefRepo          ports.RoleDefinitionRepositoryPort
+	FederationHMACSecret string
+	DevStagingMaxQuota   int
+	AllowedStartHourUTC  int
+	AllowedEndHourUTC    int
 }
 
 type permitCacheEntry struct {
@@ -165,24 +172,38 @@ func (c *permitLRUCache) invalidateSubject(subjectID string) {
 }
 
 type RBACService struct {
-	tokenVerifier   ports.TokenVerifierPort
-	revocationStore ports.RevocationStorePort
-	grantRepo       ports.AccessGrantRepositoryPort
-	bindingRepo     ports.UserBindingRepositoryPort
-	auditOutbox     ports.RBACAuditOutboxPort
-	unitOfWork      ports.UnitOfWorkPort
-	permitCache     *permitLRUCache
+	tokenVerifier        ports.TokenVerifierPort
+	revocationStore      ports.RevocationStorePort
+	grantRepo            ports.AccessGrantRepositoryPort
+	bindingRepo          ports.UserBindingRepositoryPort
+	auditOutbox          ports.RBACAuditOutboxPort
+	unitOfWork           ports.UnitOfWorkPort
+	ticketVerifier       ports.BreakGlassTicketVerifierPort
+	siemAlertEmitter     ports.SIEMAlertEmitterPort
+	roleDefRepo          ports.RoleDefinitionRepositoryPort
+	federationHMACSecret string
+	devStagingMaxQuota   int
+	allowedStartHourUTC  int
+	allowedEndHourUTC    int
+	permitCache          *permitLRUCache
 }
 
 func NewRBACServiceWithDeps(deps RBACServiceDeps) *RBACService {
 	return &RBACService{
-		tokenVerifier:   deps.TokenVerifier,
-		revocationStore: deps.RevocationStore,
-		grantRepo:       deps.GrantRepo,
-		bindingRepo:     deps.BindingRepo,
-		auditOutbox:     deps.AuditOutbox,
-		unitOfWork:      deps.UnitOfWork,
-		permitCache:     newPermitLRUCache(permitCacheCapacity, permitCacheTTL),
+		tokenVerifier:        deps.TokenVerifier,
+		revocationStore:      deps.RevocationStore,
+		grantRepo:            deps.GrantRepo,
+		bindingRepo:          deps.BindingRepo,
+		auditOutbox:          deps.AuditOutbox,
+		unitOfWork:           deps.UnitOfWork,
+		ticketVerifier:       deps.TicketVerifier,
+		siemAlertEmitter:     deps.SIEMAlertEmitter,
+		roleDefRepo:          deps.RoleDefRepo,
+		federationHMACSecret: deps.FederationHMACSecret,
+		devStagingMaxQuota:   deps.DevStagingMaxQuota,
+		allowedStartHourUTC:  deps.AllowedStartHourUTC,
+		allowedEndHourUTC:    deps.AllowedEndHourUTC,
+		permitCache:          newPermitLRUCache(permitCacheCapacity, permitCacheTTL),
 	}
 }
 
@@ -468,6 +489,7 @@ func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContract
 			return rbacContracts.EvaluationResult{}, err
 		}
 		now := time.Now()
+		req = s.enrichEvaluationRequest(ctx, req)
 		bypassCache := shouldBypassPermitCache(req)
 		cacheKey := buildPermitCacheKey(req)
 		if !bypassCache && s.permitCache != nil {
@@ -503,6 +525,7 @@ func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContract
 					ViolationCode: "ERR_AUDIT_UNAVAILABLE",
 				}, errors.NewForbiddenError("cannot grant break-glass access without audit guarantee")
 			}
+			s.emitBreakGlassSIEMAlert(ctx, req, decision)
 			return decision, nil
 		}
 		if !bypassCache && s.permitCache != nil {
@@ -616,6 +639,50 @@ func (s *RBACService) runInUnitOfWork(ctx context.Context, fn func(txCtx context
 		return s.unitOfWork.Run(ctx, fn)
 	}
 	return fn(ctx)
+}
+
+func (s *RBACService) enrichEvaluationRequest(ctx context.Context, req rbacContracts.EvaluationRequest) rbacContracts.EvaluationRequest {
+	if req.FederationHMACSecret == "" {
+		req.FederationHMACSecret = s.federationHMACSecret
+	}
+	if req.MaxTenantQuota == 0 {
+		req.MaxTenantQuota = s.devStagingMaxQuota
+	}
+	if req.AllowedEndHourUTC == 0 {
+		req.AllowedStartHourUTC = s.allowedStartHourUTC
+		req.AllowedEndHourUTC = s.allowedEndHourUTC
+	}
+	if req.BreakGlass != nil && !req.BreakGlass.TicketApproved && s.ticketVerifier != nil {
+		if approved, err := s.ticketVerifier.VerifyTicketApproval(ctx, req.BreakGlass.TicketID); err == nil && approved {
+			bgCopy := *req.BreakGlass
+			bgCopy.TicketApproved = true
+			req.BreakGlass = &bgCopy
+		}
+	}
+	if s.roleDefRepo != nil && len(req.ResolvedRolePermissions) == 0 {
+		if defs, err := s.roleDefRepo.LoadRolePermissions(ctx); err == nil && len(defs) > 0 {
+			edges, _ := s.roleDefRepo.GetRoleHierarchyEdges(ctx)
+			req.ResolvedRolePermissions = rules.FlattenRoleHierarchyPermissions(req.Subject.Roles, req.Subject.GroupMemberships, defs, edges)
+		}
+	}
+	return req
+}
+
+func (s *RBACService) emitBreakGlassSIEMAlert(ctx context.Context, req rbacContracts.EvaluationRequest, decision rbacContracts.EvaluationResult) {
+	if s.siemAlertEmitter == nil {
+		return
+	}
+	_ = s.siemAlertEmitter.EmitSecurityAlert(ctx, rbacContracts.RBACAuditEvent{
+		ID:            fmt.Sprintf("rbac-siem-%d", time.Now().UnixNano()),
+		TenantID:      req.TargetTenantID,
+		SubjectID:     req.Subject.ID,
+		Resource:      req.Resource,
+		Action:        req.Action,
+		Decision:      "ELEVATED_PERMIT",
+		Reason:        decision.Reason,
+		ViolationCode: decision.ViolationCode,
+		OccurredAt:    time.Now().UTC(),
+	})
 }
 
 func (s *RBACService) loadGrant(ctx context.Context, tenantID string, grantID string) (*rbacContracts.AccessGrantRecord, error) {

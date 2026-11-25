@@ -36,3 +36,16 @@ type RBACAuditOutboxPort interface {
 type UnitOfWorkPort interface {
 	Run(ctx context.Context, fn func(txCtx context.Context) error) error
 }
+
+type BreakGlassTicketVerifierPort interface {
+	VerifyTicketApproval(ctx context.Context, ticketID string) (bool, error)
+}
+
+type SIEMAlertEmitterPort interface {
+	EmitSecurityAlert(ctx context.Context, event rbacContracts.RBACAuditEvent) error
+}
+
+type RoleDefinitionRepositoryPort interface {
+	LoadRolePermissions(ctx context.Context) (map[rbacContracts.RoleName][]rbacContracts.Permission, error)
+	GetRoleHierarchyEdges(ctx context.Context) (map[string][]string, error)
+}
