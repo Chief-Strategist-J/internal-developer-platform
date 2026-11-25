@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -13,9 +14,16 @@ import (
 )
 
 func TestLiveArgoCDClusterReconciliation(t *testing.T) {
-	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhcmdvY2QiLCJzdWIiOiJhZG1pbjpsb2dpbiIsImV4cCI6MTc5NTE4MDU3MywibmJmIjoxNzk1MDk0MTczLCJpYXQiOjE3OTUwOTQxNzMsImp0aSI6IjZkOGEwYmQ5LTA1ZDktNGQ0OC04NTg2LTI2OThhYWEyZTMwNSJ9.G39CIjlBsoi_IpRJw9XhjfdsxDOp9l23rDMiNlklqxI"
+	baseURL := os.Getenv("ARGOCD_SERVER_URL")
+	if baseURL == "" {
+		baseURL = "https://127.0.0.1:8085"
+	}
+	token := os.Getenv("ARGOCD_TOKEN")
+	if token == "" {
+		t.Skip("skipping live ArgoCD cluster test: ARGOCD_TOKEN not set")
+	}
 	argoCfg := argocd.ArgoCDClientConfig{
-		BaseURL:            "https://127.0.0.1:8085",
+		BaseURL:            baseURL,
 		AuthToken:          token,
 		InsecureSkipVerify: true,
 		Timeout:            10 * time.Second,
