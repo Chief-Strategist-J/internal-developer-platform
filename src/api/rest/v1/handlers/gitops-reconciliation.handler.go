@@ -148,6 +148,47 @@ func (h *GitOpsReconciliationHandler) GetSecretMechanismConfig(w http.ResponseWr
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (h *GitOpsReconciliationHandler) ValidateSecretManifest(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+	ctx, endSpan := h.startHandlerSpan(w, r, "gitops_reconciliation.validate_secret_manifest", meta)
+	defer endSpan()
+
+	var reqBody struct {
+		Mechanism           contracts.SecretMechanismType `json:"mechanism"`
+		HasPlaintextData    bool                          `json:"hasPlaintextData"`
+		PluginInjectsValues bool                          `json:"pluginInjectsValues"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&reqBody); err != nil {
+		h.writeError(ctx, w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid or unknown fields in json request body", start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	result := h.service.ValidateSecretManifest(ctx, reqBody.Mechanism, reqBody.HasPlaintextData, reqBody.PluginInjectsValues)
+	status := http.StatusOK
+	if !result.Allowed {
+		status = http.StatusForbidden
+	}
+	w.WriteHeader(status)
+	resp := types.ApiResponse{
+		Success:    result.Allowed,
+		StatusCode: status,
+		Data:       result,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (h *GitOpsReconciliationHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	meta := utils.ExtractIngressMetadata(r)

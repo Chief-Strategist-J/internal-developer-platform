@@ -67,6 +67,10 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 			return replay, err
 		}
 
+		if err := s.ensureNoConcurrentSync(ctx, cmd); err != nil {
+			return nil, err
+		}
+
 		lastGoodRev := s.resolveLastGoodRevision(ctx, cmd)
 
 		manifests, err := s.validateManifestsAndGuardrails(ctx, cmd)
@@ -258,6 +262,23 @@ func (s *GitOpsReconciliationService) checkIdempotencyReplay(ctx context.Context
 	}, nil
 }
 
+func (s *GitOpsReconciliationService) ensureNoConcurrentSync(ctx context.Context, cmd contracts.SyncCommand) error {
+	records, err := s.store.List(ctx, contracts.FilterCriteria{
+		TenantID:  cmd.TenantID,
+		ServiceID: cmd.ServiceID,
+		Limit:     10,
+	})
+	if err != nil {
+		return nil
+	}
+	for _, r := range records {
+		if r.AppName == cmd.AppName && !rules.CanInitiateSync(r.SyncPhase) {
+			return errors.NewConflictError("concurrent reconciliation already in progress for app: " + cmd.AppName)
+		}
+	}
+	return nil
+}
+
 func (s *GitOpsReconciliationService) resolveLastGoodRevision(ctx context.Context, cmd contracts.SyncCommand) string {
 	if cmd.LastKnownGoodRevision != "" {
 		return cmd.LastKnownGoodRevision
@@ -279,6 +300,18 @@ func (s *GitOpsReconciliationService) validateManifestsAndGuardrails(ctx context
 		for _, m := range manifests {
 			if err := rules.ValidateTenantProjectGuardrails(true, m.Kind); err != nil {
 				return nil, err
+			}
+			if m.Kind == "Secret" {
+				mech := contracts.SecretMechanismSealedSecrets
+				if s.secretPort != nil {
+					if cfg, cfgErr := s.secretPort.GetSecretMechanismConfig(ctx, cmd.TenantID); cfgErr == nil && cfg != nil {
+						mech = cfg.Mechanism
+					}
+				}
+				secRes := rules.EvaluateSecretInGitOpsPath(mech, true, false)
+				if !secRes.Allowed {
+					return nil, errors.NewForbiddenError(secRes.Reason)
+				}
 			}
 			if ownerApp, exists := cmd.OwnerAppMap[m.Kind+"/"+m.Name]; exists {
 				if err := rules.ValidateSharedResourceOwnership(ownerApp, cmd.AppName); err != nil {

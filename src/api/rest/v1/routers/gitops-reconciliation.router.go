@@ -64,7 +64,15 @@ func (r *GitOpsReconciliationRouter) RegisterRoutes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
+	secretValidateHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.ValidateSecretManifest(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
 	mux.HandleFunc(constants.EndpointGitOpsSecretsConfig, secretConfigHandler)
+	mux.HandleFunc(constants.EndpointGitOpsSecretsValidate, secretValidateHandler)
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointReconciliations, r.rbacMiddle.RequirePermission(
