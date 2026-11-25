@@ -23,12 +23,17 @@ func TestGitOpsReconciliationAdversarialIdempotentReplay(t *testing.T) {
 	svc := gitopsService.NewGitOpsReconciliationService(store, argo)
 
 	cmd := contracts.SyncCommand{
-		ID:             "rec-replay-001",
-		TenantID:       "tenant-scen-1",
-		ServiceID:      "svc-billing",
-		AppName:        "billing-dev",
-		TargetRevision: "rev-101",
-		IdempotencyKey: "idem-replay-001",
+		ID:                 "rec-replay-001",
+		TenantID:           "tenant-scen-1",
+		ServiceID:          "svc-billing",
+		AppName:            "billing-dev",
+		TargetRevision:     "rev-101",
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "idem-replay-001",
 	}
 
 	first, err := svc.TriggerReconciliation(context.Background(), cmd)

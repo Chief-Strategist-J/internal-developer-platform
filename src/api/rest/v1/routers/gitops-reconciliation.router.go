@@ -27,6 +27,8 @@ func (r *GitOpsReconciliationRouter) RegisterRoutes(mux *http.ServeMux) {
 		switch req.Method {
 		case http.MethodPost:
 			r.handler.TriggerSync(w, req)
+		case http.MethodGet:
+			r.handler.ListReconciliations(w, req)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}

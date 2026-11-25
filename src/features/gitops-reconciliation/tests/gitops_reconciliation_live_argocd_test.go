@@ -55,14 +55,19 @@ func TestLiveArgoCDClusterReconciliation(t *testing.T) {
 	svc := gitopsreconciliation.NewService(pgStore, adapter)
 
 	cmd := contracts.SyncCommand{
-		ID:             fmt.Sprintf("rec-live-cluster-%d", time.Now().UnixNano()),
-		TenantID:       "platform-tenant",
-		ServiceID:      "internal-developer-platform",
-		AppName:        appName,
-		TargetRevision: "HEAD",
-		Prune:          true,
-		DryRun:         true,
-		IdempotencyKey: fmt.Sprintf("idemp-cluster-%d", time.Now().UnixNano()),
+		ID:                 fmt.Sprintf("rec-live-cluster-%d", time.Now().UnixNano()),
+		TenantID:           "platform-tenant",
+		ServiceID:          "internal-developer-platform",
+		AppName:            appName,
+		TargetRevision:     "HEAD",
+		Prune:              true,
+		DryRun:             true,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     fmt.Sprintf("idemp-cluster-%d", time.Now().UnixNano()),
 	}
 
 	result, err := svc.TriggerReconciliation(ctx, cmd)

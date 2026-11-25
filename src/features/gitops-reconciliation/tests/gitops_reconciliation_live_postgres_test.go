@@ -47,14 +47,19 @@ func TestLivePostgresGitOpsReconciliationEndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	seedCmd := contracts.SyncCommand{
-		ID:             fmt.Sprintf("rec-live-seed-%d", time.Now().UnixNano()),
-		TenantID:       tenantID,
-		ServiceID:      serviceID,
-		AppName:        appName,
-		TargetRevision: "v2.5.0-stable",
-		Prune:          true,
-		DryRun:         false,
-		IdempotencyKey: fmt.Sprintf("idemp-live-seed-%d", time.Now().UnixNano()),
+		ID:                 fmt.Sprintf("rec-live-seed-%d", time.Now().UnixNano()),
+		TenantID:           tenantID,
+		ServiceID:          serviceID,
+		AppName:            appName,
+		TargetRevision:     "v2.5.0-stable",
+		Prune:              true,
+		DryRun:             false,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     fmt.Sprintf("idemp-live-seed-%d", time.Now().UnixNano()),
 	}
 
 	res1, err := svc.TriggerReconciliation(ctx, seedCmd)
@@ -77,14 +82,19 @@ func TestLivePostgresGitOpsReconciliationEndToEnd(t *testing.T) {
 	}
 
 	corruptCmd := contracts.SyncCommand{
-		ID:             fmt.Sprintf("rec-live-corrupt-%d", time.Now().UnixNano()),
-		TenantID:       tenantID,
-		ServiceID:      serviceID,
-		AppName:        appName,
-		TargetRevision: "v3.0.0-bad",
-		Prune:          true,
-		DryRun:         false,
-		IdempotencyKey: fmt.Sprintf("idemp-live-corrupt-%d", time.Now().UnixNano()),
+		ID:                 fmt.Sprintf("rec-live-corrupt-%d", time.Now().UnixNano()),
+		TenantID:           tenantID,
+		ServiceID:          serviceID,
+		AppName:            appName,
+		TargetRevision:     "v3.0.0-bad",
+		Prune:              true,
+		DryRun:             false,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     fmt.Sprintf("idemp-live-corrupt-%d", time.Now().UnixNano()),
 	}
 
 	res2, err := svc.TriggerReconciliation(ctx, corruptCmd)
@@ -136,14 +146,19 @@ func TestLivePostgresConcurrentIdempotencyGate(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			cmd := contracts.SyncCommand{
-				ID:             fmt.Sprintf("rec-conc-%d-%d", idx, time.Now().UnixNano()),
-				TenantID:       tenantID,
-				ServiceID:      "order-service",
-				AppName:        "order-service",
-				TargetRevision: "v1.0.0",
-				Prune:          true,
-				DryRun:         false,
-				IdempotencyKey: sharedKey,
+				ID:                 fmt.Sprintf("rec-conc-%d-%d", idx, time.Now().UnixNano()),
+				TenantID:           tenantID,
+				ServiceID:          "order-service",
+				AppName:            "order-service",
+				TargetRevision:     "v1.0.0",
+				Prune:              true,
+				DryRun:             false,
+				ProjectEnforcesSig: true,
+				CommitSigned:       true,
+				AllowedSigningKey:  true,
+				RoleReviewed:       true,
+				InAllowWindow:      true,
+				IdempotencyKey:     sharedKey,
 			}
 			res, err := svc.TriggerReconciliation(context.Background(), cmd)
 			results[idx] = workerResult{res: res, err: err}

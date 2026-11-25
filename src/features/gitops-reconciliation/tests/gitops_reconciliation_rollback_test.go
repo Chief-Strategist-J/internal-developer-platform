@@ -70,14 +70,19 @@ func TestStatefulGitOpsRollbackOnDeploymentFailure(t *testing.T) {
 	svc := gitopsreconciliation.NewService(store, flakyClient)
 
 	seedCmd := contracts.SyncCommand{
-		ID:             "rec-seed-1",
-		TenantID:       "tenant-alpha",
-		ServiceID:      "order-service",
-		AppName:        "order-service",
-		TargetRevision: "v2.0.0-stable",
-		Prune:          true,
-		DryRun:         false,
-		IdempotencyKey: "seed-key-01",
+		ID:                 "rec-seed-1",
+		TenantID:           "tenant-alpha",
+		ServiceID:          "order-service",
+		AppName:            "order-service",
+		TargetRevision:     "v2.0.0-stable",
+		Prune:              true,
+		DryRun:             false,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "seed-key-01",
 	}
 
 	seedRes, err := svc.TriggerReconciliation(ctx, seedCmd)
@@ -89,14 +94,19 @@ func TestStatefulGitOpsRollbackOnDeploymentFailure(t *testing.T) {
 	}
 
 	corruptCmd := contracts.SyncCommand{
-		ID:             "rec-corrupt-2",
-		TenantID:       "tenant-alpha",
-		ServiceID:      "order-service",
-		AppName:        "order-service",
-		TargetRevision: "v2.1.0-corrupt",
-		Prune:          true,
-		DryRun:         false,
-		IdempotencyKey: "corrupt-key-02",
+		ID:                 "rec-corrupt-2",
+		TenantID:           "tenant-alpha",
+		ServiceID:          "order-service",
+		AppName:            "order-service",
+		TargetRevision:     "v2.1.0-corrupt",
+		Prune:              true,
+		DryRun:             false,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "corrupt-key-02",
 	}
 
 	corruptRes, err := svc.TriggerReconciliation(ctx, corruptCmd)

@@ -20,14 +20,19 @@ func TestGitOpsReconciliationServiceExecution(t *testing.T) {
 	svc := gitopsreconciliation.NewService(store, argoClient)
 
 	cmd := contracts.SyncCommand{
-		ID:             "rec-test-1",
-		TenantID:       "tenant-dev",
-		ServiceID:      "payment-service",
-		AppName:        "payment-service-dev",
-		TargetRevision: "v1.2.0",
-		Prune:          true,
-		DryRun:         false,
-		IdempotencyKey: "idemp-001",
+		ID:                 "rec-test-1",
+		TenantID:           "tenant-dev",
+		ServiceID:          "payment-service",
+		AppName:            "payment-service-dev",
+		TargetRevision:     "v1.2.0",
+		Prune:              true,
+		DryRun:             false,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "idemp-001",
 	}
 
 	result, err := svc.TriggerReconciliation(ctx, cmd)
@@ -106,14 +111,19 @@ func TestGitOpsReconciliationWithLiveArgoCDClient(t *testing.T) {
 	svc := gitopsreconciliation.NewService(store, adapter)
 
 	cmd := contracts.SyncCommand{
-		ID:             "rec-live-1",
-		TenantID:       "tenant-billing",
-		ServiceID:      "billing-app",
-		AppName:        "billing-app",
-		TargetRevision: "v2.0.0",
-		Prune:          true,
-		DryRun:         false,
-		IdempotencyKey: "idemp-live-001",
+		ID:                 "rec-live-1",
+		TenantID:           "tenant-billing",
+		ServiceID:          "billing-app",
+		AppName:            "billing-app",
+		TargetRevision:     "v2.0.0",
+		Prune:              true,
+		DryRun:             false,
+		ProjectEnforcesSig: true,
+		CommitSigned:       true,
+		AllowedSigningKey:  true,
+		RoleReviewed:       true,
+		InAllowWindow:      true,
+		IdempotencyKey:     "idemp-live-001",
 	}
 
 	result, err := svc.TriggerReconciliation(context.Background(), cmd)

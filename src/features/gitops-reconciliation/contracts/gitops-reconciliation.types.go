@@ -39,8 +39,19 @@ type SyncCommand struct {
 	AppName               string `json:"appName"`
 	TargetRevision        string `json:"targetRevision"`
 	LastKnownGoodRevision string `json:"lastKnownGoodRevision,omitempty"`
+	LastFailedSHA         string `json:"lastFailedSha,omitempty"`
 	Prune                 bool   `json:"prune"`
 	DryRun                bool   `json:"dryRun"`
+	IsManualSync          bool   `json:"isManualSync"`
+	ProjectEnforcesSig    bool   `json:"projectEnforcesSig"`
+	CommitSigned          bool   `json:"commitSigned"`
+	AllowedSigningKey     bool   `json:"allowedSigningKey"`
+	RoleReviewed          bool   `json:"roleReviewed"`
+	AllowWindowExists     bool   `json:"allowWindowExists"`
+	InAllowWindow         bool   `json:"inAllowWindow"`
+	InDenyWindow          bool   `json:"inDenyWindow"`
+	WindowAllowsManual    bool   `json:"windowAllowsManual"`
+	OwnerAppMap           map[string]string `json:"ownerAppMap,omitempty"`
 	IdempotencyKey        string `json:"idempotencyKey"`
 }
 
@@ -59,6 +70,7 @@ type ReconciliationRecord struct {
 	TargetRevision        string          `json:"targetRevision"`
 	CurrentRevision       string          `json:"currentRevision"`
 	LastKnownGoodRevision string          `json:"lastKnownGoodRevision,omitempty"`
+	LastFailedSHA         string          `json:"lastFailedSha,omitempty"`
 	SyncPhase             SyncPhase       `json:"syncPhase"`
 	HealthStatus          HealthStatus    `json:"healthStatus"`
 	RollbackTriggered     bool            `json:"rollbackTriggered"`
