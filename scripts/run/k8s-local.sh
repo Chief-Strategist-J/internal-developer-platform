@@ -101,6 +101,7 @@ apply_idp_project() {
 
     log_info "Applying modular IDP AppProject..."
     kubectl apply -f "${root_dir}/deploy/argocd/projects/platform.project.yaml"
+    kubectl apply -f "${root_dir}/deploy/argocd/applications/app.dev.yaml"
 
     log_info "Deploying backing infrastructure & platform workloads directly via modular Kustomize dev overlay..."
     kubectl apply -k "${root_dir}/deploy/k8s/overlays/dev" --server-side --force-conflicts
@@ -132,6 +133,15 @@ get_credentials() {
     log_info "Extracting credentials..."
     local argo_password
     argo_password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
+    local env_file="${SCRIPT_DIR}/../../.env"
+    if [ -n "${argo_password}" ] && [ -f "${env_file}" ]; then
+        local argo_token
+        argo_token=$(curl --noproxy "*" -sk -X POST "https://127.0.0.1:${ARGOCD_PORT}/api/v1/session" -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"${argo_password}\"}" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+        if [ -n "${argo_token}" ]; then
+            sed -i "s|^ARGOCD_SERVER_URL=.*|ARGOCD_SERVER_URL=https://127.0.0.1:${ARGOCD_PORT}|" "${env_file}"
+            sed -i "s|^ARGOCD_TOKEN=.*|ARGOCD_TOKEN=${argo_token}|" "${env_file}"
+        fi
+    fi
     
     echo ""
     log_success "================================================================================"
