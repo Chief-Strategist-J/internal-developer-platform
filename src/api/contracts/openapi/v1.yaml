@@ -398,6 +398,69 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/gitops/secrets/config:
+    get:
+      summary: Get configured destination-cluster secret mechanism (D-SEC)
+      operationId: getGitOpsSecretConfig
+      responses:
+        '200':
+          description: Configured secret mechanism
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Configure destination-cluster secret mechanism (D-SEC)
+      operationId: configureGitOpsSecretConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - mechanism
+              properties:
+                tenantId:
+                  type: string
+                mechanism:
+                  type: string
+                  enum:
+                    - SEALED_SECRETS
+                    - EXTERNAL_SECRETS_OPERATOR
+                    - SECRETS_STORE_CSI_DRIVER
+                vaultEndpoint:
+                  type: string
+                clusterScope:
+                  type: string
+                secretStoreRef:
+                  type: string
+                csiDriverName:
+                  type: string
+                encryptionKeyRef:
+                  type: string
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Secret mechanism configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/workloads:
     post:
       summary: Provision Kubernetes Workload

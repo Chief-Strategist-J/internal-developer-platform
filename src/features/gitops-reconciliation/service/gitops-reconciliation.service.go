@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
 	"internal-developer-platform/src/features/gitops-reconciliation/domain/machines"
@@ -17,8 +18,9 @@ import (
 )
 
 type GitOpsReconciliationService struct {
-	store  ports.GitOpsStorePort
-	argoCD ports.ArgoCDClientPort
+	store      ports.GitOpsStorePort
+	argoCD     ports.ArgoCDClientPort
+	secretPort ports.SecretMechanismPort
 }
 
 func NewGitOpsReconciliationService(store ports.GitOpsStorePort, argoCD ports.ArgoCDClientPort) *GitOpsReconciliationService {
@@ -39,13 +41,13 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 	defer span.End()
 
 	if err := contracts.ValidateSyncCommand(cmd); err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "sync command validation failed", true, observability.String("app_name", cmd.AppName))
 		return nil, err
 	}
 
 	existing, err := s.store.GetByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "idempotency lookup failed", false, observability.String("idempotency_key", cmd.IdempotencyKey))
 		return nil, err
 	}
 	if existing != nil {
@@ -67,13 +69,13 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 
 	manifests, _, err := s.argoCD.DiffManifests(ctx, cmd.AppName, cmd.TargetRevision)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "argocd diff manifests failed", false, observability.String("app_name", cmd.AppName))
 		return nil, err
 	}
 
 	for _, m := range manifests {
 		if err := rules.ValidateTenantProjectGuardrails(true, m.Kind); err != nil {
-			observability.RecordError(span, err)
+			recordServiceFailure(ctx, span, err, "tenant project guardrail violation", true, observability.String("resource_kind", m.Kind))
 			return nil, err
 		}
 	}
@@ -99,13 +101,13 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 	}
 
 	if err := s.store.Save(ctx, initialRecord); err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "failed to persist initial reconciliation record", true, observability.String("reconciliation_id", initialRecord.ID))
 		return nil, err
 	}
 
 	inProgressPhase, err := machines.TransitionSyncState(initialRecord.SyncPhase, machines.EventStartSync)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "invalid sync state transition to syncing", true, observability.String("phase", string(initialRecord.SyncPhase)))
 		return nil, err
 	}
 
@@ -130,13 +132,13 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 		initialRecord.HealthStatus = contracts.HealthStatusDegraded
 		initialRecord.Version = 2
 		_ = s.store.Update(ctx, initialRecord)
-		observability.RecordError(span, syncErr)
+		recordServiceFailure(ctx, span, syncErr, "argocd sync failed", false, observability.String("app_name", cmd.AppName))
 		return nil, errors.NewConflictError("argocd sync failed: " + syncErr.Error())
 	}
 
 	finalPhase, err := machines.TransitionSyncState(inProgressPhase, machines.EventCompleteSync)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "invalid sync state transition to synced", true, observability.String("phase", string(inProgressPhase)))
 		return nil, err
 	}
 
@@ -153,7 +155,7 @@ func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context,
 	initialRecord.CurrentRevision = cmd.TargetRevision
 
 	if err := s.store.Update(ctx, initialRecord); err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "failed to update reconciliation record", true, observability.String("reconciliation_id", initialRecord.ID))
 		return nil, err
 	}
 	initialRecord.Version = initialRecord.Version + 1
@@ -250,19 +252,19 @@ func (s *GitOpsReconciliationService) IngestWebhook(
 	defer span.End()
 
 	if err := contracts.ValidateWebhookPayload(payload); err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "webhook payload validation failed", true, observability.String("repository_url", payload.RepositoryURL))
 		return nil, err
 	}
 
 	if webhookSecret != "" && !rules.VerifyWebhookHMAC(payloadBytes, signature, webhookSecret) {
 		err := errors.NewUnauthorizedError("invalid webhook HMAC signature")
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "webhook HMAC verification failed", true, observability.String("repository_url", payload.RepositoryURL))
 		return nil, err
 	}
 
 	refreshedApps, err := s.argoCD.RefreshAppsForRepo(ctx, payload.RepositoryURL, payload.Branch)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "argocd refresh apps failed", false, observability.String("repository_url", payload.RepositoryURL))
 		return nil, err
 	}
 
@@ -288,28 +290,126 @@ func (s *GitOpsReconciliationService) InspectDrift(
 
 	record, err := s.store.GetByID(ctx, tenantID, reconciliationID)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "reconciliation lookup failed for drift inspection", true, observability.String("reconciliation_id", reconciliationID))
 		return nil, err
 	}
 	if record == nil {
 		err := errors.NewNotFoundError("reconciliation record not found")
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "reconciliation record not found for drift inspection", true, observability.String("reconciliation_id", reconciliationID))
 		return nil, err
 	}
 
 	report, err := s.argoCD.GetDetailedDrift(ctx, record.AppName, record.TargetRevision)
 	if err != nil {
-		observability.RecordError(span, err)
+		recordServiceFailure(ctx, span, err, "argocd detailed drift inspection failed", false, observability.String("app_name", record.AppName))
 		return nil, err
 	}
-
 	return report, nil
 }
 
+func (s *GitOpsReconciliationService) ValidateSecretManifest(
+	ctx context.Context,
+	mechanism contracts.SecretMechanismType,
+	hasPlaintextData bool,
+	pluginInjectsValues bool,
+) contracts.SecretSyncValidationResult {
+	tracer := observability.GetTracer()
+	_, span := tracer.StartSpan(ctx, "gitops.reconciliation.validate_secret_manifest",
+		attribute.String("secret.mechanism", string(mechanism)),
+	)
+	defer span.End()
+
+	return rules.EvaluateSecretInGitOpsPath(mechanism, hasPlaintextData, pluginInjectsValues)
+}
+
+func (s *GitOpsReconciliationService) SetSecretAdapter(port ports.SecretMechanismPort) {
+	s.secretPort = port
+}
+
+func recordServiceFailure(ctx context.Context, span trace.Span, err error, msg string, isClientErr bool, fields ...observability.Field) {
+	observability.RecordError(span, err)
+	logFields := append([]observability.Field{observability.String("error", err.Error())}, fields...)
+	if isClientErr {
+		observability.GetLogger().Warn(ctx, msg, logFields...)
+		return
+	}
+	observability.GetLogger().Error(ctx, msg, logFields...)
+}
+
+func (s *GitOpsReconciliationService) ConfigureSecretMechanism(
+	ctx context.Context,
+	cfg contracts.SecretBackendConfig,
+) (*contracts.SecretBackendConfig, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "gitops.reconciliation.configure_secret_mechanism",
+		attribute.String("tenant.id", cfg.TenantID),
+		attribute.String("secret.mechanism", string(cfg.Mechanism)),
+	)
+	defer span.End()
+
+	if s.secretPort == nil {
+		err := errors.NewInternalError("secret mechanism port not configured")
+		recordServiceFailure(ctx, span, err, "secret mechanism port not configured", false)
+		return nil, err
+	}
+	saved, err := s.secretPort.ConfigureSecretMechanism(ctx, cfg)
+	if err != nil {
+		recordServiceFailure(ctx, span, err, "configure secret mechanism failed", true, observability.String("mechanism", string(cfg.Mechanism)))
+		return nil, err
+	}
+	return saved, nil
+}
+
+func (s *GitOpsReconciliationService) GetSecretMechanismConfig(
+	ctx context.Context,
+	tenantID string,
+) (*contracts.SecretBackendConfig, error) {
+	tracer := observability.GetTracer()
+	ctx, span := tracer.StartSpan(ctx, "gitops.reconciliation.get_secret_mechanism_config",
+		attribute.String("tenant.id", tenantID),
+	)
+	defer span.End()
+
+	if s.secretPort == nil {
+		err := errors.NewInternalError("secret mechanism port not configured")
+		recordServiceFailure(ctx, span, err, "secret mechanism port not configured", false)
+		return nil, err
+	}
+	cfg, err := s.secretPort.GetSecretMechanismConfig(ctx, tenantID)
+	if err != nil {
+		recordServiceFailure(ctx, span, err, "get secret mechanism config failed", true, observability.String("tenant_id", tenantID))
+		return nil, err
+	}
+	return cfg, nil
+}
+
 func (s *GitOpsReconciliationService) GetReconciliation(ctx context.Context, tenantID string, id string) (*contracts.ReconciliationRecord, error) {
-	return s.store.GetByID(ctx, tenantID, id)
+	ctx, span := observability.GetTracer().StartSpan(ctx, "gitops.reconciliation.get",
+		attribute.String("tenant.id", tenantID),
+		attribute.String("reconciliation.id", id),
+	)
+	defer span.End()
+
+	rec, err := s.store.GetByID(ctx, tenantID, id)
+	if err != nil {
+		recordServiceFailure(ctx, span, err, "get reconciliation failed", true, observability.String("reconciliation_id", id))
+		return nil, err
+	}
+	return rec, nil
 }
 
 func (s *GitOpsReconciliationService) ListReconciliations(ctx context.Context, filter contracts.FilterCriteria) ([]contracts.ReconciliationRecord, error) {
-	return s.store.List(ctx, filter)
+	ctx, span := observability.GetTracer().StartSpan(ctx, "gitops.reconciliation.list",
+		attribute.String("tenant.id", filter.TenantID),
+		attribute.String("service.id", filter.ServiceID),
+	)
+	defer span.End()
+
+	records, err := s.store.List(ctx, filter)
+	if err != nil {
+		recordServiceFailure(ctx, span, err, "list reconciliations failed", false, observability.String("tenant_id", filter.TenantID))
+		return nil, err
+	}
+	span.SetAttributes(attribute.Int("reconciliation.count", len(records)))
+	return records, nil
 }

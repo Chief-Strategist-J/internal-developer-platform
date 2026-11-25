@@ -49,6 +49,8 @@ data:
         remote_write:
           - url: http://prometheus.dev.svc:9090/api/v1/write
             send_exemplars: true
+      traces_storage:
+        path: /tmp/tempo/generator/traces
       processor:
         local_blocks:
           flush_to_storage: true

@@ -118,3 +118,37 @@ type DetailedDriftReport struct {
 	IgnoredCount    int                   `json:"ignoredCount"`
 	CanAutoSync     bool                  `json:"canAutoSync"`
 }
+
+type SecretMechanismType string
+
+const (
+	SecretMechanismSealedSecrets           SecretMechanismType = "SEALED_SECRETS"
+	SecretMechanismExternalSecretsOperator SecretMechanismType = "EXTERNAL_SECRETS_OPERATOR"
+	SecretMechanismSecretsStoreCSI         SecretMechanismType = "SECRETS_STORE_CSI_DRIVER"
+)
+
+type SecretBackendConfig struct {
+	TenantID         string              `json:"tenantId"`
+	Mechanism        SecretMechanismType `json:"mechanism"`
+	VaultEndpoint    string              `json:"vaultEndpoint,omitempty"`
+	ClusterScope     string              `json:"clusterScope,omitempty"`
+	SecretStoreRef   string              `json:"secretStoreRef,omitempty"`
+	CSIDriverName    string              `json:"csiDriverName,omitempty"`
+	EncryptionKeyRef string              `json:"encryptionKeyRef,omitempty"`
+	Enabled          bool                `json:"enabled"`
+}
+
+type SecretReference struct {
+	Name          string              `json:"name"`
+	Namespace     string              `json:"namespace"`
+	Mechanism     SecretMechanismType `json:"mechanism"`
+	RemoteKeyRef  string              `json:"remoteKeyRef,omitempty"`
+	EncryptedData map[string]string   `json:"encryptedData,omitempty"`
+}
+
+type SecretSyncValidationResult struct {
+	Allowed       bool                `json:"allowed"`
+	Mechanism     SecretMechanismType `json:"mechanism"`
+	Reason        string              `json:"reason"`
+	ViolationCode string              `json:"violationCode,omitempty"`
+}

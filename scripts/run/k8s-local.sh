@@ -16,7 +16,14 @@ DEV_NAMESPACE="dev"
 
 create_cluster() {
     if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
-        log_info "kind cluster '${CLUSTER_NAME}' already exists."
+        log_info "kind cluster '${CLUSTER_NAME}' already exists. Ensuring control-plane container is running..."
+        docker start "${CLUSTER_NAME}-control-plane" >/dev/null 2>&1 || true
+        for _ in $(seq 1 30); do
+            if kubectl cluster-info --context "kind-${CLUSTER_NAME}" >/dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+        done
     else
         log_info "Creating kind cluster '${CLUSTER_NAME}' with DNS and host port forwarders..."
         cat <<'EOF_KIND' | kind create cluster --name "${CLUSTER_NAME}" --config=-
@@ -118,22 +125,7 @@ wait_for_services() {
 
 start_port_forward() {
     log_info "Establishing persistent port-forwarding for all platform endpoints..."
-    pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/grafana -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/platform-api -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/otel-collector -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/postgres -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/redis -n ${DEV_NAMESPACE}" 2>/dev/null || true
-
-    nohup kubectl port-forward svc/argocd-server -n "${ARGOCD_NAMESPACE}" --address 0.0.0.0 "${ARGOCD_PORT}:443" > /tmp/argocd-port-forward.log 2>&1 &
-    nohup kubectl port-forward svc/grafana -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${GRAFANA_PORT}:3000" > /tmp/grafana-port-forward.log 2>&1 &
-    nohup kubectl port-forward svc/platform-api -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${PLATFORM_API_PORT}:8080" > /tmp/platform-api-port-forward.log 2>&1 &
-    nohup kubectl port-forward svc/otel-collector -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${OTEL_PORT}:4318" > /tmp/otel-collector-port-forward.log 2>&1 &
-    nohup kubectl port-forward svc/postgres -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${POSTGRES_PORT}:5432" > /tmp/postgres-port-forward.log 2>&1 &
-    nohup kubectl port-forward svc/redis -n "${DEV_NAMESPACE}" --address 0.0.0.0 "${REDIS_PORT}:6379" > /tmp/redis-port-forward.log 2>&1 &
-
-    sleep 2
-    log_success "All platform endpoints forwarded successfully."
+    "${SCRIPT_DIR}/port-forward.sh" start
 }
 
 get_credentials() {
@@ -159,12 +151,7 @@ get_credentials() {
 
 down_cluster() {
     log_info "Deleting kind cluster '${CLUSTER_NAME}' and stopping port-forwards..."
-    pkill -f "kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/grafana -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/platform-api -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/otel-collector -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/postgres -n ${DEV_NAMESPACE}" 2>/dev/null || true
-    pkill -f "kubectl port-forward svc/redis -n ${DEV_NAMESPACE}" 2>/dev/null || true
+    "${SCRIPT_DIR}/port-forward.sh" stop
     kind delete cluster --name "${CLUSTER_NAME}"
     log_success "kind cluster deleted."
 }
