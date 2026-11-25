@@ -308,7 +308,8 @@ func (s *GitOpsReconciliationService) validateManifestsAndGuardrails(ctx context
 						mech = cfg.Mechanism
 					}
 				}
-				secRes := rules.EvaluateSecretInGitOpsPath(mech, true, false)
+				hasPlaintext := m.Annotations != nil && m.Annotations["gitops.idp/has-plaintext-secret"] == "true"
+				secRes := rules.EvaluateSecretInGitOpsPath(mech, hasPlaintext, false)
 				if !secRes.Allowed {
 					return nil, errors.NewForbiddenError(secRes.Reason)
 				}

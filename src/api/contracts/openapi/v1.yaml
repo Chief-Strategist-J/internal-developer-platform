@@ -264,6 +264,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
   /api/v1/reconciliations:
+    get:
+      summary: List GitOps reconciliations for tenant
+      operationId: listGitOpsReconciliations
+      parameters:
+        - name: x-tenant-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: serviceId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: syncPhase
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Reconciliation list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
     post:
       summary: Trigger GitOps reconciliation
       operationId: triggerGitOpsReconciliation
@@ -394,6 +430,97 @@ paths:
                 $ref: '#/components/schemas/GitOpsWebhookResultResponse'
         '401':
           description: Invalid HMAC signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/gitops/secrets/validate:
+    post:
+      summary: Validate secret manifest against D-SEC GitOps path policy (P0-03)
+      operationId: validateGitOpsSecretManifest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - mechanism
+              properties:
+                mechanism:
+                  type: string
+                  enum:
+                    - SEALED_SECRETS
+                    - EXTERNAL_SECRETS_OPERATOR
+                    - SECRETS_STORE_CSI_DRIVER
+                hasPlaintextData:
+                  type: boolean
+                pluginInjectsValues:
+                  type: boolean
+      responses:
+        '200':
+          description: Secret manifest allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: Secret manifest blocked by P0-03
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/gitops/fleet/rollout:
+    post:
+      summary: Execute Phase 3 multi-cluster fleet ring rollout
+      operationId: executeGitOpsFleetRollout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - appName
+                - targetRevision
+                - targets
+              properties:
+                tenantId:
+                  type: string
+                appName:
+                  type: string
+                targetRevision:
+                  type: string
+                targets:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      clusterName:
+                        type: string
+                      ring:
+                        type: string
+                        enum:
+                          - CANARY
+                          - STAGING
+                          - PROD_WAVE_1
+                          - PROD_WAVE_2
+                      namespace:
+                        type: string
+                      projectName:
+                        type: string
+      responses:
+        '200':
+          description: Fleet ring rollout completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Fleet ring rollout halted on degraded cluster
           content:
             application/json:
               schema:

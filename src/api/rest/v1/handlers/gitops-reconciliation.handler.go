@@ -189,6 +189,48 @@ func (h *GitOpsReconciliationHandler) ValidateSecretManifest(w http.ResponseWrit
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (h *GitOpsReconciliationHandler) ExecuteFleetRollout(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	meta := utils.ExtractIngressMetadata(r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+	ctx, endSpan := h.startHandlerSpan(w, r, "gitops_reconciliation.fleet_rollout", meta)
+	defer endSpan()
+
+	var cmd contracts.FleetRolloutCommand
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cmd); err != nil {
+		h.writeError(ctx, w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid or unknown fields in json request body", start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+	if cmd.TenantID == "" {
+		cmd.TenantID = meta.TenantID
+	}
+
+	result, err := h.service.ExecuteFleetRingRollout(ctx, cmd)
+	if err != nil {
+		status, code := resolveErrorStatus(err)
+		h.writeError(ctx, w, status, code, err.Error(), start, meta.RequestID, meta.CorrelationID)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	resp := types.ApiResponse{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		Data:       result,
+		Meta: types.ResponseMeta{
+			RequestID:       meta.RequestID,
+			CorrelationID:   meta.CorrelationID,
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			ExecutionTimeMs: time.Since(start).Milliseconds(),
+			APIVersion:      "v1",
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (h *GitOpsReconciliationHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	meta := utils.ExtractIngressMetadata(r)
