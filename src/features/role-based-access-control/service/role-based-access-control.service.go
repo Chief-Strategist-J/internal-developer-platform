@@ -8,6 +8,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -24,6 +25,7 @@ type RBACService struct {
 	revocationStore ports.RevocationStorePort
 	grantRepo       ports.AccessGrantRepositoryPort
 	bindingRepo     ports.UserBindingRepositoryPort
+	auditOutbox     ports.RBACAuditOutboxPort
 }
 
 func NewRBACService(verifier ports.TokenVerifierPort, revocation ports.RevocationStorePort, grantRepo ...ports.AccessGrantRepositoryPort) *RBACService {
@@ -43,6 +45,10 @@ func (s *RBACService) SetGrantRepository(repo ports.AccessGrantRepositoryPort) {
 
 func (s *RBACService) SetUserBindingRepository(repo ports.UserBindingRepositoryPort) {
 	s.bindingRepo = repo
+}
+
+func (s *RBACService) SetAuditOutbox(outbox ports.RBACAuditOutboxPort) {
+	s.auditOutbox = outbox
 }
 
 func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error) {
@@ -203,4 +209,59 @@ func (s *RBACService) GetUserRoles(ctx context.Context, tenantID string, subject
 		}
 		return []rbacContracts.RoleName{}, nil
 	}, attribute.String("tenant_id", tenantID), attribute.String("subject_id", subjectID))
+}
+
+func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContracts.EvaluationRequest) (rbacContracts.EvaluationResult, error) {
+	return observability.RunTraced(ctx, "rbac.service.authorize_with_context", func(ctx context.Context) (rbacContracts.EvaluationResult, error) {
+		decision := rules.EvaluateAuthorization(req, time.Now())
+		if !decision.Granted {
+			s.dispatchAuditDecision(ctx, req, "DENY", decision)
+			return decision, errors.NewForbiddenError(decision.Reason)
+		}
+		if decision.ElevatedPermit {
+			if err := s.dispatchAuditDecision(ctx, req, "ELEVATED_PERMIT", decision); err != nil {
+				return rbacContracts.EvaluationResult{
+					Granted:       false,
+					Reason:        "cannot grant break-glass access without audit guarantee",
+					ViolationCode: "ERR_AUDIT_UNAVAILABLE",
+				}, errors.NewForbiddenError("cannot grant break-glass access without audit guarantee")
+			}
+		}
+		return decision, nil
+	}, attribute.String("subject.id", req.Subject.ID), attribute.String("target_tenant", req.TargetTenantID), attribute.String("resource", string(req.Resource)))
+}
+
+func (s *RBACService) ValidateRoleHierarchy(ctx context.Context, edges map[string][]string) error {
+	return observability.WithSpan(ctx, "rbac.service.validate_role_hierarchy", func(ctx context.Context) error {
+		return rules.ValidateRoleHierarchyDAG(edges)
+	})
+}
+
+func (s *RBACService) VerifyImpersonation(ctx context.Context, callerMTLS bool, hasImpersonateGrant bool, targetProtectedAdmin bool) error {
+	return observability.WithSpan(ctx, "rbac.service.verify_impersonation", func(ctx context.Context) error {
+		return rules.EvaluateImpersonation(callerMTLS, hasImpersonateGrant, targetProtectedAdmin)
+	})
+}
+
+func (s *RBACService) VerifyDelegationScope(ctx context.Context, isTenantDelegation bool, tokenTenantID string, targetTenantID string) error {
+	return observability.WithSpan(ctx, "rbac.service.verify_delegation_scope", func(ctx context.Context) error {
+		return rules.EvaluateDelegationScope(isTenantDelegation, tokenTenantID, targetTenantID)
+	})
+}
+
+func (s *RBACService) dispatchAuditDecision(ctx context.Context, req rbacContracts.EvaluationRequest, decisionLabel string, res rbacContracts.EvaluationResult) error {
+	if s.auditOutbox == nil {
+		return nil
+	}
+	return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
+		ID:            fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
+		TenantID:      req.TargetTenantID,
+		SubjectID:     req.Subject.ID,
+		Resource:      req.Resource,
+		Action:        req.Action,
+		Decision:      decisionLabel,
+		Reason:        res.Reason,
+		ViolationCode: res.ViolationCode,
+		OccurredAt:    time.Now().UTC(),
+	})
 }

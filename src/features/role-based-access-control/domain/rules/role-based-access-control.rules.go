@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	MaxJITSessionDurationSeconds = 14400
-	MinJITSessionDurationSeconds = 60
+	MaxJITSessionDurationSeconds   = 14400
+	MinJITSessionDurationSeconds   = 60
+	MaxBreakGlassTTLSeconds        = 7200
+	MaxRoleHierarchyDepth          = 5
 )
 
 var DefaultRoleDefinitions = map[rbacContracts.RoleName][]rbacContracts.Permission{
@@ -33,10 +35,21 @@ var DefaultRoleDefinitions = map[rbacContracts.RoleName][]rbacContracts.Permissi
 
 func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) rbacContracts.EvaluationResult {
 	if req.Subject.ID == "" {
-		return rbacContracts.EvaluationResult{Granted: false, Reason: "missing subject identity"}
+		return rbacContracts.EvaluationResult{Granted: false, Reason: "missing subject identity", ViolationCode: "ERR_UNAUTHENTICATED"}
 	}
 	if !req.Subject.ExpiresAt.IsZero() && now.After(req.Subject.ExpiresAt) {
-		return rbacContracts.EvaluationResult{Granted: false, Reason: "token expired"}
+		return rbacContracts.EvaluationResult{Granted: false, Reason: "token expired", ViolationCode: "ERR_TOKEN_EXPIRED"}
+	}
+	if req.BreakGlass != nil {
+		bgRes := EvaluateBreakGlassElevation(*req.BreakGlass)
+		if !bgRes.Granted {
+			return bgRes
+		}
+		return rbacContracts.EvaluationResult{
+			Granted:        true,
+			ElevatedPermit: true,
+			Reason:         "break-glass elevated session active",
+		}
 	}
 	isGlobalAdmin := false
 	for _, r := range req.Subject.Roles {
@@ -45,11 +58,28 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 			break
 		}
 	}
+	if isGlobalAdmin && isRootGuardrailViolated(req.Resource, req.Action) {
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        "guardrail violation prevents root action on sensitive resource",
+			ViolationCode: "ERR_ROOT_GUARDRAIL",
+		}
+	}
 	if !isGlobalAdmin {
 		if req.TargetTenantID != "" && req.Subject.TenantID != "" && req.Subject.TenantID != req.TargetTenantID {
 			return rbacContracts.EvaluationResult{
-				Granted: false,
-				Reason:  "tenant isolation violation: subject tenant does not match target tenant",
+				Granted:       false,
+				Reason:        "tenant isolation violation: subject tenant does not match target tenant",
+				ViolationCode: "ERR_TENANT_ISOLATION",
+			}
+		}
+	}
+	for _, deny := range req.Subject.DenyPermissions {
+		if matchesPermissionExact(deny, req.Resource, req.Action) {
+			return rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "explicit deny rule overrides all grants",
+				ViolationCode: "ERR_EXPLICIT_DENY",
 			}
 		}
 	}
@@ -60,18 +90,155 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 			effectivePermissions = append(effectivePermissions, perms...)
 		}
 	}
+	if len(effectivePermissions) == 0 {
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        "no applicable policy found for subject",
+			ViolationCode: "ERR_NO_APPLICABLE_POLICY",
+		}
+	}
+	permitted := false
 	for _, perm := range effectivePermissions {
-		if matchesPermission(perm, req.Resource, req.Action) {
-			return rbacContracts.EvaluationResult{
-				Granted: true,
-				Reason:  "permission granted",
-			}
+		if matchesPermission(perm, req.Resource, req.Action, isGlobalAdmin) {
+			permitted = true
+			break
+		}
+	}
+	if !permitted {
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        "insufficient permissions for resource and action",
+			ViolationCode: "ERR_INSUFFICIENT_PERMISSIONS",
+		}
+	}
+	if abacRes := evaluateABACGuards(req); !abacRes.Granted {
+		return abacRes
+	}
+	return rbacContracts.EvaluationResult{
+		Granted: true,
+		Reason:  "permission granted",
+	}
+}
+
+func EvaluateBreakGlassElevation(bg rbacContracts.BreakGlassContext) rbacContracts.EvaluationResult {
+	if bg.TicketID == "" || !bg.TicketApproved || bg.TTLSeconds <= 0 || bg.TTLSeconds > MaxBreakGlassTTLSeconds {
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        "invalid or unapproved break-glass ticket or TTL exceeds 2h limit",
+			ViolationCode: "ERR_BREAK_GLASS_INVALID",
+		}
+	}
+	if bg.Tier0Prod && !bg.DualApprovalGranted {
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        "tier-0 production break-glass requires dual authorization approval",
+			ViolationCode: "ERR_DUAL_APPROVAL_REQUIRED",
 		}
 	}
 	return rbacContracts.EvaluationResult{
-		Granted: false,
-		Reason:  "insufficient permissions for resource and action",
+		Granted:        true,
+		ElevatedPermit: true,
+		Reason:         "break-glass elevation approved",
 	}
+}
+
+func ValidateRoleHierarchyDAG(edges map[string][]string) error {
+	state := make(map[string]int)
+	height := make(map[string]int)
+	var dfs func(node string) (int, error)
+	dfs = func(node string) (int, error) {
+		if state[node] == 1 {
+			return 0, errors.NewValidationError("cyclic dependency detected in role hierarchy")
+		}
+		if state[node] == 2 {
+			return height[node], nil
+		}
+		state[node] = 1
+		maxChild := 0
+		for _, next := range edges[node] {
+			h, err := dfs(next)
+			if err != nil {
+				return 0, err
+			}
+			if h > maxChild {
+				maxChild = h
+			}
+		}
+		state[node] = 2
+		height[node] = 1 + maxChild
+		if height[node] > MaxRoleHierarchyDepth {
+			return 0, errors.NewValidationError("role hierarchy exceeds maximum nesting depth of 5")
+		}
+		return height[node], nil
+	}
+	for node := range edges {
+		if state[node] == 0 {
+			if _, err := dfs(node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func EvaluateImpersonation(callerMTLS bool, hasImpersonateGrant bool, targetProtectedAdmin bool) error {
+	if !callerMTLS {
+		return errors.NewForbiddenError("impersonation requires trusted mTLS workload certificate")
+	}
+	if !hasImpersonateGrant {
+		return errors.NewForbiddenError("calling service lacks iam.impersonate grant")
+	}
+	if targetProtectedAdmin {
+		return errors.NewForbiddenError("protected admin identities cannot be impersonated")
+	}
+	return nil
+}
+
+func EvaluateDelegationScope(isTenantDelegation bool, tokenTenantID string, targetTenantID string) error {
+	if !isTenantDelegation {
+		return errors.NewForbiddenError("confused deputy guard: shared service account invocation prohibited")
+	}
+	if tokenTenantID == "" || tokenTenantID != targetTenantID {
+		return errors.NewForbiddenError("delegation token scope does not match target tenant")
+	}
+	return nil
+}
+
+func isRootGuardrailViolated(resource rbacContracts.Resource, action rbacContracts.Action) bool {
+	if resource == rbacContracts.ResourceAuditLogs && action == rbacContracts.ActionDelete {
+		return true
+	}
+	if resource == rbacContracts.ResourceCustomerPII && action == rbacContracts.ActionRead {
+		return true
+	}
+	return false
+}
+
+func evaluateABACGuards(req rbacContracts.EvaluationRequest) rbacContracts.EvaluationResult {
+	if strings.EqualFold(req.TargetEnvironment, rbacContracts.EnvProduction) {
+		if req.ChangeFreezeActive {
+			return rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "production deployment blocked: active change freeze in effect",
+				ViolationCode: "ERR_CHANGE_FREEZE",
+			}
+		}
+		if req.RequireStepUpMFA && !req.Subject.MFAVerified {
+			return rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "step-up WebAuthn/FIDO2 MFA required for production",
+				ViolationCode: "ERR_STEP_UP_MFA_REQUIRED",
+			}
+		}
+	}
+	if req.ResourceClassification != "" && req.Subject.Classification != req.ResourceClassification {
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        "attribute policy deny: resource data classification mismatch",
+			ViolationCode: "ERR_CLASSIFICATION_MISMATCH",
+		}
+	}
+	return rbacContracts.EvaluationResult{Granted: true}
 }
 
 func ValidateJITRequest(req rbacContracts.AccessGrantRequest) error {
@@ -109,11 +276,23 @@ func ValidateRoleSecurityPosture(roleName string, perms []rbacContracts.Permissi
 	return nil
 }
 
-func matchesPermission(perm rbacContracts.Permission, targetResource rbacContracts.Resource, targetAction rbacContracts.Action) bool {
+func matchesPermissionExact(perm rbacContracts.Permission, targetResource rbacContracts.Resource, targetAction rbacContracts.Action) bool {
+	return matchesPermission(perm, targetResource, targetAction, true)
+}
+
+func isDestructiveAction(action rbacContracts.Action) bool {
+	a := strings.ToLower(string(action))
+	return a == "delete" || a == "drop" || a == "terminate"
+}
+
+func matchesPermission(perm rbacContracts.Permission, targetResource rbacContracts.Resource, targetAction rbacContracts.Action, allowDestructiveWildcard bool) bool {
 	resourceMatch := perm.Resource == rbacContracts.ResourceAll ||
 		perm.Resource == targetResource ||
 		strings.EqualFold(string(perm.Resource), string(targetResource))
 	if !resourceMatch {
+		return false
+	}
+	if perm.Action == rbacContracts.ActionAll && isDestructiveAction(targetAction) && !allowDestructiveWildcard {
 		return false
 	}
 	actionMatch := perm.Action == rbacContracts.ActionAll ||

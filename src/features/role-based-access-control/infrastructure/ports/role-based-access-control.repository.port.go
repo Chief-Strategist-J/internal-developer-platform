@@ -28,3 +28,7 @@ type UserBindingRepositoryPort interface {
 	UnbindUserRole(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error
 	GetUserRoles(ctx context.Context, tenantID string, subjectID string) ([]rbacContracts.RoleName, error)
 }
+
+type RBACAuditOutboxPort interface {
+	EnqueueAuditEvent(ctx context.Context, event rbacContracts.RBACAuditEvent) error
+}
