@@ -11,6 +11,7 @@ type Service = service.GitOpsReconciliationService
 type Command = contracts.SyncCommand
 type Result = contracts.SyncResult
 type Record = contracts.ReconciliationRecord
+type OutboxEvent = contracts.OutboxEvent
 type StorePort = ports.GitOpsStorePort
 type ClientPort = ports.ArgoCDClientPort
 
