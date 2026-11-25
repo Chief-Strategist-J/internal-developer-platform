@@ -286,3 +286,12 @@ func EvaluateBreakGlassAutoSyncGuard(emergencyChangePending bool, emergencyCommi
 	}
 	return nil
 }
+
+func EvaluateFleetRingHealth(ringResults []contracts.FleetTargetResult) error {
+	for _, r := range ringResults {
+		if r.Error != "" || r.HealthStatus == contracts.HealthStatusDegraded {
+			return errors.NewConflictError("fleet ring rollout halted on degraded cluster: " + r.ClusterName)
+		}
+	}
+	return nil
+}
