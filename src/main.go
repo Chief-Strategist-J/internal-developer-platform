@@ -131,6 +131,7 @@ func describeService() chassis.ServiceSpec {
 			argoClient := gitopsreconciliation.NewArgoCDClient(deps.Config.ArgoCD.Endpoint, deps.Config.ArgoCD.Token)
 			gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
 			gitopsSvc.SetSecretAdapter(gitopsreconciliation.NewSecretAdapterWithDB(deps.DB))
+			gitopsSvc.SetOutboxPort(gitopsreconciliation.NewOutboxAdapterWithDB(deps.DB))
 			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
 			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
 
