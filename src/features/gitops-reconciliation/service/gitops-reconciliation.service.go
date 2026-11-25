@@ -28,12 +28,14 @@ const (
 	SpanPrefixGitOps = "gitops.reconciliation"
 	MaxPageSize      = 100
 	DefaultPageSize  = 50
+	MaxCASRetries    = 3
 )
 
 type GitOpsReconciliationService struct {
 	store      ports.GitOpsStorePort
 	argoCD     ports.ArgoCDClientPort
 	secretPort ports.SecretMechanismPort
+	outboxPort ports.OutboxPort
 }
 
 func NewGitOpsReconciliationService(store ports.GitOpsStorePort, argoCD ports.ArgoCDClientPort) *GitOpsReconciliationService {
@@ -45,6 +47,10 @@ func NewGitOpsReconciliationService(store ports.GitOpsStorePort, argoCD ports.Ar
 
 func (s *GitOpsReconciliationService) SetSecretAdapter(port ports.SecretMechanismPort) {
 	s.secretPort = port
+}
+
+func (s *GitOpsReconciliationService) SetOutboxPort(port ports.OutboxPort) {
+	s.outboxPort = port
 }
 
 func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context, cmd contracts.SyncCommand) (*contracts.SyncResult, error) {
@@ -342,8 +348,11 @@ func (s *GitOpsReconciliationService) handleFailedSync(
 	record.SyncPhase = failedPhase
 	record.HealthStatus = contracts.HealthStatusDegraded
 	record.LastFailedSHA = targetRevision
-	record.Version = 2
-	_ = s.store.Update(ctx, *record)
+	_ = s.retryTransaction(ctx, "update_failed", func(txCtx context.Context) error {
+		record.Version = record.Version + 1
+		return s.store.Update(txCtx, *record)
+	})
+	s.emitOutboxEvent(ctx, contracts.OutboxEventReconciliationFailed, *record)
 	return errors.NewConflictError("argocd sync failed: " + syncErr.Error())
 }
 
@@ -372,10 +381,13 @@ func (s *GitOpsReconciliationService) finalizeSuccessRecord(
 	record.HealthStatus = workflows.DetermineFinalHealth(hasFailures)
 	record.CurrentRevision = targetRevision
 
-	if err := s.store.Update(ctx, *record); err != nil {
+	if err := s.retryTransaction(ctx, "update_synced", func(txCtx context.Context) error {
+		return s.store.Update(txCtx, *record)
+	}); err != nil {
 		return nil, err
 	}
 	record.Version = record.Version + 1
+	s.emitOutboxEvent(ctx, contracts.OutboxEventReconciliationSucceeded, *record)
 
 	return &contracts.SyncResult{
 		Reconciliation: *record,
@@ -411,9 +423,12 @@ func (s *GitOpsReconciliationService) transitionToRollingBack(ctx context.Contex
 	}
 	record.SyncPhase = rollingBackPhase
 	record.RollbackTriggered = true
-	if err := s.store.Update(ctx, *record); err != nil {
+	if err := s.retryTransaction(ctx, "update_rolling_back", func(txCtx context.Context) error {
+		return s.store.Update(txCtx, *record)
+	}); err != nil {
 		return "", err
 	}
+	s.emitOutboxEvent(ctx, contracts.OutboxEventRollbackTriggered, *record)
 	return rollingBackPhase, nil
 }
 
@@ -446,7 +461,9 @@ func (s *GitOpsReconciliationService) completeRollbackRecord(
 	record.CurrentRevision = restoreRevision
 	record.Version = record.Version + 1
 
-	if err := s.store.Update(ctx, *record); err != nil {
+	if err := s.retryTransaction(ctx, "update_rollback_complete", func(txCtx context.Context) error {
+		return s.store.Update(txCtx, *record)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -455,6 +472,39 @@ func (s *GitOpsReconciliationService) completeRollbackRecord(
 		AppliedHooks:   1,
 		Message:        fmt.Sprintf("deployment failed; recorded rollback to %s", restoreRevision),
 	}, nil
+}
+
+func (s *GitOpsReconciliationService) retryTransaction(ctx context.Context, opName string, fn func(ctx context.Context) error) error {
+	return observability.WithSpan(ctx, SpanPrefixGitOps+".retry_tx."+opName, func(txCtx context.Context) error {
+		var lastErr error
+		for attempt := 1; attempt <= MaxCASRetries; attempt++ {
+			lastErr = fn(txCtx)
+			if lastErr == nil {
+				return nil
+			}
+			if !errors.IsConflictError(lastErr) {
+				return lastErr
+			}
+		}
+		return lastErr
+	}, attribute.String("tx.operation", opName))
+}
+
+func (s *GitOpsReconciliationService) emitOutboxEvent(ctx context.Context, eventType contracts.OutboxEventType, record contracts.ReconciliationRecord) {
+	if s.outboxPort == nil {
+		return
+	}
+	_ = observability.WithSpan(ctx, SpanPrefixGitOps+".outbox_emit", func(outboxCtx context.Context) error {
+		return s.outboxPort.Enqueue(outboxCtx, contracts.OutboxEvent{
+			ID:          fmt.Sprintf("evt-%s-%d", record.ID, time.Now().UnixNano()),
+			TenantID:    record.TenantID,
+			AggregateID: record.ID,
+			EventType:   eventType,
+			AppName:     record.AppName,
+			Revision:    record.CurrentRevision,
+			OccurredAt:  time.Now().UTC(),
+		})
+	}, attribute.String("outbox.event_type", string(eventType)), attribute.String("aggregate.id", record.ID))
 }
 
 func applyFilterAllowlist(filter contracts.FilterCriteria) contracts.FilterCriteria {
