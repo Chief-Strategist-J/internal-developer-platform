@@ -60,7 +60,7 @@ func TestLiveArgoCDClusterReconciliation(t *testing.T) {
 		ServiceID:          "internal-developer-platform",
 		AppName:            appName,
 		TargetRevision:     "HEAD",
-		Prune:              true,
+		Prune:              false,
 		DryRun:             true,
 		ProjectEnforcesSig: true,
 		CommitSigned:       true,
