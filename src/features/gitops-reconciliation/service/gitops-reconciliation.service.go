@@ -539,6 +539,70 @@ func (s *GitOpsReconciliationService) RelayPendingOutboxEvents(
 	})
 }
 
+func (s *GitOpsReconciliationService) ExecuteFleetRingRollout(ctx context.Context, cmd contracts.FleetRolloutCommand) (*contracts.FleetRolloutResult, error) {
+	return observability.RunTraced(ctx, SpanPrefixGitOps+".fleet_rollout", func(ctx context.Context) (*contracts.FleetRolloutResult, error) {
+		if cmd.TenantID == "" || cmd.AppName == "" || cmd.TargetRevision == "" {
+			return nil, errors.NewValidationError("tenantId, appName, and targetRevision are required")
+		}
+
+		ringOrder := []contracts.ClusterRing{
+			contracts.ClusterRingCanary,
+			contracts.ClusterRingStaging,
+			contracts.ClusterRingProdWave1,
+			contracts.ClusterRingProdWave2,
+		}
+
+		result := &contracts.FleetRolloutResult{
+			AppName:        cmd.AppName,
+			TargetRevision: cmd.TargetRevision,
+			Results:        make([]contracts.FleetTargetResult, 0, len(cmd.Targets)),
+		}
+
+		for _, ring := range ringOrder {
+			ringResults := make([]contracts.FleetTargetResult, 0)
+			for _, target := range cmd.Targets {
+				if target.Ring != ring {
+					continue
+				}
+				clusterApp := cmd.AppName + "-" + target.ClusterName
+				_, syncErr := s.argoCD.TriggerSync(ctx, clusterApp, cmd.TargetRevision, false, false)
+				phase := contracts.SyncPhaseSynced
+				health := contracts.HealthStatusHealthy
+				errMsg := ""
+				if syncErr != nil {
+					phase = contracts.SyncPhaseFailed
+					health = contracts.HealthStatusDegraded
+					errMsg = syncErr.Error()
+				} else {
+					_, h, _, hErr := s.argoCD.GetApplicationStatus(ctx, clusterApp)
+					if hErr == nil {
+						health = h
+					}
+				}
+				tr := contracts.FleetTargetResult{
+					ClusterName:  target.ClusterName,
+					Ring:         ring,
+					SyncPhase:    phase,
+					HealthStatus: health,
+					Error:        errMsg,
+				}
+				ringResults = append(ringResults, tr)
+				result.Results = append(result.Results, tr)
+			}
+
+			if len(ringResults) > 0 {
+				if err := rules.EvaluateFleetRingHealth(ringResults); err != nil {
+					result.Halted = true
+					result.HaltedRing = ring
+					return result, err
+				}
+			}
+		}
+
+		return result, nil
+	}, attribute.String("tenant.id", cmd.TenantID), attribute.String("app.name", cmd.AppName))
+}
+
 func applyFilterAllowlist(filter contracts.FilterCriteria) contracts.FilterCriteria {
 	if filter.Limit <= 0 {
 		filter.Limit = DefaultPageSize

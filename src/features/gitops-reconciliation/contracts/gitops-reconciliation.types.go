@@ -184,3 +184,42 @@ type OutboxEvent struct {
 	Revision      string          `json:"revision"`
 	OccurredAt    time.Time       `json:"occurredAt"`
 }
+
+type ClusterRing string
+
+const (
+	ClusterRingCanary    ClusterRing = "CANARY"
+	ClusterRingStaging   ClusterRing = "STAGING"
+	ClusterRingProdWave1 ClusterRing = "PROD_WAVE_1"
+	ClusterRingProdWave2 ClusterRing = "PROD_WAVE_2"
+)
+
+type FleetRolloutTarget struct {
+	ClusterName string      `json:"clusterName"`
+	Ring        ClusterRing `json:"ring"`
+	Namespace   string      `json:"namespace"`
+	ProjectName string      `json:"projectName"`
+}
+
+type FleetRolloutCommand struct {
+	TenantID       string               `json:"tenantId"`
+	AppName        string               `json:"appName"`
+	TargetRevision string               `json:"targetRevision"`
+	Targets        []FleetRolloutTarget `json:"targets"`
+}
+
+type FleetTargetResult struct {
+	ClusterName  string       `json:"clusterName"`
+	Ring         ClusterRing  `json:"ring"`
+	SyncPhase    SyncPhase    `json:"syncPhase"`
+	HealthStatus HealthStatus `json:"healthStatus"`
+	Error        string       `json:"error,omitempty"`
+}
+
+type FleetRolloutResult struct {
+	AppName        string              `json:"appName"`
+	TargetRevision string              `json:"targetRevision"`
+	Halted         bool                `json:"halted"`
+	HaltedRing     ClusterRing         `json:"haltedRing,omitempty"`
+	Results        []FleetTargetResult `json:"results"`
+}
