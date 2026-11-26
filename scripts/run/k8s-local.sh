@@ -103,6 +103,9 @@ apply_idp_project() {
     kubectl apply -f "${root_dir}/deploy/argocd/projects/platform.project.yaml"
     kubectl apply -f "${root_dir}/deploy/argocd/applications/app.dev.yaml"
 
+    log_info "Ensuring namespace '${DEV_NAMESPACE}' exists..."
+    kubectl get ns "${DEV_NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${DEV_NAMESPACE}"
+
     log_info "Deploying backing infrastructure & platform workloads directly via modular Kustomize dev overlay..."
     kubectl apply -k "${root_dir}/deploy/k8s/overlays/dev" --server-side --force-conflicts
     log_success "Dev environment manifests applied to cluster."
