@@ -505,3 +505,57 @@ func (h *RBACHandler) completeRequest(ctx context.Context, route string, status 
 		observability.Int("status", status),
 	)
 }
+
+func (h *RBACHandler) EvaluateSidecarPDP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UTC()
+	ctx, span := observability.GetTracer().StartSpan(r.Context(), "RBACHandler.EvaluateSidecarPDP")
+	defer span.End()
+
+	var req rbacContracts.EvaluationRequest
+	if err := h.decodeClosedJSON(r, &req); err != nil {
+		h.emitFailure(w, r, sharedErrors.NewValidationError(err.Error()), start)
+		h.completeRequest(ctx, constants.EndpointRBACSidecarEvaluate, http.StatusBadRequest, err)
+		return
+	}
+
+	decision, err := h.rbacSvc.EvaluateWithSidecarPDP(ctx, req)
+	if err != nil {
+		h.emitFailure(w, r, err, start)
+		h.completeRequest(ctx, constants.EndpointRBACSidecarEvaluate, http.StatusInternalServerError, err)
+		return
+	}
+	if !decision.Granted {
+		h.emitDecisionDenied(w, r, decision, start)
+		h.completeRequest(ctx, constants.EndpointRBACSidecarEvaluate, http.StatusForbidden, nil)
+		return
+	}
+	h.emitSuccess(w, r, http.StatusOK, decision, start)
+	h.completeRequest(ctx, constants.EndpointRBACSidecarEvaluate, http.StatusOK, nil)
+}
+
+type leastPrivilegeAnalyzeRequest struct {
+	Roles      map[rbacContracts.RoleName][]rbacContracts.Permission `json:"roles"`
+	Usage      []rbacContracts.PermissionUsageRecord                 `json:"usage"`
+	StaleHours int                                                   `json:"staleHours"`
+}
+
+func (h *RBACHandler) AnalyzeLeastPrivilege(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UTC()
+	ctx, span := observability.GetTracer().StartSpan(r.Context(), "RBACHandler.AnalyzeLeastPrivilege")
+	defer span.End()
+
+	var req leastPrivilegeAnalyzeRequest
+	if err := h.decodeClosedJSON(r, &req); err != nil {
+		h.emitFailure(w, r, sharedErrors.NewValidationError(err.Error()), start)
+		h.completeRequest(ctx, constants.EndpointRBACLeastPrivilege, http.StatusBadRequest, err)
+		return
+	}
+
+	staleWindow := time.Duration(req.StaleHours) * time.Hour
+	if staleWindow <= 0 {
+		staleWindow = 24 * time.Hour
+	}
+	report := h.rbacSvc.AnalyzeLeastPrivilege(req.Roles, req.Usage, staleWindow)
+	h.emitSuccess(w, r, http.StatusOK, report, start)
+	h.completeRequest(ctx, constants.EndpointRBACLeastPrivilege, http.StatusOK, nil)
+}

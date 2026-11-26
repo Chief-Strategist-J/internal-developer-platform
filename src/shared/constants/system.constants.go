@@ -79,6 +79,8 @@ const (
 	EndpointAuthBindingsPrefix    = "/api/v1/auth/bindings/"
 	EndpointRBACAuthorize         = "/api/v1/rbac/authorize"
 	EndpointRBACValidateHierarchy = "/api/v1/rbac/roles/validate-hierarchy"
+	EndpointRBACSidecarEvaluate   = "/api/v1/rbac/sidecar/evaluate"
+	EndpointRBACLeastPrivilege    = "/api/v1/rbac/least-privilege/analyze"
 	EndpointClusters              = "/api/v1/clusters"
 	EndpointClustersPrefix        = "/api/v1/clusters/"
 	EndpointClustersPosture       = "/api/v1/clusters/posture"

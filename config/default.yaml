@@ -48,6 +48,9 @@ rbac:
   abac_allowed_start_hour_utc: 0
   abac_allowed_end_hour_utc: 24
   dev_staging_max_quota: 100
+  sidecar_pdp_engine: "opa"
+  sidecar_pdp_endpoint: ""
+  sidecar_pdp_timeout_ms: 250
 
 endpoints:
   base_path: "/api/v1"

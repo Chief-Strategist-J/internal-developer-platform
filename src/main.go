@@ -24,6 +24,7 @@ import (
 	policyAdapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
 	policyService "internal-developer-platform/src/features/policy-as-code/service"
 	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
@@ -128,6 +129,14 @@ func describeService() chassis.ServiceSpec {
 			})
 			revocationRepo.SubscribeInvalidation(context.Background(), rbacSvc.InvalidateLocalCache)
 			rbacSvc.StartStreamingSocketReaper(context.Background(), 60*time.Second)
+			if deps.Config.RBAC.SidecarPDPEndpoint != "" {
+				sidecarAdapter := rbacAdapters.NewHTTPSidecarPDPAdapter(rbacContracts.SidecarPDPConfig{
+					Engine:    rbacContracts.SidecarPDPEngine(deps.Config.RBAC.SidecarPDPEngine),
+					Endpoint:  deps.Config.RBAC.SidecarPDPEndpoint,
+					TimeoutMs: deps.Config.RBAC.SidecarPDPTimeoutMs,
+				})
+				rbacSvc.SetSidecarPDP(sidecarAdapter)
+			}
 			rbacMW := middleware.NewRBACMiddleware(rbacSvc)
 			rbacHandler := handlers.NewRBACHandler(rbacSvc)
 			rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
