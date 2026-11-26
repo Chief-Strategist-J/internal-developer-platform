@@ -41,6 +41,10 @@ rbac:
   siem_webhook_url: ""
   siem_api_token: ""
   federation_hmac_secret: ""
+  task_lease_hmac_secret: ""
+  oidc_introspect_endpoint: ""
+  oidc_client_id: ""
+  oidc_client_secret: ""
   abac_allowed_start_hour_utc: 0
   abac_allowed_end_hour_utc: 24
   dev_staging_max_quota: 100

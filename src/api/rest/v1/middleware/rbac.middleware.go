@@ -53,6 +53,23 @@ func (m *RBACMiddleware) RequirePermission(resource rbacContracts.Resource, acti
 			return
 		}
 
+		if impersonateUser := r.Header.Get(constants.HeaderXImpersonateUser); impersonateUser != "" {
+			callerMTLS := r.TLS != nil && len(r.TLS.PeerCertificates) > 0
+			hasGrant := subjectHasImpersonateGrant(*subject)
+			targetProtected := strings.EqualFold(impersonateUser, string(rbacContracts.RolePlatformAdmin)) || strings.EqualFold(impersonateUser, "admin")
+			if err := m.rbacSvc.VerifyImpersonation(r.Context(), callerMTLS, hasGrant, targetProtected); err != nil {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
+				return
+			}
+		}
+
+		if delegationTenant := r.Header.Get(constants.HeaderXDelegationTenant); delegationTenant != "" {
+			if err := m.rbacSvc.VerifyDelegationScope(r.Context(), true, subject.TenantID, delegationTenant); err != nil {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
+				return
+			}
+		}
+
 		ctx := context.WithValue(r.Context(), SubjectContextKey, subject)
 		next(w, r.WithContext(ctx))
 	}
@@ -67,4 +84,16 @@ func GetSubjectFromContext(ctx context.Context) *rbacContracts.Subject {
 		return sub
 	}
 	return nil
+}
+
+func subjectHasImpersonateGrant(sub rbacContracts.Subject) bool {
+	for _, p := range sub.Permissions {
+		if strings.EqualFold(string(p.Resource), "iam") && strings.EqualFold(string(p.Action), "impersonate") {
+			return true
+		}
+		if p.Resource == rbacContracts.ResourceAll && p.Action == rbacContracts.ActionAll {
+			return true
+		}
+	}
+	return false
 }
