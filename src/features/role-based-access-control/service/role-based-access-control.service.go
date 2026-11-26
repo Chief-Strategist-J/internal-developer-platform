@@ -43,8 +43,12 @@ package service
 import (
 	"container/list"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -83,7 +87,10 @@ type RBACServiceDeps struct {
 	TicketVerifier       ports.BreakGlassTicketVerifierPort
 	SIEMAlertEmitter     ports.SIEMAlertEmitterPort
 	RoleDefRepo          ports.RoleDefinitionRepositoryPort
+	OIDCIntrospector     ports.OIDCIntrospectorPort
+	ExclusiveClaimRepo   ports.ExclusiveClaimPort
 	FederationHMACSecret string
+	TaskLeaseHMACSecret  string
 	DevStagingMaxQuota   int
 	AllowedStartHourUTC  int
 	AllowedEndHourUTC    int
@@ -181,11 +188,22 @@ type RBACService struct {
 	ticketVerifier       ports.BreakGlassTicketVerifierPort
 	siemAlertEmitter     ports.SIEMAlertEmitterPort
 	roleDefRepo          ports.RoleDefinitionRepositoryPort
+	oidcIntrospector     ports.OIDCIntrospectorPort
+	exclusiveClaimRepo   ports.ExclusiveClaimPort
+	sidecarPDP           ports.SidecarPDPPort
 	federationHMACSecret string
+	taskLeaseHMACSecret  string
 	devStagingMaxQuota   int
 	allowedStartHourUTC  int
 	allowedEndHourUTC    int
 	permitCache          *permitLRUCache
+	streamingSessions    sync.Map
+}
+
+type activeStreamingSession struct {
+	conn      io.Closer
+	expiresAt time.Time
+	startedAt time.Time
 }
 
 func NewRBACServiceWithDeps(deps RBACServiceDeps) *RBACService {
@@ -199,7 +217,10 @@ func NewRBACServiceWithDeps(deps RBACServiceDeps) *RBACService {
 		ticketVerifier:       deps.TicketVerifier,
 		siemAlertEmitter:     deps.SIEMAlertEmitter,
 		roleDefRepo:          deps.RoleDefRepo,
+		oidcIntrospector:     deps.OIDCIntrospector,
+		exclusiveClaimRepo:   deps.ExclusiveClaimRepo,
 		federationHMACSecret: deps.FederationHMACSecret,
+		taskLeaseHMACSecret:  deps.TaskLeaseHMACSecret,
 		devStagingMaxQuota:   deps.DevStagingMaxQuota,
 		allowedStartHourUTC:  deps.AllowedStartHourUTC,
 		allowedEndHourUTC:    deps.AllowedEndHourUTC,
@@ -232,6 +253,32 @@ func (s *RBACService) SetAuditOutbox(outbox ports.RBACAuditOutboxPort) {
 
 func (s *RBACService) SetUnitOfWork(uow ports.UnitOfWorkPort) {
 	s.unitOfWork = uow
+}
+
+func (s *RBACService) SetSidecarPDP(pdp ports.SidecarPDPPort) {
+	s.sidecarPDP = pdp
+}
+
+func (s *RBACService) EvaluateWithSidecarPDP(ctx context.Context, req rbacContracts.EvaluationRequest) (rbacContracts.EvaluationResult, error) {
+	now := time.Now().UTC()
+	var sidecarResult *rbacContracts.SidecarDecisionResult
+	if s.sidecarPDP != nil {
+		res, err := s.sidecarPDP.EvaluateSidecar(ctx, rbacContracts.SidecarDecisionRequest{
+			SubjectID:   req.Subject.ID,
+			TenantID:    req.TargetTenantID,
+			Resource:    req.Resource,
+			Action:      req.Action,
+			Environment: req.TargetEnvironment,
+		})
+		if err == nil {
+			sidecarResult = &res
+		}
+	}
+	return rules.EvaluateSidecarPDPFallback(sidecarResult, req, now), nil
+}
+
+func (s *RBACService) AnalyzeLeastPrivilege(roles map[rbacContracts.RoleName][]rbacContracts.Permission, usage []rbacContracts.PermissionUsageRecord, staleWindow time.Duration) rbacContracts.LeastPrivilegeReport {
+	return rules.AnalyzeLeastPrivilege(roles, usage, staleWindow, time.Now().UTC())
 }
 
 func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error) {
@@ -665,7 +712,127 @@ func (s *RBACService) enrichEvaluationRequest(ctx context.Context, req rbacContr
 			req.ResolvedRolePermissions = rules.FlattenRoleHierarchyPermissions(req.Subject.Roles, req.Subject.GroupMemberships, defs, edges)
 		}
 	}
+	if len(req.Subject.FlattenedPermissions) == 0 {
+		roleDefs := req.ResolvedRolePermissions
+		if len(roleDefs) == 0 {
+			roleDefs = rules.DefaultRoleDefinitions
+		}
+		var merged []rbacContracts.Permission
+		merged = append(merged, req.Subject.Permissions...)
+		for _, r := range req.Subject.Roles {
+			merged = append(merged, roleDefs[r]...)
+		}
+		req.Subject.FlattenedPermissions = rules.BuildPermissionHashset(merged)
+	}
 	return req
+}
+
+func (s *RBACService) IssueSignedTaskLease(subjectID string, taskID string, ttl time.Duration) (string, error) {
+	if s.taskLeaseHMACSecret == "" || subjectID == "" || taskID == "" || ttl <= 0 {
+		return "", errors.NewValidationError("task lease secret, subjectId, taskId, and positive ttl are required")
+	}
+	exp := time.Now().UTC().Add(ttl).Unix()
+	payload := fmt.Sprintf("%s|%s|%d", subjectID, taskID, exp)
+	mac := hmac.New(sha256.New, []byte(s.taskLeaseHMACSecret))
+	mac.Write([]byte(payload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return payload + "|" + sig, nil
+}
+
+func (s *RBACService) VerifySignedTaskLease(leaseToken string, now time.Time) (bool, error) {
+	if s.taskLeaseHMACSecret == "" {
+		return false, errors.NewUnauthorizedError("task lease secret not configured")
+	}
+	parts := strings.Split(leaseToken, "|")
+	if len(parts) != 4 {
+		return false, nil
+	}
+	exp, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil || exp <= now.Unix() {
+		return false, nil
+	}
+	payload := parts[0] + "|" + parts[1] + "|" + parts[2]
+	mac := hmac.New(sha256.New, []byte(s.taskLeaseHMACSecret))
+	mac.Write([]byte(payload))
+	expected := mac.Sum(nil)
+	provided, err := hex.DecodeString(parts[3])
+	if err != nil {
+		return false, nil
+	}
+	return hmac.Equal(expected, provided), nil
+}
+
+func (s *RBACService) EvaluateAsyncJobDriftWithOIDC(ctx context.Context, subjectID string, jti string, rawToken string, queueLatency time.Duration) (rbacContracts.AsyncJobRevocationResult, error) {
+	var introspectFn func(ctx context.Context) (bool, error)
+	if s.oidcIntrospector != nil {
+		introspectFn = func(c context.Context) (bool, error) {
+			return s.oidcIntrospector.IntrospectToken(c, rawToken)
+		}
+	}
+	return s.EvaluateAsyncJobDrift(ctx, subjectID, jti, queueLatency, introspectFn)
+}
+
+func (s *RBACService) ClaimExclusiveRoleBinding(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".claim_exclusive_role_binding", func(ctx context.Context) error {
+		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
+			return err
+		}
+		if tenantID == "" || subjectID == "" || role == "" {
+			return errors.NewValidationError("tenantId, subjectId, and roleName are required")
+		}
+		if s.exclusiveClaimRepo == nil {
+			return errors.NewInternalError("exclusive claim repository is not configured")
+		}
+		return s.runInUnitOfWork(ctx, func(txCtx context.Context) error {
+			if err := s.exclusiveClaimRepo.ClaimExclusiveRoleBinding(txCtx, tenantID, subjectID, role); err != nil {
+				return err
+			}
+			return s.dispatchLifecycleAudit(txCtx, tenantID, subjectID, rbacContracts.ResourceAuth, rbacContracts.ActionWrite, "PERMIT", "exclusive role binding claimed")
+		})
+	}, attribute.String("tenant_id", tenantID), attribute.String("subject_id", subjectID), attribute.String("role", string(role)))
+}
+
+func (s *RBACService) TrackStreamingSession(sessionID string, conn io.Closer, expiresAt time.Time) {
+	if sessionID == "" || conn == nil {
+		return
+	}
+	s.streamingSessions.Store(sessionID, activeStreamingSession{
+		conn:      conn,
+		expiresAt: expiresAt,
+		startedAt: time.Now().UTC(),
+	})
+}
+
+func (s *RBACService) StartStreamingSocketReaper(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 60 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now().UTC()
+				s.streamingSessions.Range(func(key, value interface{}) bool {
+					sessionID := key.(string)
+					sess := value.(activeStreamingSession)
+					res := rules.EvaluateStreamingSessionHeartbeat(sess.expiresAt, sess.startedAt, now)
+					if res.Terminate {
+						_ = sess.conn.Close()
+						s.streamingSessions.Delete(sessionID)
+						observability.GetLogger().Warn(ctx, "terminated expired streaming session",
+							observability.String("session_id", sessionID),
+							observability.String("duration", res.SessionDuration.String()),
+						)
+					}
+					return true
+				})
+			}
+		}
+	}()
 }
 
 func (s *RBACService) emitBreakGlassSIEMAlert(ctx context.Context, req rbacContracts.EvaluationRequest, decision rbacContracts.EvaluationResult) {

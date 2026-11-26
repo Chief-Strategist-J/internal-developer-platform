@@ -111,6 +111,45 @@ func (a *RedisRevocationAdapter) PublishInvalidation(ctx context.Context, subjec
 	})
 }
 
+func (a *RedisRevocationAdapter) PublishInvalidationWithAck(ctx context.Context, subjectID string, expectedNodes int, ackTimeout time.Duration) (int, error) {
+	return observability.RunTraced(ctx, "redis.revocation.publish_invalidation_ack", func(ctx context.Context) (int, error) {
+		if a.client == nil {
+			return 0, fmt.Errorf("redis client is not configured")
+		}
+		if ackTimeout <= 0 {
+			ackTimeout = 500 * time.Millisecond
+		}
+		if expectedNodes <= 0 {
+			expectedNodes = 1
+		}
+		ackSub := a.client.Subscribe(ctx, constants.RBACInvalidationAckChannel)
+		defer ackSub.Close()
+		if err := a.client.Publish(ctx, constants.RBACInvalidationChannel, subjectID).Err(); err != nil {
+			return 0, fmt.Errorf("redis publish invalidation failed: %w", err)
+		}
+		timer := time.NewTimer(ackTimeout)
+		defer timer.Stop()
+		acks := 0
+		ch := ackSub.Channel()
+		for acks < expectedNodes {
+			select {
+			case <-ctx.Done():
+				return acks, ctx.Err()
+			case <-timer.C:
+				return acks, nil
+			case msg, ok := <-ch:
+				if !ok {
+					return acks, nil
+				}
+				if msg.Payload == subjectID {
+					acks++
+				}
+			}
+		}
+		return acks, nil
+	})
+}
+
 func (a *RedisRevocationAdapter) SubscribeInvalidation(ctx context.Context, onInvalidate func(subjectID string)) {
 	if a.client == nil {
 		return
@@ -129,6 +168,7 @@ func (a *RedisRevocationAdapter) SubscribeInvalidation(ctx context.Context, onIn
 				}
 				if msg.Payload != "" && onInvalidate != nil {
 					onInvalidate(msg.Payload)
+					_ = a.client.Publish(ctx, constants.RBACInvalidationAckChannel, msg.Payload).Err()
 				}
 			}
 		}

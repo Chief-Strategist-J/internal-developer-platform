@@ -103,6 +103,11 @@ func describeService() chassis.ServiceSpec {
 				deps.Config.RBAC.SIEMWebhookURL,
 				deps.Config.RBAC.SIEMAPIToken,
 			)
+			oidcIntrospector := rbacAdapters.NewHTTPOIDCIntrospectorAdapter(
+				deps.Config.RBAC.OIDCIntrospectEndpoint,
+				deps.Config.RBAC.OIDCClientID,
+				deps.Config.RBAC.OIDCClientSecret,
+			)
 			rbacSvc := rbacService.NewRBACServiceWithDeps(rbacService.RBACServiceDeps{
 				TokenVerifier:        tokenVerifier,
 				RevocationStore:      revocationRepo,
@@ -113,12 +118,16 @@ func describeService() chassis.ServiceSpec {
 				TicketVerifier:       ticketVerifier,
 				SIEMAlertEmitter:     siemEmitter,
 				RoleDefRepo:          rbacPostgres,
+				OIDCIntrospector:     oidcIntrospector,
+				ExclusiveClaimRepo:   rbacPostgres,
 				FederationHMACSecret: deps.Config.RBAC.FederationHMACSecret,
+				TaskLeaseHMACSecret:  deps.Config.RBAC.TaskLeaseHMACSecret,
 				DevStagingMaxQuota:   deps.Config.RBAC.DevStagingMaxQuota,
 				AllowedStartHourUTC:  deps.Config.RBAC.ABACAllowedStartHour,
 				AllowedEndHourUTC:    deps.Config.RBAC.ABACAllowedEndHour,
 			})
 			revocationRepo.SubscribeInvalidation(context.Background(), rbacSvc.InvalidateLocalCache)
+			rbacSvc.StartStreamingSocketReaper(context.Background(), 60*time.Second)
 			rbacMW := middleware.NewRBACMiddleware(rbacSvc)
 			rbacHandler := handlers.NewRBACHandler(rbacSvc)
 			rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)

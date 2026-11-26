@@ -49,8 +49,9 @@ type Subject struct {
 	Roles            []RoleName   `json:"roles"`
 	GroupMemberships []string     `json:"groupMemberships,omitempty"`
 	ClientType       string       `json:"clientType,omitempty"`
-	Permissions      []Permission `json:"permissions,omitempty"`
-	DenyPermissions  []Permission `json:"denyPermissions,omitempty"`
+	Permissions          []Permission        `json:"permissions,omitempty"`
+	DenyPermissions      []Permission        `json:"denyPermissions,omitempty"`
+	FlattenedPermissions map[string]struct{} `json:"-"`
 	MFAVerified      bool         `json:"mfaVerified,omitempty"`
 	Classification   string       `json:"classification,omitempty"`
 	Issuer           string       `json:"issuer"`
@@ -153,4 +154,69 @@ type AccessGrantPage struct {
 	Items      []AccessGrantRecord `json:"items"`
 	NextCursor string              `json:"nextCursor,omitempty"`
 	HasMore    bool                `json:"hasMore"`
+}
+
+type SidecarPDPEngine string
+
+const (
+	SidecarEngineOPA   SidecarPDPEngine = "opa"
+	SidecarEngineCedar SidecarPDPEngine = "cedar"
+)
+
+type SidecarPDPConfig struct {
+	Engine     SidecarPDPEngine `json:"engine"`
+	Endpoint   string           `json:"endpoint"`
+	PolicyPath string           `json:"policyPath"`
+	TimeoutMs  int              `json:"timeoutMs"`
+}
+
+type SidecarDecisionRequest struct {
+	SubjectID   string            `json:"subjectId"`
+	TenantID    string            `json:"tenantId"`
+	Resource    Resource          `json:"resource"`
+	Action      Action            `json:"action"`
+	Environment string            `json:"environment"`
+	Attributes  map[string]string `json:"attributes,omitempty"`
+}
+
+type SidecarDecisionResult struct {
+	Allowed       bool             `json:"allowed"`
+	Engine        SidecarPDPEngine `json:"engine"`
+	Reason        string           `json:"reason"`
+	ViolationCode string           `json:"violationCode,omitempty"`
+}
+
+type EBPFHookEvent struct {
+	WorkloadID string `json:"workloadId"`
+	Namespace  string `json:"namespace"`
+	Syscall    string `json:"syscall"`
+	TargetPath string `json:"targetPath"`
+	UID        uint32 `json:"uid"`
+}
+
+type EBPFHookPolicy struct {
+	AllowedSyscalls []string `json:"allowedSyscalls"`
+	DeniedPaths     []string `json:"deniedPaths"`
+	Enforce         bool     `json:"enforce"`
+}
+
+type PermissionUsageRecord struct {
+	Role       RoleName  `json:"role"`
+	Resource   Resource  `json:"resource"`
+	Action     Action    `json:"action"`
+	LastUsedAt time.Time `json:"lastUsedAt"`
+	HitCount   int64     `json:"hitCount"`
+}
+
+type UnusedPermissionFinding struct {
+	Role       RoleName  `json:"role"`
+	Permission Permission `json:"permission"`
+	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
+	Reason     string    `json:"reason"`
+}
+
+type LeastPrivilegeReport struct {
+	EvaluatedAt time.Time                 `json:"evaluatedAt"`
+	TotalRoles  int                       `json:"totalRoles"`
+	Findings    []UnusedPermissionFinding `json:"findings"`
 }

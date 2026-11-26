@@ -70,3 +70,50 @@ Adopt **Option 3**: Build a hexagonal RBAC Policy Decision Point inside `src/fea
   4. Automatically resolve durable user role bindings in `IssueToken` (`POST /api/v1/auth/token`) when incoming request does not supply explicit roles, minting JWTs containing the persisted roles.
 - **Consequences**: User role assignments and JIT access grants persist durably across restarts, maintain zero cross-tenant leakage via composite primary/foreign keys, and automatically reflect into issued authentication tokens.
 
+---
+
+## ADR-003: Native Libraries, Fail-Closed Revocation, and Zero Production Memory Fallbacks
+- **Status**: Accepted
+- **Context**: Custom HMAC/base64 JWT parsing and raw TCP RESP Redis commands violated the Native Library Mandate, while Redis lookup errors in `AuthenticateToken` failed open and `src/main.go` silently fell back to in-memory adapters when `deps.DB == nil`.
+- **Decision**:
+  1. Replace custom JWT and Redis implementations with `github.com/golang-jwt/jwt/v5` (`JWTTokenVerifierAdapter`) and `github.com/redis/go-redis/v9` (`RedisRevocationAdapter`) with Redis Pub/Sub cluster invalidation (`rbac:cache:invalidate`).
+  2. Fail closed on Redis revocation errors, missing JWT signing secrets, and unconfigured Redis clients (`401 Unauthorized`).
+  3. Wire `req.JTI` revocation in `RBACHandler.RevokeSession` and carry `GroupMemberships`, `ClientType`, `MFAVerified`, and `Classification` in `JWTClaims`.
+  4. Require `deps.DB != nil` in `src/main.go` for production startup (no in-memory adapter fallback in production paths).
+- **Consequences**: Eliminates silent fail-open security gaps and hand-rolled cryptographic/protocol code; requires PostgreSQL and valid `JWT_SECRET` at service boot.
+
+---
+
+## ADR-004: `feature-files.md` Structural Compliance, UnitOfWork Outbox, and PostgreSQL RLS
+- **Status**: Accepted
+- **Context**: `RBACService` used setter injection without `UnitOfWork` transaction boundaries or deadline checks, `RBACHandler` mixed inline validation and set headers after `WriteHeader`, and `database/config/rls.sql` had no tenant isolation policies.
+- **Decision**:
+  1. Refactor `RBACService` to `RBACServiceDeps` (`NewRBACServiceWithDeps`), `resilience.ValidateDeadlineBudget`, `UnitOfWorkPort` (`runInUnitOfWork`) wrapping S1 commands + transactional `rbac_audit_outbox` writes, `machines.TransitionGrantStatus` in `RevokeJITAccess`, and `ListActiveGrantsPage` cursor pagination.
+  2. Refactor `RBACHandler` to `withSpan` → `decodeClosedJSON` → `rbacContracts.Validate*Input` → `emitSuccess`/`emitFailure` → `completeRequest`, setting headers before `WriteHeader` and mapping `sharedErrors.ApplicationError` codes.
+  3. Add migration `0021_harden_rbac_schema.sql` (`rbac_role_hierarchy` table, `version`/`updated_at` on `rbac_user_bindings`, non-empty `CHECK` constraints on `rbac_audit_outbox`) and enable PostgreSQL RLS policies on `rbac_user_bindings`, `access_grants`, and `rbac_audit_outbox` in `database/config/rls.sql`.
+  4. Add local disk failover logging (`rbac-deny-failover.log`) when `DENY` audit outbox writes fail, and wire a background outbox relay in `src/main.go`.
+- **Consequences**: Atomic state + audit persistence, strict tenant isolation at the PostgreSQL storage gate, and full alignment with `feature-files.md` §2.1, §3, and §4.
+
+---
+
+## ADR-005: Externalized Break-Glass, Dynamic DB Role Flattening, Cross-Tenant Federation, and ABAC Guards
+- **Status**: Accepted
+- **Context**: Break-glass ticket approval, SIEM alerting, dynamic `rbac_roles` inheritance flattening, cross-tenant federation, and DEV/STAGING quota + time-of-day ABAC guards were unimplemented at runtime.
+- **Decision**:
+  1. Externalize `pagerduty_endpoint`, `pagerduty_api_token`, `jira_endpoint`, `jira_api_token`, `siem_webhook_url`, `siem_api_token`, `federation_hmac_secret`, `abac_allowed_start_hour_utc`, `abac_allowed_end_hour_utc`, and `dev_staging_max_quota` in `config/default.yaml`, `config/env.schema`, and `src/infra/config/config.go`.
+  2. Implement `HTTPBreakGlassTicketAdapter` and `HTTPSIEMAlertAdapter` in `role-based-access-control.audit.adapter.go`, wiring SIEM dispatch to both `ELEVATED_PERMIT` events and the `rbac_audit_outbox` relay.
+  3. Load `rbac_roles` + `rbac_role_hierarchy` from PostgreSQL via `PostgresRBACAdapter.LoadRolePermissions` and flatten inherited permissions via `FlattenRoleHierarchyPermissions` (BFS bounded by `MaxRoleHierarchyDepth = 5`).
+  4. Enforce HMAC-SHA256 `VerifyCrossTenantFederationHandshake`, DEV/STAGING quota limits (`ERR_TENANT_QUOTA_EXCEEDED`), and UTC time-of-day guards (`ERR_OUTSIDE_ALLOWED_HOURS`) in `role-based-access-control.rules.go`.
+- **Consequences**: Authorization decisions reflect live DB role hierarchies and external incident approvals without hardcoding secrets or policy data in source code.
+
+---
+
+## ADR-006: Phase 3 Distributed Sidecar PDPs (OPA/Cedar), eBPF Hook Enforcement & Least-Privilege Pruning
+- **Status**: Accepted
+- **Context**: Phase 3 of `business-logic.md` requires local sidecar Policy Decision Points (OPA / Cedar), eBPF syscall/path enforcement, and automated least-privilege analysis with unused permission pruning.
+- **Decision**:
+  1. Add `SidecarPDPPort` in `role-based-access-control.repository.port.go` and `HTTPSidecarPDPAdapter` in `role-based-access-control.sidecar.adapter.go` supporting OPA (`/v1/data/rbac/allow`) and Cedar (`/v1/is_authorized`) with strict HTTP timeouts.
+  2. Implement pure domain rules `EvaluateSidecarPDPFallback`, `EvaluateEBPFHookEnforcement`, `AnalyzeLeastPrivilege`, and `PruneUnusedPermissions` in `role-based-access-control.rules.go`.
+  3. Wire `EvaluateWithSidecarPDP` and `AnalyzeLeastPrivilege` into `RBACService` (`role-based-access-control.service.go`).
+- **Consequences**: Local sidecar PDPs can evaluate requests with deterministic fallback to the core PDP, eBPF hook events are validated against syscall/path policies, and unused permissions can be identified and pruned.
+
