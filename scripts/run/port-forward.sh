@@ -37,6 +37,12 @@ cleanup_existing_forwarders() {
         local target_spec="${FORWARD_TARGETS[$name]}"
         IFS=':' read -r resource namespace local_port remote_port <<< "${target_spec}"
         pkill -f "kubectl port-forward ${resource} -n ${namespace}" 2>/dev/null || true
+        if ss -tlpn 2>/dev/null | grep -q ":${local_port} "; then
+            log_info "Port ${local_port} (${name}) is in use. Stopping blocking process..."
+            fuser -k "${local_port}/tcp" >/dev/null 2>&1 || true
+            lsof -tiTCP:"${local_port}" -sTCP:LISTEN 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+            sleep 0.5
+        fi
     done
 }
 
