@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -248,4 +249,53 @@ func (a *HTTPSIEMAlertAdapter) EmitSecurityAlert(ctx context.Context, event rbac
 		}
 		return nil
 	}, attribute.String("event.id", event.ID), attribute.String("decision", event.Decision))
+}
+
+type HTTPOIDCIntrospectorAdapter struct {
+	endpoint     string
+	clientID     string
+	clientSecret string
+	httpClient   *http.Client
+}
+
+func NewHTTPOIDCIntrospectorAdapter(endpoint string, clientID string, clientSecret string) *HTTPOIDCIntrospectorAdapter {
+	return &HTTPOIDCIntrospectorAdapter{
+		endpoint:     strings.TrimSpace(endpoint),
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		httpClient:   &http.Client{Timeout: 5 * time.Second},
+	}
+}
+
+func (a *HTTPOIDCIntrospectorAdapter) IntrospectToken(ctx context.Context, rawToken string) (bool, error) {
+	return observability.RunTraced(ctx, "http.rbac.oidc_introspect", func(ctx context.Context) (bool, error) {
+		if a.endpoint == "" {
+			return false, errors.NewDownstreamUnavailableError("oidc introspection endpoint is not configured")
+		}
+		form := url.Values{}
+		form.Set("token", rawToken)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.endpoint, strings.NewReader(form.Encode()))
+		if err != nil {
+			return false, fmt.Errorf("failed to build oidc introspect request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if a.clientID != "" {
+			req.SetBasicAuth(a.clientID, a.clientSecret)
+		}
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("oidc introspect request failed: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return false, fmt.Errorf("oidc introspect returned status %d", resp.StatusCode)
+		}
+		var payload struct {
+			Active bool `json:"active"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return false, fmt.Errorf("failed to decode oidc introspect response: %w", err)
+		}
+		return payload.Active, nil
+	})
 }

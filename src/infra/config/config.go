@@ -60,6 +60,10 @@ type RBACConfig struct {
 	SIEMWebhookURL         string `yaml:"siem_webhook_url"`
 	SIEMAPIToken           string `yaml:"siem_api_token"`
 	FederationHMACSecret   string `yaml:"federation_hmac_secret"`
+	TaskLeaseHMACSecret    string `yaml:"task_lease_hmac_secret"`
+	OIDCIntrospectEndpoint string `yaml:"oidc_introspect_endpoint"`
+	OIDCClientID           string `yaml:"oidc_client_id"`
+	OIDCClientSecret       string `yaml:"oidc_client_secret"`
 	ABACAllowedStartHour   int    `yaml:"abac_allowed_start_hour_utc"`
 	ABACAllowedEndHour     int    `yaml:"abac_allowed_end_hour_utc"`
 	DevStagingMaxQuota     int    `yaml:"dev_staging_max_quota"`
@@ -215,6 +219,18 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 	}
 	if fedSecret := os.Getenv("RBAC_FEDERATION_HMAC_SECRET"); fedSecret != "" {
 		cfg.RBAC.FederationHMACSecret = fedSecret
+	}
+	if leaseSecret := os.Getenv("RBAC_TASK_LEASE_HMAC_SECRET"); leaseSecret != "" {
+		cfg.RBAC.TaskLeaseHMACSecret = leaseSecret
+	}
+	if oidcURL := os.Getenv("OIDC_INTROSPECT_ENDPOINT"); oidcURL != "" {
+		cfg.RBAC.OIDCIntrospectEndpoint = oidcURL
+	}
+	if oidcID := os.Getenv("OIDC_CLIENT_ID"); oidcID != "" {
+		cfg.RBAC.OIDCClientID = oidcID
+	}
+	if oidcSecret := os.Getenv("OIDC_CLIENT_SECRET"); oidcSecret != "" {
+		cfg.RBAC.OIDCClientSecret = oidcSecret
 	}
 }
 

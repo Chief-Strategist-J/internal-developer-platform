@@ -112,10 +112,15 @@ func EvaluateAuthorization(req rbacContracts.EvaluationRequest, now time.Time) r
 		}
 	}
 	permitted := false
-	for _, perm := range effectivePermissions {
-		if matchesPermission(perm, req.Resource, req.Action, isGlobalAdmin) {
-			permitted = true
-			break
+	if len(req.Subject.FlattenedPermissions) > 0 {
+		permitted = hasPermissionInHashset(req.Subject.FlattenedPermissions, req.Resource, req.Action, isGlobalAdmin)
+	}
+	if !permitted {
+		for _, perm := range effectivePermissions {
+			if matchesPermission(perm, req.Resource, req.Action, isGlobalAdmin) {
+				permitted = true
+				break
+			}
 		}
 	}
 	if !permitted {
@@ -343,6 +348,34 @@ func FlattenRoleHierarchyPermissions(
 	return flattened
 }
 
+func BuildPermissionHashset(perms []rbacContracts.Permission) map[string]struct{} {
+	set := make(map[string]struct{}, len(perms))
+	for _, p := range perms {
+		key := strings.ToLower(string(p.Resource)) + ":" + strings.ToLower(string(p.Action))
+		set[key] = struct{}{}
+	}
+	return set
+}
+
+func hasPermissionInHashset(set map[string]struct{}, res rbacContracts.Resource, act rbacContracts.Action, allowDestructiveWildcard bool) bool {
+	r := strings.ToLower(string(res))
+	a := strings.ToLower(string(act))
+	if _, ok := set[r+":"+a]; ok {
+		return true
+	}
+	if isDestructiveAction(act) && !allowDestructiveWildcard {
+		return false
+	}
+	if _, ok := set[r+":*"]; ok {
+		return true
+	}
+	if _, ok := set["*:"+a]; ok {
+		return true
+	}
+	_, ok := set["*:*"]
+	return ok
+}
+
 func ValidateJITRequest(req rbacContracts.AccessGrantRequest) error {
 	if req.ID == "" || req.TenantID == "" || req.SubjectID == "" || req.TargetNamespace == "" {
 		return errors.NewValidationError("id, tenantId, subjectId, and targetNamespace are required")
@@ -538,4 +571,97 @@ func EvaluateStreamingSessionHeartbeat(grantExpiresAt time.Time, now time.Time, 
 		SessionDuration: duration,
 		Reason:          "session active",
 	}
+}
+
+func EvaluateSidecarPDPFallback(sidecarResult *rbacContracts.SidecarDecisionResult, req rbacContracts.EvaluationRequest, now time.Time) rbacContracts.EvaluationResult {
+	if sidecarResult != nil {
+		if sidecarResult.Allowed {
+			return rbacContracts.EvaluationResult{
+				Granted: true,
+				Reason:  "permitted by local sidecar PDP (" + string(sidecarResult.Engine) + ")",
+			}
+		}
+		return rbacContracts.EvaluationResult{
+			Granted:       false,
+			Reason:        sidecarResult.Reason,
+			ViolationCode: sidecarResult.ViolationCode,
+		}
+	}
+	return EvaluateAuthorization(req, now)
+}
+
+func EvaluateEBPFHookEnforcement(event rbacContracts.EBPFHookEvent, policy rbacContracts.EBPFHookPolicy) error {
+	if !policy.Enforce {
+		return nil
+	}
+	for _, denied := range policy.DeniedPaths {
+		if denied != "" && strings.HasPrefix(event.TargetPath, denied) {
+			return errors.NewForbiddenError("ebpf hook blocked access to protected path: " + event.TargetPath)
+		}
+	}
+	if len(policy.AllowedSyscalls) > 0 {
+		allowed := false
+		for _, sc := range policy.AllowedSyscalls {
+			if sc == event.Syscall {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return errors.NewForbiddenError("ebpf hook blocked disallowed syscall: " + event.Syscall)
+		}
+	}
+	return nil
+}
+
+func AnalyzeLeastPrivilege(roles map[rbacContracts.RoleName][]rbacContracts.Permission, usage []rbacContracts.PermissionUsageRecord, staleWindow time.Duration, now time.Time) rbacContracts.LeastPrivilegeReport {
+	lastUsedMap := make(map[string]time.Time, len(usage))
+	for _, u := range usage {
+		key := string(u.Role) + ":" + string(u.Resource) + ":" + string(u.Action)
+		if existing, ok := lastUsedMap[key]; !ok || u.LastUsedAt.After(existing) {
+			lastUsedMap[key] = u.LastUsedAt
+		}
+	}
+	findings := make([]rbacContracts.UnusedPermissionFinding, 0)
+	for role, perms := range roles {
+		for _, perm := range perms {
+			key := string(role) + ":" + string(perm.Resource) + ":" + string(perm.Action)
+			lastUsed, seen := lastUsedMap[key]
+			if !seen {
+				findings = append(findings, rbacContracts.UnusedPermissionFinding{
+					Role:       role,
+					Permission: perm,
+					Reason:     "permission has zero recorded usage",
+				})
+				continue
+			}
+			if staleWindow > 0 && now.Sub(lastUsed) > staleWindow {
+				findings = append(findings, rbacContracts.UnusedPermissionFinding{
+					Role:       role,
+					Permission: perm,
+					LastUsedAt: lastUsed,
+					Reason:     "permission unused beyond stale window",
+				})
+			}
+		}
+	}
+	return rbacContracts.LeastPrivilegeReport{
+		EvaluatedAt: now,
+		TotalRoles:  len(roles),
+		Findings:    findings,
+	}
+}
+
+func PruneUnusedPermissions(perms []rbacContracts.Permission, findings []rbacContracts.UnusedPermissionFinding) []rbacContracts.Permission {
+	pruneSet := make(map[string]struct{}, len(findings))
+	for _, f := range findings {
+		pruneSet[string(f.Permission.Resource)+":"+string(f.Permission.Action)] = struct{}{}
+	}
+	kept := make([]rbacContracts.Permission, 0, len(perms))
+	for _, p := range perms {
+		if _, shouldPrune := pruneSet[string(p.Resource)+":"+string(p.Action)]; !shouldPrune {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }

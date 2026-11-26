@@ -49,3 +49,16 @@ type RoleDefinitionRepositoryPort interface {
 	LoadRolePermissions(ctx context.Context) (map[rbacContracts.RoleName][]rbacContracts.Permission, error)
 	GetRoleHierarchyEdges(ctx context.Context) (map[string][]string, error)
 }
+
+type OIDCIntrospectorPort interface {
+	IntrospectToken(ctx context.Context, rawToken string) (bool, error)
+}
+
+type ExclusiveClaimPort interface {
+	ClaimExclusiveRoleBinding(ctx context.Context, tenantID string, subjectID string, role rbacContracts.RoleName) error
+}
+
+type SidecarPDPPort interface {
+	EvaluateSidecar(ctx context.Context, req rbacContracts.SidecarDecisionRequest) (rbacContracts.SidecarDecisionResult, error)
+	HealthCheck(ctx context.Context) error
+}
