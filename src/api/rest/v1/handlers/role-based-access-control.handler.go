@@ -559,3 +559,58 @@ func (h *RBACHandler) AnalyzeLeastPrivilege(w http.ResponseWriter, r *http.Reque
 	h.emitSuccess(w, r, http.StatusOK, report, start)
 	h.completeRequest(ctx, constants.EndpointRBACLeastPrivilege, http.StatusOK, nil)
 }
+
+type ebpfEnforceRequest struct {
+	Event  rbacContracts.EBPFHookEvent  `json:"event"`
+	Policy rbacContracts.EBPFHookPolicy `json:"policy"`
+}
+
+type leastPrivilegePruneResponse struct {
+	PrunedRoles map[rbacContracts.RoleName][]rbacContracts.Permission `json:"prunedRoles"`
+	Report      rbacContracts.LeastPrivilegeReport                    `json:"report"`
+}
+
+func (h *RBACHandler) PruneLeastPrivilege(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UTC()
+	ctx, span := observability.GetTracer().StartSpan(r.Context(), "RBACHandler.PruneLeastPrivilege")
+	defer span.End()
+
+	var req leastPrivilegeAnalyzeRequest
+	if err := h.decodeClosedJSON(r, &req); err != nil {
+		h.emitFailureWithStatus(w, r, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start)
+		h.completeRequest(ctx, constants.EndpointRBACLeastPrivPrune, http.StatusBadRequest, err)
+		return
+	}
+
+	staleWindow := time.Duration(req.StaleHours) * time.Hour
+	if staleWindow <= 0 {
+		staleWindow = 24 * time.Hour
+	}
+	pruned, report := h.rbacSvc.PruneUnusedPermissions(ctx, req.Roles, req.Usage, staleWindow)
+	h.emitSuccess(w, r, http.StatusOK, leastPrivilegePruneResponse{
+		PrunedRoles: pruned,
+		Report:      report,
+	}, start)
+	h.completeRequest(ctx, constants.EndpointRBACLeastPrivPrune, http.StatusOK, nil)
+}
+
+func (h *RBACHandler) EnforceEBPFHook(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UTC()
+	ctx, span := observability.GetTracer().StartSpan(r.Context(), "RBACHandler.EnforceEBPFHook")
+	defer span.End()
+
+	var req ebpfEnforceRequest
+	if err := h.decodeClosedJSON(r, &req); err != nil {
+		h.emitFailureWithStatus(w, r, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start)
+		h.completeRequest(ctx, constants.EndpointRBACEBPFEnforce, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := h.rbacSvc.EnforceEBPFHook(ctx, req.Event, req.Policy); err != nil {
+		h.emitFailure(w, r, err, start)
+		h.completeRequest(ctx, constants.EndpointRBACEBPFEnforce, http.StatusForbidden, err)
+		return
+	}
+	h.emitSuccess(w, r, http.StatusOK, map[string]bool{"allowed": true}, start)
+	h.completeRequest(ctx, constants.EndpointRBACEBPFEnforce, http.StatusOK, nil)
+}

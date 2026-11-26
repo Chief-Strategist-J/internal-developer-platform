@@ -158,6 +158,41 @@ paths:
     post:
       summary: Evaluate authorization via local sidecar PDP (OPA/Cedar) with core fallback
       operationId: evaluateSidecarPDP
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subject, targetTenantId, resource, action]
+              properties:
+                subject:
+                  type: object
+                targetTenantId:
+                  type: string
+                resource:
+                  type: string
+                action:
+                  type: string
+                targetEnvironment:
+                  type: string
       responses:
         '200':
           description: Authorized
@@ -167,9 +202,120 @@ paths:
     post:
       summary: Analyze role permissions for unused or stale grants
       operationId: analyzeLeastPrivilege
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [roles, usage]
+              properties:
+                roles:
+                  type: object
+                usage:
+                  type: array
+                  items:
+                    type: object
+                staleHours:
+                  type: integer
       responses:
         '200':
           description: Least-privilege analysis report
+  /api/v1/rbac/least-privilege/prune:
+    post:
+      summary: Prune unused or stale permissions from role definitions
+      operationId: pruneLeastPrivilege
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [roles, usage]
+              properties:
+                roles:
+                  type: object
+                usage:
+                  type: array
+                  items:
+                    type: object
+                staleHours:
+                  type: integer
+      responses:
+        '200':
+          description: Pruned roles and least-privilege report
+  /api/v1/rbac/ebpf/enforce:
+    post:
+      summary: Enforce eBPF syscall and path policy against workload hook event
+      operationId: enforceEBPFHook
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [event, policy]
+              properties:
+                event:
+                  type: object
+                policy:
+                  type: object
+      responses:
+        '200':
+          description: Hook event permitted
+        '403':
+          description: Hook event blocked by eBPF policy
   /api/v1/rbac/authorize:
     post:
       summary: Authorize RBAC and ABAC evaluation request with decision caching and audit outbox
