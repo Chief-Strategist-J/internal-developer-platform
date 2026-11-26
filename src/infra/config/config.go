@@ -67,6 +67,9 @@ type RBACConfig struct {
 	ABACAllowedStartHour   int    `yaml:"abac_allowed_start_hour_utc"`
 	ABACAllowedEndHour     int    `yaml:"abac_allowed_end_hour_utc"`
 	DevStagingMaxQuota     int    `yaml:"dev_staging_max_quota"`
+	SidecarPDPEngine       string `yaml:"sidecar_pdp_engine"`
+	SidecarPDPEndpoint     string `yaml:"sidecar_pdp_endpoint"`
+	SidecarPDPTimeoutMs    int    `yaml:"sidecar_pdp_timeout_ms"`
 }
 
 type FeatureFlags struct {
