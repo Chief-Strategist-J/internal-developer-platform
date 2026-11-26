@@ -193,4 +193,30 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		rbacContracts.ActionRead,
 		leastPrivilegeHandler,
 	))
+
+	leastPrivPruneHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.PruneLeastPrivilege(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACLeastPrivPrune, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionWrite,
+		leastPrivPruneHandler,
+	))
+
+	ebpfEnforceHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.EnforceEBPFHook(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACEBPFEnforce, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionWrite,
+		ebpfEnforceHandler,
+	))
 }

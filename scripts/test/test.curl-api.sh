@@ -1095,6 +1095,74 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 46] POST /api/v1/rbac/sidecar/evaluate -> Sidecar PDP Fallback"
+echo "--------------------------------------------------------------------------------"
+RBAC_SIDECAR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/sidecar/evaluate" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d "{\"subject\":{\"id\":\"usr_admin\",\"tenantId\":\"fintech-team\",\"roles\":[\"PlatformAdmin\"]},\"targetTenantId\":\"fintech-team\",\"resource\":\"auth\",\"action\":\"read\",\"targetEnvironment\":\"development\"}")
+echo "${RBAC_SIDECAR_RESP}"
+if echo "${RBAC_SIDECAR_RESP}" | grep -q "200 OK" && echo "${RBAC_SIDECAR_RESP}" | grep -q "\"granted\":true"; then
+    echo -e "\033[1;32m[PASS]\033[0m Sidecar PDP evaluate returned granted=true"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK and granted=true for /api/v1/rbac/sidecar/evaluate"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 47] POST /api/v1/rbac/least-privilege/analyze -> Least Privilege"
+echo "--------------------------------------------------------------------------------"
+RBAC_LP_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/least-privilege/analyze" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d "{\"roles\":{\"Developer\":[{\"resource\":\"deployments\",\"action\":\"read\"},{\"resource\":\"secrets\",\"action\":\"delete\"}]},\"usage\":[{\"role\":\"Developer\",\"resource\":\"deployments\",\"action\":\"read\",\"lastUsedAt\":\"2026-11-26T00:00:00Z\",\"hitCount\":5}],\"staleHours\":24}")
+echo "${RBAC_LP_RESP}"
+if echo "${RBAC_LP_RESP}" | grep -q "200 OK" && echo "${RBAC_LP_RESP}" | grep -q "\"findings\""; then
+    echo -e "\033[1;32m[PASS]\033[0m Least-privilege analyze returned findings"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK and findings for /api/v1/rbac/least-privilege/analyze"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 48] POST /api/v1/rbac/least-privilege/prune -> Prune Unused Perms"
+echo "--------------------------------------------------------------------------------"
+RBAC_PRUNE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/least-privilege/prune" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d "{\"roles\":{\"Developer\":[{\"resource\":\"deployments\",\"action\":\"read\"},{\"resource\":\"secrets\",\"action\":\"delete\"}]},\"usage\":[{\"role\":\"Developer\",\"resource\":\"deployments\",\"action\":\"read\",\"lastUsedAt\":\"2026-11-26T00:00:00Z\",\"hitCount\":5}],\"staleHours\":24}")
+echo "${RBAC_PRUNE_RESP}"
+if echo "${RBAC_PRUNE_RESP}" | grep -q "200 OK" && echo "${RBAC_PRUNE_RESP}" | grep -q "\"prunedRoles\""; then
+    echo -e "\033[1;32m[PASS]\033[0m Least-privilege prune returned prunedRoles"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK and prunedRoles for /api/v1/rbac/least-privilege/prune"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 49] POST /api/v1/rbac/ebpf/enforce -> eBPF Hook Enforcement"
+echo "--------------------------------------------------------------------------------"
+RBAC_EBPF_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/ebpf/enforce" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d "{\"event\":{\"workloadId\":\"wk-1\",\"namespace\":\"fintech-team\",\"syscall\":\"read\",\"targetPath\":\"/app/config.yaml\",\"uid\":1000},\"policy\":{\"allowedSyscalls\":[\"read\"],\"deniedPaths\":[\"/etc/shadow\"],\"enforce\":true}}")
+echo "${RBAC_EBPF_RESP}"
+if echo "${RBAC_EBPF_RESP}" | grep -q "200 OK" && echo "${RBAC_EBPF_RESP}" | grep -q "\"allowed\":true"; then
+    echo -e "\033[1;32m[PASS]\033[0m eBPF hook enforcement permitted allowed syscall"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK and allowed=true for /api/v1/rbac/ebpf/enforce"
+    exit 1
+fi
+
 
 
 

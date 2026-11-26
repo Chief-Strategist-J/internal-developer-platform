@@ -10,6 +10,7 @@ import (
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 	"internal-developer-platform/src/features/role-based-access-control/domain/rules"
 	"internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
+	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
 )
 
 func TestEvaluateSidecarPDPFallback(t *testing.T) {
@@ -132,5 +133,54 @@ func TestHTTPSidecarPDPAdapter(t *testing.T) {
 	})
 	if err != nil || !res.Allowed {
 		t.Fatalf("expected sidecar allow, got res=%+v err=%v", res, err)
+	}
+}
+
+type stubRevocationStore struct {
+	revoked bool
+}
+
+func (s stubRevocationStore) IsRevoked(_ context.Context, _ string, _ string) (bool, error) {
+	return s.revoked, nil
+}
+func (s stubRevocationStore) RevokeSubject(_ context.Context, _ string) error { return nil }
+func (s stubRevocationStore) RevokeJTI(_ context.Context, _ string) error     { return nil }
+
+func TestRBACServicePhase3Methods(t *testing.T) {
+	svc := rbacService.NewRBACServiceWithDeps(rbacService.RBACServiceDeps{
+		RevocationStore: stubRevocationStore{revoked: true},
+	})
+	res, err := svc.EvaluateWithSidecarPDP(context.Background(), rbacContracts.EvaluationRequest{
+		Subject:        rbacContracts.Subject{ID: "u-1", TenantID: "t-1"},
+		TargetTenantID: "t-1",
+		Resource:       "deployments",
+		Action:         rbacContracts.ActionRead,
+	})
+	if err != nil || res.Granted || res.ViolationCode != "ERR_SUBJECT_REVOKED" {
+		t.Fatalf("expected revoked subject denial, got res=%+v err=%v", res, err)
+	}
+
+	if err := svc.EnforceEBPFHook(context.Background(), rbacContracts.EBPFHookEvent{
+		Syscall:    "ptrace",
+		TargetPath: "/app/bin",
+	}, rbacContracts.EBPFHookPolicy{
+		AllowedSyscalls: []string{"read"},
+		Enforce:         true,
+	}); err == nil {
+		t.Fatalf("expected EnforceEBPFHook to deny disallowed syscall")
+	}
+
+	roles := map[rbacContracts.RoleName][]rbacContracts.Permission{
+		"dev": {
+			{Resource: "deployments", Action: rbacContracts.ActionRead},
+			{Resource: "secrets", Action: rbacContracts.ActionDelete},
+		},
+	}
+	usage := []rbacContracts.PermissionUsageRecord{
+		{Role: "dev", Resource: "deployments", Action: rbacContracts.ActionRead, LastUsedAt: time.Now().UTC(), HitCount: 3},
+	}
+	pruned, report := svc.PruneUnusedPermissions(context.Background(), roles, usage, 24*time.Hour)
+	if len(report.Findings) != 1 || len(pruned["dev"]) != 1 || pruned["dev"][0].Resource != "deployments" {
+		t.Fatalf("expected pruned dev role to have 1 permission, got pruned=%+v report=%+v", pruned, report)
 	}
 }
