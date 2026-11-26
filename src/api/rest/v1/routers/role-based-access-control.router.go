@@ -167,4 +167,30 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		rbacContracts.ActionWrite,
 		validateHierarchyHandler,
 	))
+
+	sidecarEvaluateHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.EvaluateSidecarPDP(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACSidecarEvaluate, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionRead,
+		sidecarEvaluateHandler,
+	))
+
+	leastPrivilegeHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.AnalyzeLeastPrivilege(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACLeastPrivilege, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionRead,
+		leastPrivilegeHandler,
+	))
 }

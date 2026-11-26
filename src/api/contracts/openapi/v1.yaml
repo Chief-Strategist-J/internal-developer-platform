@@ -154,6 +154,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/rbac/sidecar/evaluate:
+    post:
+      summary: Evaluate authorization via local sidecar PDP (OPA/Cedar) with core fallback
+      operationId: evaluateSidecarPDP
+      responses:
+        '200':
+          description: Authorized
+        '403':
+          description: Access Denied
+  /api/v1/rbac/least-privilege/analyze:
+    post:
+      summary: Analyze role permissions for unused or stale grants
+      operationId: analyzeLeastPrivilege
+      responses:
+        '200':
+          description: Least-privilege analysis report
   /api/v1/rbac/authorize:
     post:
       summary: Authorize RBAC and ABAC evaluation request with decision caching and audit outbox
