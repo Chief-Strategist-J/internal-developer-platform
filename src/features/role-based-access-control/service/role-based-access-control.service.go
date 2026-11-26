@@ -261,6 +261,31 @@ func (s *RBACService) SetSidecarPDP(pdp ports.SidecarPDPPort) {
 
 func (s *RBACService) EvaluateWithSidecarPDP(ctx context.Context, req rbacContracts.EvaluationRequest) (rbacContracts.EvaluationResult, error) {
 	now := time.Now().UTC()
+	if s.revocationStore != nil {
+		revoked, err := s.revocationStore.IsRevoked(ctx, req.Subject.ID, req.Subject.JTI)
+		if err != nil {
+			return rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "revocation store unavailable; failing closed",
+				ViolationCode: "ERR_REVOCATION_CHECK_FAILED",
+			}, nil
+		}
+		if revoked {
+			denied := rbacContracts.EvaluationResult{
+				Granted:       false,
+				Reason:        "subject or token revoked",
+				ViolationCode: "ERR_SUBJECT_REVOKED",
+			}
+			s.recordSidecarAudit(ctx, req, denied, now)
+			return denied, nil
+		}
+	}
+	cacheKey := buildPermitCacheKey(req)
+	if !shouldBypassPermitCache(req) && s.permitCache != nil {
+		if cached, ok := s.permitCache.get(cacheKey, now); ok {
+			return cached, nil
+		}
+	}
 	var sidecarResult *rbacContracts.SidecarDecisionResult
 	if s.sidecarPDP != nil {
 		res, err := s.sidecarPDP.EvaluateSidecar(ctx, rbacContracts.SidecarDecisionRequest{
@@ -274,11 +299,72 @@ func (s *RBACService) EvaluateWithSidecarPDP(ctx context.Context, req rbacContra
 			sidecarResult = &res
 		}
 	}
-	return rules.EvaluateSidecarPDPFallback(sidecarResult, req, now), nil
+	result := rules.EvaluateSidecarPDPFallback(sidecarResult, req, now)
+	if result.Granted {
+		if !shouldBypassPermitCache(req) && s.permitCache != nil {
+			s.permitCache.set(cacheKey, req.Subject.ID, result, now)
+		}
+	} else {
+		s.recordSidecarAudit(ctx, req, result, now)
+	}
+	return result, nil
+}
+
+func (s *RBACService) recordSidecarAudit(ctx context.Context, req rbacContracts.EvaluationRequest, res rbacContracts.EvaluationResult, now time.Time) {
+	if s.auditOutbox == nil {
+		return
+	}
+	decisionLabel := "DENY"
+	if res.Granted {
+		decisionLabel = "ALLOW"
+	}
+	_ = s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
+		SubjectID:     req.Subject.ID,
+		TenantID:      req.TargetTenantID,
+		Resource:      req.Resource,
+		Action:        req.Action,
+		Decision:      decisionLabel,
+		Reason:        res.Reason,
+		ViolationCode: res.ViolationCode,
+		OccurredAt:    now,
+	})
 }
 
 func (s *RBACService) AnalyzeLeastPrivilege(roles map[rbacContracts.RoleName][]rbacContracts.Permission, usage []rbacContracts.PermissionUsageRecord, staleWindow time.Duration) rbacContracts.LeastPrivilegeReport {
 	return rules.AnalyzeLeastPrivilege(roles, usage, staleWindow, time.Now().UTC())
+}
+
+func (s *RBACService) PruneUnusedPermissions(ctx context.Context, roles map[rbacContracts.RoleName][]rbacContracts.Permission, usage []rbacContracts.PermissionUsageRecord, staleWindow time.Duration) (map[rbacContracts.RoleName][]rbacContracts.Permission, rbacContracts.LeastPrivilegeReport) {
+	now := time.Now().UTC()
+	report := rules.AnalyzeLeastPrivilege(roles, usage, staleWindow, now)
+	pruned := make(map[rbacContracts.RoleName][]rbacContracts.Permission, len(roles))
+	for role, perms := range roles {
+		roleFindings := make([]rbacContracts.UnusedPermissionFinding, 0)
+		for _, f := range report.Findings {
+			if f.Role == role {
+				roleFindings = append(roleFindings, f)
+			}
+		}
+		pruned[role] = rules.PruneUnusedPermissions(perms, roleFindings)
+	}
+	return pruned, report
+}
+
+func (s *RBACService) EnforceEBPFHook(ctx context.Context, event rbacContracts.EBPFHookEvent, policy rbacContracts.EBPFHookPolicy) error {
+	err := rules.EvaluateEBPFHookEnforcement(event, policy)
+	if err != nil && s.auditOutbox != nil {
+		_ = s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
+			SubjectID:     event.WorkloadID,
+			TenantID:      event.Namespace,
+			Resource:      rbacContracts.Resource(event.TargetPath),
+			Action:        rbacContracts.Action(event.Syscall),
+			Decision:      "DENY",
+			Reason:        err.Error(),
+			ViolationCode: "ERR_EBPF_HOOK_DENIED",
+			OccurredAt:    time.Now().UTC(),
+		})
+	}
+	return err
 }
 
 func (s *RBACService) AuthenticateToken(ctx context.Context, rawToken string) (*rbacContracts.Subject, error) {

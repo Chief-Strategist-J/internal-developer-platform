@@ -81,6 +81,8 @@ const (
 	EndpointRBACValidateHierarchy = "/api/v1/rbac/roles/validate-hierarchy"
 	EndpointRBACSidecarEvaluate   = "/api/v1/rbac/sidecar/evaluate"
 	EndpointRBACLeastPrivilege    = "/api/v1/rbac/least-privilege/analyze"
+	EndpointRBACLeastPrivPrune    = "/api/v1/rbac/least-privilege/prune"
+	EndpointRBACEBPFEnforce       = "/api/v1/rbac/ebpf/enforce"
 	EndpointClusters              = "/api/v1/clusters"
 	EndpointClustersPrefix        = "/api/v1/clusters/"
 	EndpointClustersPosture       = "/api/v1/clusters/posture"
