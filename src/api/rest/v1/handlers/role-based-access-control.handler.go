@@ -355,6 +355,34 @@ func (h *RBACHandler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *RBACHandler) ClaimExclusiveRoleBinding(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".claim_exclusive_role_binding", func(ctx context.Context) error {
+		start := time.Now()
+		var req rbacContracts.BindUserRoleRequest
+		if err := h.decodeClosedJSON(r, &req); err != nil {
+			h.emitFailure(w, r, sharedErrors.NewValidationError("malformed request payload"), start)
+			h.completeRequest(ctx, r.URL.Path, http.StatusBadRequest, err)
+			return err
+		}
+		if req.TenantID == "" {
+			req.TenantID = r.Header.Get(constants.HeaderXTenantID)
+		}
+		if err := rbacContracts.ValidateBindUserRoleInput(req); err != nil {
+			h.emitFailure(w, r, err, start)
+			h.completeRequest(ctx, r.URL.Path, http.StatusBadRequest, err)
+			return err
+		}
+		if err := h.rbacSvc.ClaimExclusiveRoleBinding(ctx, req.TenantID, req.SubjectID, req.RoleName); err != nil {
+			h.emitFailure(w, r, err, start)
+			h.completeRequest(ctx, r.URL.Path, http.StatusConflict, err)
+			return err
+		}
+		h.emitSuccess(w, r, http.StatusOK, map[string]string{"status": "exclusive role binding claimed"}, start)
+		h.completeRequest(ctx, r.URL.Path, http.StatusOK, nil)
+		return nil
+	})
+}
+
 func (h *RBACHandler) decodeClosedJSON(r *http.Request, dst interface{}) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()

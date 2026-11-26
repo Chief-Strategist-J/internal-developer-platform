@@ -1064,7 +1064,7 @@ RBAC_AUTH_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/
   -H "Content-Type: application/json" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{
-    \"tenantId\": \"fintech-team\",
+    \"targetTenantId\": \"fintech-team\",
     \"resource\": \"services\",
     \"action\": \"read\"
   }")

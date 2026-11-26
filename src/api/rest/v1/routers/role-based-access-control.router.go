@@ -116,6 +116,19 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		bindingHandler,
 	))
 
+	claimBindingHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.ClaimExclusiveRoleBinding(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointAuthBindingsClaim, r.rbacMiddle.RequirePermission(
+		rbacContracts.ResourceAuth,
+		rbacContracts.ActionWrite,
+		claimBindingHandler,
+	))
+
 	bindingSubjectHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodGet {
 			r.handler.GetUserRoles(w, req)

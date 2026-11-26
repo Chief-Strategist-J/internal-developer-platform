@@ -75,6 +75,7 @@ const (
 	EndpointRegimes               = "/api/v1/regimes"
 	EndpointRegimesActive         = "/api/v1/regimes/active"
 	EndpointAuthBindings          = "/api/v1/auth/bindings"
+	EndpointAuthBindingsClaim     = "/api/v1/auth/bindings/claim"
 	EndpointAuthBindingsPrefix    = "/api/v1/auth/bindings/"
 	EndpointRBACAuthorize         = "/api/v1/rbac/authorize"
 	EndpointRBACValidateHierarchy = "/api/v1/rbac/roles/validate-hierarchy"
@@ -145,7 +146,10 @@ const (
 	BearerPrefix                  = "Bearer "
 	DefaultJWTIssuer              = "internal-developer-platform"
 	RBACInvalidationChannel       = "rbac:cache:invalidate"
+	RBACInvalidationAckChannel    = "rbac:cache:invalidate:ack"
 	RBACDenyFailoverLogName       = "rbac-deny-failover.log"
+	HeaderXImpersonateUser        = "x-impersonate-user"
+	HeaderXDelegationTenant       = "x-delegation-tenant"
 	ErrMissingAuthHeaderJSON      = `{"error":"missing or invalid authorization header"}`
 	ErrRevocationStoreUnavailable = "revocation store unavailable: fail closed"
 )
