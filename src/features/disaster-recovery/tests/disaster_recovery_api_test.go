@@ -2,14 +2,15 @@
 //
 // Architectural Blueprint:
 // - Step 14 Tests: Tests complete HTTP REST control plane lifecycle:
-//     * Plans: POST/GET /api/v1/dr/plans, :checkReadiness
-//     * Incidents: :declare, :approve
-//     * Failovers: POST /api/v1/dr/failovers, :approve, :abort
-//     * Fencing: :fence, /epoch
-//     * Failbacks: POST /api/v1/dr/failbacks
-//     * Drills: POST /api/v1/dr/drills
-//     * Restores: POST /api/v1/dr/restores
-//     * Breakglass: POST /api/v1/dr/breakglass:activate
+//   - Plans: POST/GET /api/v1/dr/plans, :checkReadiness
+//   - Incidents: :declare, :approve
+//   - Failovers: POST /api/v1/dr/failovers, :approve, :abort
+//   - Fencing: :fence, /epoch
+//   - Failbacks: POST /api/v1/dr/failbacks
+//   - Drills: POST /api/v1/dr/drills
+//   - Restores: POST /api/v1/dr/restores
+//   - Breakglass: POST /api/v1/dr/breakglass:activate
+//
 // - Zero inline comments inside function bodies.
 package tests
 
@@ -20,11 +21,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/routers"
-	"internal-developer-platform/src/features/disaster-recovery/contracts"
-	"internal-developer-platform/src/features/disaster-recovery/infrastructure/adapters"
-	"internal-developer-platform/src/features/disaster-recovery/service"
+	restv1 "internal-developer-platform/src/features/disaster-recovery/internal/api/rest/v1"
+	"internal-developer-platform/src/features/disaster-recovery/internal/contracts"
+	"internal-developer-platform/src/features/disaster-recovery/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/disaster-recovery/internal/service"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/types"
 )
@@ -33,8 +33,8 @@ func TestDisasterRecoveryAPIRoutes(t *testing.T) {
 	store := adapters.NewMemoryDRStoreAdapter()
 	cloud := adapters.NewCloudProviderDRAdapter()
 	svc := service.NewDisasterRecoveryService(store, cloud, cloud, cloud, cloud, cloud)
-	h := handlers.NewDisasterRecoveryHandler(svc)
-	router := routers.NewDisasterRecoveryRouter(h, nil)
+	h := restv1.NewDisasterRecoveryHandler(svc)
+	router := restv1.NewDisasterRecoveryRouter(h, nil)
 
 	mux := http.NewServeMux()
 	router.RegisterRoutes(mux)

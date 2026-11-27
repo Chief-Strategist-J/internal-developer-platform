@@ -1,9 +1,9 @@
 // Package tests provides unit and integration tests for Disaster Recovery domain logic and workflows.
 //
 // Architectural Blueprint:
-// - Step 14 Tests: Validates B-1, B-2 floors, state machine transitions, two-person declaration,
-//   fencing epoch increments, and end-to-end failover execution.
-// - 100% comment-free function bodies.
+//   - Step 14 Tests: Validates B-1, B-2 floors, state machine transitions, two-person declaration,
+//     fencing epoch increments, and end-to-end failover execution.
+//   - 100% comment-free function bodies.
 package tests
 
 import (
@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"internal-developer-platform/src/features/disaster-recovery/contracts"
-	"internal-developer-platform/src/features/disaster-recovery/domain/machines"
-	"internal-developer-platform/src/features/disaster-recovery/domain/rules"
-	"internal-developer-platform/src/features/disaster-recovery/infrastructure/adapters"
-	"internal-developer-platform/src/features/disaster-recovery/service"
+	"internal-developer-platform/src/features/disaster-recovery/internal/contracts"
+	"internal-developer-platform/src/features/disaster-recovery/internal/domain/machines"
+	"internal-developer-platform/src/features/disaster-recovery/internal/domain/rules"
+	"internal-developer-platform/src/features/disaster-recovery/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/disaster-recovery/internal/service"
 )
 
 func TestDRPlanValidationAndFloors(t *testing.T) {
@@ -251,6 +251,7 @@ func TestEndToEndDisasterRecoveryWorkflow(t *testing.T) {
 
 	probeCtx, cancelProbe := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancelProbe()
-	_ = svc.RunReadinessProbeWorker(probeCtx, 5*time.Millisecond)
+	if err := svc.ProbeAllPlansOnce(probeCtx); err != nil {
+		t.Fatalf("ProbeAllPlansOnce failed: %v", err)
+	}
 }
-
