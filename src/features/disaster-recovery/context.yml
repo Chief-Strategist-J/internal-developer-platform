@@ -1,139 +1,48 @@
 feature: disaster-recovery
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
 
-entity: dr_plans
-owner: platform-core
-fields:
-  - name: id
-    type: uuid
-    null: no
-    default: gen_random_uuid()
-    constraint: PK(tenant_id, id), immutable
-  - name: public_id
-    type: text
-    null: no
-    constraint: UNIQUE, immutable, format 'drp_' + 26 chars
-  - name: tenant_id
-    type: uuid
-    null: no
-    constraint: PK(tenant_id, id), immutable
-  - name: source
-    type: text
-    null: no
-    constraint: CHECK (source = btrim(source) AND source <> '')
-  - name: external_id
-    type: text
-    null: no
-    normalize: trim
-    constraint: UNIQUE(tenant_id, source, external_id), length 1..128
-  - name: correlation_id
-    type: uuid
-    null: no
-    constraint: immutable, no FK
-  - name: plan_name
-    type: text
-    null: no
-    constraint: CHECK (plan_name = btrim(plan_name) AND plan_name <> '')
-  - name: incident_tier
-    type: text
-    null: no
-    default: 'TIER_0'
-    constraint: CHECK (incident_tier IN ('TIER_0', 'TIER_1', 'TIER_2', 'TIER_3'))
-  - name: primary_region
-    type: text
-    null: no
-    default: 'us-central1'
-    constraint: CHECK (primary_region = btrim(primary_region) AND primary_region <> '')
-  - name: dr_region
-    type: text
-    null: no
-    default: 'us-east4'
-    constraint: CHECK (dr_region = btrim(dr_region) AND dr_region <> '')
-  - name: topology
-    type: text
-    null: no
-    default: 'WARM_STANDBY'
-    constraint: CHECK (topology IN ('ACTIVE_ACTIVE', 'WARM_STANDBY', 'PILOT_LIGHT', 'RESTORE_TO_NEW'))
-  - name: target_rto_seconds
-    type: integer
-    null: no
-    default: 300
-    constraint: CHECK (target_rto_seconds >= 0)
-  - name: target_rpo_seconds
-    type: integer
-    null: no
-    default: 0
-    constraint: CHECK (target_rpo_seconds >= 0)
-  - name: status
-    type: text
-    null: no
-    default: 'NOT_READY'
-    constraint: CHECK (status IN ('NOT_READY', 'READY', 'DEGRADED', 'DECLARED', 'FENCING', 'PROMOTING', 'SCALING', 'VALIDATING', 'ROUTING', 'FAILED_OVER', 'RECONCILING', 'FAILBACK_READY', 'FAILING_BACK', 'NORMAL', 'ABORTED'))
-  - name: data_store_type
-    type: text
-    null: no
-    default: 'CLOUD_SQL'
-    constraint: CHECK (data_store_type IN ('CLOUD_SQL', 'ALLOYDB', 'SPANNER', 'SELF_MANAGED'))
-  - name: secret_sync_source
-    type: text
-    null: no
-    default: 'GOOGLE_SECRET_MANAGER'
-    constraint: CHECK (secret_sync_source IN ('GOOGLE_SECRET_MANAGER', 'VAULT_REPLICATED'))
-  - name: primary_cluster_id
-    type: text
-    null: no
-  - name: dr_cluster_id
-    type: text
-    null: no
-  - name: last_drill_at
-    type: timestamptz
-    null: yes
-  - name: last_drill_result
-    type: text
-    null: yes
-  - name: idempotency_key
-    type: text
-    null: no
-    constraint: UNIQUE(tenant_id, idempotency_key), immutable
-  - name: version
-    type: bigint
-    null: no
-    default: 1
-  - name: created_at
-    type: timestamptz
-    null: no
-    default: now()
-  - name: updated_at
-    type: timestamptz
-    null: no
-    default: now()
-invariants:
-  - tenant_id, source, and external_id uniquely identify an upstream system record
-  - tenant_id and idempotency_key uniquely identify a plan creation request
-  - immutability enforced on id, public_id, tenant_id, and correlation_id
-  - primary_region and dr_region must be distinct (B-1 residency check)
-  - target_rto_seconds and target_rpo_seconds cannot violate B-2 floors per tier
-  - version increments on every successful mutation
+provides: []
+exposes: []
+
+asks:
+  - capability: authz
+    reason: "Route authorization for DR plans, failovers, fencing, drills, and breakglass"
+    fallback: fail-closed
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+persistence:
+  schema: disaster_recovery
+  role: svc_disaster_recovery
+  tenant_scoped: true
+  data_classes:
+    tenant_id: internal
+    plan_name: internal
+  erasure: none
 
 ports:
-  outbound:
-    - name: DRPlanStorePort
-      role: persistence
-      type: abstract_interface
-      methods: [SavePlan, GetPlanByID, GetPlanByIdempotencyKey, ListPlans, UpdatePlan, SaveIncident, GetIncidentByID, SaveFailoverOp, GetFailoverOpByID, UpdateFailoverOp, SaveFencingEpoch, GetFencingEpoch, IncrementFencingEpoch, SaveDrillRun, GetDrillRunByID]
-    - name: DatabaseFailoverPort
-      role: data_storage_failover
-      type: abstract_interface
-      methods: [GetReplicationLag, InitiateSwitchover, InitiateReplicaFailover, FenceOldPrimary]
-    - name: TrafficRoutingPort
-      role: traffic_management
-      type: abstract_interface
-      methods: [GetRoutingPolicy, SwitchTrafficToDR, LockRoutingPolicy, FailbackTrafficToPrimary]
-    - name: ClusterFailoverPort
-      role: compute_cluster_orchestration
-      type: abstract_interface
-      methods: [VerifyClusterReadiness, ScaleWorkloads, ExecuteRestorePlan]
-    - name: SecretReplicationPort
-      role: secret_management
-      type: abstract_interface
-      methods: [VerifySecretParity, SyncSecretsToDR]
+  - name: repository
+    adapters: [postgres, memory]
+  - name: cloud-dr
+    adapters: [cloud, gcp]
+
+lifecycles:
+  - name: readiness-prober
+    roles: [worker]
+    schedule: "*/1 * * * *"
+    lease: false
+
+ingress:
+  rest: contracts/openapi/disaster-recovery/v1/openapi.yaml
+
+tiers: [rules, machine, workflow]
+
+deviations: []
+waivers: []
