@@ -50,13 +50,13 @@ type Dependencies struct {
 }
 
 type ServiceSpec struct {
-	Identity            func() Identity
-	Needs               func() InfrastructureNeeds
-	DependsOn           func() []DownstreamDependency
-	Contracts           func() ServiceContracts
-	BuildServices       func(deps Dependencies) (interface{}, error)
-	RegisterApiRoutes        func(mux *http.ServeMux, services interface{})
-	RegisterAdminRoutes      func(mux *http.ServeMux, services interface{})
-	StartBackgroundWorkers   func(ctx context.Context, services interface{})
-	ExecuteCommand           func(ctx context.Context, command string, args []string, services interface{}) (int, bool)
+	Identity               func() Identity
+	Needs                  func() InfrastructureNeeds
+	DependsOn              func() []DownstreamDependency
+	Contracts              func() ServiceContracts
+	BuildServices          func(deps Dependencies) (interface{}, error)
+	RegisterApiRoutes      func(mux *http.ServeMux, services interface{})
+	RegisterAdminRoutes    func(mux *http.ServeMux, services interface{})
+	StartBackgroundWorkers func(ctx context.Context, services interface{})
+	ExecuteCommand         func(ctx context.Context, command string, args []string, services interface{}) (int, bool)
 }

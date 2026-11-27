@@ -3,7 +3,6 @@ package observability
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -24,10 +23,13 @@ type Tracer struct {
 
 var defaultTracer *Tracer
 
-func InitTracer(serviceName string) (*sdktrace.TracerProvider, func(context.Context) error, error) {
+func InitTracer(serviceName string, otlpEndpoint ...string) (*sdktrace.TracerProvider, func(context.Context) error, error) {
 	ctx := context.Background()
 
-	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	endpoint := ""
+	if len(otlpEndpoint) > 0 {
+		endpoint = otlpEndpoint[0]
+	}
 	if endpoint == "" {
 		endpoint = "127.0.0.1:4318"
 	}

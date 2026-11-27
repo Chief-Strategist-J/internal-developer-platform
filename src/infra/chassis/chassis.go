@@ -134,7 +134,7 @@ func configure(bootCtx *bootContext, spec ServiceSpec, logger *observability.Log
 
 func compose(ctx context.Context, cfg *config.AppConfig, spec ServiceSpec, logger *observability.Logger) (*composedApp, int) {
 	identity := spec.Identity()
-	_, tpShutdown, err := observability.InitTracer(identity.Name)
+	_, tpShutdown, err := observability.InitTracer(identity.Name, cfg.Observability.OTLPEndpoint)
 	if err != nil {
 		logger.Error(ctx, "failed to initialize tracer provider", observability.String("error", err.Error()))
 		return nil, ExitDependency

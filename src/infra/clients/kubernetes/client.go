@@ -2,7 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,10 +33,6 @@ func NewKubernetesClient(clientset kubernetes.Interface, config resilience.Resil
 func NewKubernetesClientFromConfig(kubeconfigPath string, masterURL string, config resilience.ResilienceConfig) (*KubernetesClient, error) {
 	var restConfig *rest.Config
 	var err error
-
-	if envKube := os.Getenv("KUBECONFIG"); envKube != "" && kubeconfigPath == "" {
-		kubeconfigPath = envKube
-	}
 
 	if kubeconfigPath == "" && masterURL == "" {
 		restConfig, err = rest.InClusterConfig()
