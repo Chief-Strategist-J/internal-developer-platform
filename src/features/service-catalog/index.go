@@ -1,10 +1,8 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: SERVICE CATALOG INDEX (V.3 role 13, X-05)
+
+ 1. Public Surface:
+    - Exports only ServiceCatalogModule and BuildModule constructor.
+    - Internal services, adapters, and ports remain unexposed outside this package.
+*/
 package servicecatalog
-
-import (
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
-	catalogService "internal-developer-platform/src/features/service-catalog/service"
-)
-
-type Service = catalogService.ServiceCatalogService
-type Descriptor = catalogContracts.ServiceDescriptor
-type Status = catalogContracts.ServiceStatus

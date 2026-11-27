@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
+	catalogContracts "internal-developer-platform/src/features/service-catalog/internal/contracts"
 )
 
 type ServiceCatalogRepositoryPort interface {

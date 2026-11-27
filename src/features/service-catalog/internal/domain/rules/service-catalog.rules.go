@@ -1,7 +1,7 @@
 package rules
 
 import (
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
+	catalogContracts "internal-developer-platform/src/features/service-catalog/internal/contracts"
 )
 
 func CanTransitionServiceStatus(from catalogContracts.ServiceStatus, to catalogContracts.ServiceStatus) bool {

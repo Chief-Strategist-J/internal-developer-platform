@@ -12,8 +12,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
-	catalogPorts "internal-developer-platform/src/features/service-catalog/infrastructure/ports"
+	catalogContracts "internal-developer-platform/src/features/service-catalog/internal/contracts"
+	catalogPorts "internal-developer-platform/src/features/service-catalog/internal/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )

@@ -1,3 +1,6 @@
+SET lock_timeout = '3s';
+SET statement_timeout = '5min';
+
 -- migration:      0001
 -- description:    create service catalog descriptors table
 -- author:         chief-strategist
