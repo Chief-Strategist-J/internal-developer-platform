@@ -10,10 +10,10 @@ subsystems:
 process_roles: [api, worker, migrate]
 features_registry: src/app/modules
 owners: "@platform-core"
-migration_phase: 3
+migration_phase: 5
 migration_notes: |
   Phase 1 (baseline) done: .package-meta.yaml + violations.todo.yml created.
-  Phase 2 (boundary enforcement) done: src/shared/kernel/capabilities/authz + RBAC architecture test enforcing G-01/G-02/G-07/G-11.
-  Phase 3 (location moves) partial: src/infra/middleware moved, RBAC + GitOps + Workload routers/handlers moved to feature api/rest/v1/, modules + lifecycles wired in src/app/ and src/main.go; 5 legacy routers tracked in violations.todo.yml.
-  Phase 4 (cross-feature coupling removal) partial: authz capability + GitOps/Workload X-03 bridges wired and tested; kubernetes-workload-provisioning -> platform-regime/policy-as-code tracked in violations.todo.yml.
-  Phase 5 (data ownership) pending: per-feature schemas and migrations tracked in violations.todo.yml.
+  Phase 2 (boundary enforcement) done: package-wide G-01/G-02/G-05/G-07/G-11/X-05/GO-INT-001/D-01/D-02 architecture tests.
+  Phase 3 (location moves & Go internal/) done across all 10 active features: legacy offerings and DR CLI moved into features, compiler-enforced internal/ under all active Go features, and polyglot v3.0 layout applied to TS/Rust/C++.
+  Phase 4 (cross-feature coupling removal) done: authz kernel capability + root-index-only X-03 bridges; zero Service() exports.
+  Phase 5 (data ownership) done: database/engine moved to src/infra/db, database/roles.sql + schema.lock generated, and all migrations moved under src/features/{f}/database/migrations/.

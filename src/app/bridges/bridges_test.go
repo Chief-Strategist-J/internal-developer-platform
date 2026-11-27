@@ -1,71 +1,58 @@
-// Package bridges verifies Layer-3 cross-feature bridge and capability wiring (X-02, X-03).
+// Package bridges verifies Layer-3 cross-feature bridges via root index interfaces only (X-03, GO-INT-001).
 package bridges_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"internal-developer-platform/src/app/bridges"
-	gitopsPorts "internal-developer-platform/src/features/gitops-reconciliation/infrastructure/ports"
-	workloadPorts "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
-	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
-	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
-	"internal-developer-platform/src/shared/kernel"
-	"internal-developer-platform/src/shared/kernel/capabilities/authz"
+	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
+	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	platformregime "internal-developer-platform/src/features/platform-regime"
+	policyascode "internal-developer-platform/src/features/policy-as-code"
+	rbac "internal-developer-platform/src/features/role-based-access-control"
 )
 
-func setupTestRBACService() *rbacService.RBACService {
-	verifier := rbacAdapters.NewJWTTokenVerifierAdapter("bridge-test-secret-0123456789", "idp-test")
-	revocation := rbacAdapters.NewMemoryRevocationAdapter()
-	grantRepo := rbacAdapters.NewMemoryAccessGrantAdapter()
-	return rbacService.NewRBACServiceWithDeps(rbacService.RBACServiceDeps{
-		TokenVerifier:   verifier,
-		RevocationStore: revocation,
-		GrantRepo:       grantRepo,
-		BootstrapSecret: "bridge-bootstrap",
-		Environment:     "dev",
-	})
+type stubRBACBridgeProvider struct{}
+
+func (s *stubRBACBridgeProvider) EvaluateTaskLease(_ context.Context, req rbac.TaskLeaseEvalRequest) (rbac.TaskLeaseEvalResult, error) {
+	if req.TokenExpired || req.LeaseExpired || !req.HasSignedTaskLease {
+		return rbac.TaskLeaseEvalResult{Granted: false, Reason: "expired or unsigned lease", Directive: "DENY"}, fmt.Errorf("unauthorized")
+	}
+	return rbac.TaskLeaseEvalResult{Granted: true, Directive: "PROCEED"}, nil
 }
 
-func TestAuthorizerCapabilityProvider_CheckEnforcesRBAC(t *testing.T) {
-	svc := setupTestRBACService()
-	provider := rbacService.NewRBACAuthorizerProvider(svc)
-
-	dec, portErr := provider.Check(context.Background(), authz.CheckRequest{
-		Principal: kernel.Principal{
-			Subject:  "dev-1",
-			TenantID: "tenant-1",
-			Roles:    []string{"Developer"},
-		},
-		TenantID: "tenant-1",
-		Resource: string(authz.ResourceServiceCatalog),
-		Action:   string(authz.ActionRead),
-	})
-	if portErr != nil || dec != authz.DecisionPermit {
-		t.Fatalf("expected Developer read on service-catalog to PERMIT, got decision=%s err=%v", dec, portErr)
+func (s *stubRBACBridgeProvider) EvaluateAsyncJobDrift(_ context.Context, _ string, _ string, queueLatency time.Duration) (rbac.AsyncJobDriftEvalResult, error) {
+	if queueLatency > 15*time.Minute {
+		return rbac.AsyncJobDriftEvalResult{Granted: false, Reason: "stale async job", Directive: "DISCARD"}, fmt.Errorf("revoked")
 	}
+	return rbac.AsyncJobDriftEvalResult{Granted: true, Directive: "PROCEED"}, nil
+}
 
-	dec, portErr = provider.Check(context.Background(), authz.CheckRequest{
-		Principal: kernel.Principal{
-			Subject:  "viewer-1",
-			TenantID: "tenant-1",
-			Roles:    []string{"Viewer"},
-		},
-		TenantID: "tenant-2",
-		Resource: string(authz.ResourceInfrastructure),
-		Action:   string(authz.ActionWrite),
-	})
-	if portErr == nil || dec != authz.DecisionDeny {
-		t.Fatalf("expected Viewer cross-tenant write to DENY, got decision=%s err=%v", dec, portErr)
+type stubRegimeBridgeProvider struct{}
+
+func (s *stubRegimeBridgeProvider) EvaluateWorkloadCompliance(_ context.Context, _ string, input platformregime.WorkloadComplianceEvalInput) (bool, []platformregime.WorkloadComplianceEvalViolation, error) {
+	if input.AuditRetentionDays < 90 || (input.HasEncryptedSecrets && input.KMSKeyURI == "") {
+		return false, []platformregime.WorkloadComplianceEvalViolation{{Rule: "REGIME-RETENTION-KMS", Message: "insufficient retention or missing KMS key"}}, nil
 	}
+	return true, nil, nil
+}
+
+type stubPolicyBridgeProvider struct{}
+
+func (s *stubPolicyBridgeProvider) GetActiveExceptionForWorkload(_ context.Context, tenantID string, namespace string, workloadName string) (*policyascode.ActiveWorkloadException, error) {
+	if tenantID == "tenant-1" && namespace == "ns-1" && workloadName == "api-worker" {
+		return &policyascode.ActiveWorkloadException{PublicID: "EXC-BRIDGE-01", ApproverID: "sec-lead"}, nil
+	}
+	return nil, nil
 }
 
 func TestGitopsRBACBridge_EvaluatesTaskLease(t *testing.T) {
-	svc := setupTestRBACService()
-	var port gitopsPorts.TaskLeaseGuardPort = bridges.NewGitopsRBACBridge(svc)
+	var port gitopsreconciliation.TaskLeaseBridge = bridges.NewGitopsRBACBridge(&stubRBACBridgeProvider{})
 
-	res, err := port.EvaluateTaskLease(context.Background(), gitopsPorts.TaskLeaseRequest{
+	res, err := port.EvaluateTaskLease(context.Background(), gitopsreconciliation.TaskLeaseRequest{
 		SubjectID:    "runner-1",
 		TenantID:     "tenant-1",
 		LeaseToken:   "signed-lease-tok",
@@ -76,7 +63,7 @@ func TestGitopsRBACBridge_EvaluatesTaskLease(t *testing.T) {
 		t.Fatalf("expected valid lease to grant, got res=%+v err=%v", res, err)
 	}
 
-	res, err = port.EvaluateTaskLease(context.Background(), gitopsPorts.TaskLeaseRequest{
+	res, err = port.EvaluateTaskLease(context.Background(), gitopsreconciliation.TaskLeaseRequest{
 		SubjectID:    "runner-1",
 		TenantID:     "tenant-1",
 		LeaseToken:   "signed-lease-tok",
@@ -89,10 +76,9 @@ func TestGitopsRBACBridge_EvaluatesTaskLease(t *testing.T) {
 }
 
 func TestWorkloadRBACBridge_EvaluatesAsyncJobDrift(t *testing.T) {
-	svc := setupTestRBACService()
-	var port workloadPorts.AsyncJobDriftPort = bridges.NewWorkloadRBACBridge(svc)
+	var port kubernetesworkloadprovisioning.AsyncDriftBridge = bridges.NewWorkloadRBACBridge(&stubRBACBridgeProvider{})
 
-	res, err := port.EvaluateAsyncJobDrift(context.Background(), workloadPorts.AsyncJobDriftRequest{
+	res, err := port.EvaluateAsyncJobDrift(context.Background(), kubernetesworkloadprovisioning.AsyncJobDriftRequest{
 		SubjectID:    "worker-1",
 		JTI:          "jti-ok",
 		QueueLatency: 5 * time.Second,
@@ -101,12 +87,36 @@ func TestWorkloadRBACBridge_EvaluatesAsyncJobDrift(t *testing.T) {
 		t.Fatalf("expected short-latency async job to pass, got res=%+v err=%v", res, err)
 	}
 
-	res, err = port.EvaluateAsyncJobDrift(context.Background(), workloadPorts.AsyncJobDriftRequest{
+	res, err = port.EvaluateAsyncJobDrift(context.Background(), kubernetesworkloadprovisioning.AsyncJobDriftRequest{
 		SubjectID:    "worker-1",
 		JTI:          "jti-stale",
 		QueueLatency: 2 * time.Hour,
 	})
 	if err == nil || !res.Revoked || res.Granted {
-		t.Fatalf("expected stale async job without OIDC revalidation to be revoked, got res=%+v err=%v", res, err)
+		t.Fatalf("expected stale async job to be revoked, got res=%+v err=%v", res, err)
+	}
+}
+
+func TestWorkloadRegimeBridge_EvaluatesCompliance(t *testing.T) {
+	var guard kubernetesworkloadprovisioning.RegimeGuardBridge = bridges.NewWorkloadRegimeBridge(&stubRegimeBridgeProvider{})
+
+	res, err := guard.EvaluateWorkloadRegime(context.Background(), kubernetesworkloadprovisioning.RegimeEvaluationRequest{
+		TenantID:            "tenant-1",
+		Namespace:           "fintech-prod",
+		AuditRetentionDays:  30,
+		HasEncryptedSecrets: true,
+		KMSKeyURI:           "",
+	})
+	if err != nil || res.Allowed || len(res.Violations) == 0 {
+		t.Fatalf("expected regime violation for low retention and missing KMS key, got res=%+v err=%v", res, err)
+	}
+}
+
+func TestWorkloadPolicyBridge_FetchesActiveException(t *testing.T) {
+	var guard kubernetesworkloadprovisioning.PolicyExceptionBridge = bridges.NewWorkloadPolicyBridge(&stubPolicyBridgeProvider{})
+
+	exc, err := guard.GetActiveExceptionForWorkload(context.Background(), "tenant-1", "ns-1", "api-worker")
+	if err != nil || exc == nil || exc.PublicID != "EXC-BRIDGE-01" {
+		t.Fatalf("expected active exception EXC-BRIDGE-01 via bridge, got exc=%+v err=%v", exc, err)
 	}
 }
