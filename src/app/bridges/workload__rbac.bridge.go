@@ -1,40 +1,32 @@
 // Package bridges: workload__rbac.bridge wires the kubernetes-workload-provisioning feature's
-// AsyncJobDriftPort to the RBAC feature's EvaluateAsyncJobDrift capability (X-03).
+// AsyncDriftBridge to the RBAC feature's EvaluateAsyncJobDrift capability via index.go only (X-03, GO-INT-001).
 //
 // Blueprint:
-//  1. This bridge is the ONLY cross-feature wiring point for async job drift checks.
-//  2. kubernetes-workload-provisioning calls its own AsyncJobDriftPort — never imports rbac directly.
-//  3. This bridge adapts the consumer need-shaped port to the provider's exposed function.
-//
-// Invariants:
-//   - Fail-closed: RBAC unavailability causes the job to be treated as revoked.
-//   - No retry logic here; retries belong in adapters (R-01).
+//  1. Fail-closed: RBAC unavailability causes the job to be treated as revoked.
+//  2. Zero internal/ imports — only root feature index packages are imported.
 package bridges
 
 import (
 	"context"
 
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
-	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
+	rbac "internal-developer-platform/src/features/role-based-access-control"
 )
 
 type WorkloadRBACBridge struct {
-	rbac *rbacService.RBACService
+	rbac rbac.RBACBridgeProvider
 }
 
-func NewWorkloadRBACBridge(rbac *rbacService.RBACService) *WorkloadRBACBridge {
-	return &WorkloadRBACBridge{rbac: rbac}
+func NewWorkloadRBACBridge(rbacProvider rbac.RBACBridgeProvider) *WorkloadRBACBridge {
+	return &WorkloadRBACBridge{rbac: rbacProvider}
 }
 
-func (b *WorkloadRBACBridge) EvaluateAsyncJobDrift(ctx context.Context, req ports.AsyncJobDriftRequest) (ports.AsyncJobDriftResult, error) {
-	result, err := b.rbac.EvaluateAsyncJobDrift(
-		ctx,
-		req.SubjectID,
-		req.JTI,
-		req.QueueLatency,
-		nil,
-	)
-	return ports.AsyncJobDriftResult{
+func (b *WorkloadRBACBridge) EvaluateAsyncJobDrift(ctx context.Context, req kubernetesworkloadprovisioning.AsyncJobDriftRequest) (kubernetesworkloadprovisioning.AsyncJobDriftResult, error) {
+	if b.rbac == nil {
+		return kubernetesworkloadprovisioning.AsyncJobDriftResult{Revoked: true, Granted: false, Reason: "rbac bridge provider unavailable", Directive: "DISCARD"}, nil
+	}
+	result, err := b.rbac.EvaluateAsyncJobDrift(ctx, req.SubjectID, req.JTI, req.QueueLatency)
+	return kubernetesworkloadprovisioning.AsyncJobDriftResult{
 		Revoked:   err != nil || !result.Granted,
 		Granted:   err == nil && result.Granted,
 		Reason:    result.Reason,
