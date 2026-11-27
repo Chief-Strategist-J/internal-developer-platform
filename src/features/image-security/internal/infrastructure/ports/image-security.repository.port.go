@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"internal-developer-platform/src/features/image-security/contracts"
+	"internal-developer-platform/src/features/image-security/internal/contracts"
 )
 
 type ImageSecurityScannerPort interface {

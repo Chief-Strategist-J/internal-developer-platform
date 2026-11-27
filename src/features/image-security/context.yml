@@ -1,2 +1,28 @@
 feature: image-security
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
+
+provides: []
+exposes: []
+asks: []
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+ports:
+  - name: scanner
+    adapters: [memory]
+  - name: waivers
+    adapters: [memory]
+
+lifecycles: []
+
+tiers: [rules, machine, workflow]
+
+deviations: []
+waivers: []

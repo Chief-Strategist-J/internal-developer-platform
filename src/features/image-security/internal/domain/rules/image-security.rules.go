@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"internal-developer-platform/src/features/image-security/contracts"
+	"internal-developer-platform/src/features/image-security/internal/contracts"
 )
 
 func ClassifyVulnerabilityPriority(v contracts.VulnerabilityItem, exposure contracts.WorkloadExposure) contracts.PriorityClass {

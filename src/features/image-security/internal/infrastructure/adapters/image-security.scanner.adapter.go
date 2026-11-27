@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"internal-developer-platform/src/features/image-security/contracts"
+	"internal-developer-platform/src/features/image-security/internal/contracts"
 	"internal-developer-platform/src/shared/errors"
 )
 
