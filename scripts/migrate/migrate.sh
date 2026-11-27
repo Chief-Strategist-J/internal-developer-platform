@@ -11,7 +11,15 @@ DB_NAME="${DB_NAME:-idp_db}"
 export PGPASSWORD="${DB_PASSWORD:-postgres_dev_password_123}"
 
 echo -e "\033[1;34m[INFO]\033[0m Applying PostgreSQL roles from database/roles.sql..."
-psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -f "${REPO_ROOT}/database/roles.sql" > /dev/null
+psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -f "${REPO_ROOT}/database/roles.sql" > /dev/null
+
+psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -c "
+CREATE SCHEMA IF NOT EXISTS platform;
+CREATE TABLE IF NOT EXISTS platform.schema_migrations (
+    filename TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+" > /dev/null
 
 echo -e "\033[1;34m[INFO]\033[0m Executing chronological per-feature migrations on ${DB_HOST}:${DB_PORT}/${DB_NAME}..."
 mapfile -t MIGRATION_FILES < <(
@@ -23,8 +31,13 @@ mapfile -t MIGRATION_FILES < <(
 
 for sql_file in "${MIGRATION_FILES[@]}"; do
     rel_path="${sql_file#"${REPO_ROOT}/"}"
+    already_applied=$(psql -tAc "SELECT 1 FROM platform.schema_migrations WHERE filename = '${rel_path}' LIMIT 1;" -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}")
+    if [[ "${already_applied}" == "1" ]]; then
+        continue
+    fi
     echo -e "\033[1;34m[MIGRATE]\033[0m Applying ${rel_path}..."
-    psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -f "${sql_file}" > /dev/null
+    psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -f "${sql_file}" > /dev/null
+    psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -c "INSERT INTO platform.schema_migrations (filename) VALUES ('${rel_path}') ON CONFLICT (filename) DO NOTHING;" > /dev/null
 done
 
 echo -e "\033[1;32m[SUCCESS]\033[0m All per-feature database migrations applied successfully."
