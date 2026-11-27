@@ -16,8 +16,8 @@ import (
 	"github.com/lib/pq"
 	"go.opentelemetry.io/otel/attribute"
 
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
-	catalogQueries "internal-developer-platform/src/features/service-catalog/infrastructure/queries"
+	catalogContracts "internal-developer-platform/src/features/service-catalog/internal/contracts"
+	catalogQueries "internal-developer-platform/src/features/service-catalog/internal/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )

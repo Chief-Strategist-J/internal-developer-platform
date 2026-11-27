@@ -1,20 +1,19 @@
-package routers
+package restv1
 
 import (
 	"net/http"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type ServiceCatalogRouter struct {
-	handler    *handlers.ServiceCatalogHandler
+	handler    *ServiceCatalogHandler
 	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewServiceCatalogRouter(h *handlers.ServiceCatalogHandler, m *middleware.RBACMiddleware) *ServiceCatalogRouter {
+func NewServiceCatalogRouter(h *ServiceCatalogHandler, m *middleware.RBACMiddleware) *ServiceCatalogRouter {
 	return &ServiceCatalogRouter{
 		handler:    h,
 		rbacMiddle: m,

@@ -4,7 +4,7 @@
 // - Step 02 Handler: Ingress delivery boundary for Service Catalog.
 // - Spawns Tier-2 handler child spans via observability.WithSpan.
 // - 100% comment-free function bodies.
-package handlers
+package restv1
 
 import (
 	"context"
@@ -14,8 +14,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
-	catalogService "internal-developer-platform/src/features/service-catalog/service"
+	catalogContracts "internal-developer-platform/src/features/service-catalog/internal/contracts"
+	catalogService "internal-developer-platform/src/features/service-catalog/internal/service"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"

@@ -1,8 +1,8 @@
 package machines
 
 import (
-	catalogContracts "internal-developer-platform/src/features/service-catalog/contracts"
-	catalogRules "internal-developer-platform/src/features/service-catalog/domain/rules"
+	catalogContracts "internal-developer-platform/src/features/service-catalog/internal/contracts"
+	catalogRules "internal-developer-platform/src/features/service-catalog/internal/domain/rules"
 	"internal-developer-platform/src/shared/errors"
 )
 

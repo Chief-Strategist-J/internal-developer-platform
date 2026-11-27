@@ -1,2 +1,42 @@
 feature: service-catalog
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
+
+provides: []
+exposes: []
+
+asks:
+  - capability: authz
+    reason: "Route authorization for service registration"
+    fallback: fail-closed
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+persistence:
+  schema: service_catalog
+  role: svc_service_catalog
+  tenant_scoped: true
+  data_classes:
+    tenant_id: internal
+    name: internal
+  erasure: none
+
+ports:
+  - name: repository
+    adapters: [postgres, memory]
+
+lifecycles: []
+
+ingress:
+  rest: contracts/openapi/service-catalog/v1/openapi.yaml
+
+tiers: [rules, machine]
+
+deviations: []
+waivers: []
