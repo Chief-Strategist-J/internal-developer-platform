@@ -60,8 +60,8 @@ const (
 	`
 
 	FlowInsertUserBinding = `
-		INSERT INTO rbac_user_bindings (subject_id, tenant_id, role_name, created_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO rbac_user_bindings (public_id, subject_id, tenant_id, role_name, created_at)
+		VALUES ('rbnd_' || md5($2::text || ':' || $1::text || ':' || $3::text), $1, $2, $3, $4)
 		ON CONFLICT (subject_id, tenant_id, role_name) DO NOTHING;
 	`
 
@@ -79,9 +79,9 @@ const (
 
 	FlowInsertRBACAuditOutbox = `
 		INSERT INTO rbac_audit_outbox (
-			id, tenant_id, subject_id, resource, action, decision,
+			id, public_id, tenant_id, subject_id, resource, action, decision,
 			reason, violation_code, occurred_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		) VALUES ($1::varchar, $10::text, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::text, $8::varchar, $9::timestamptz)
 		ON CONFLICT (id) DO NOTHING;
 	`
 
