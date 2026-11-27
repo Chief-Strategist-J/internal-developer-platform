@@ -23,13 +23,11 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/service"
-	paccontracts "internal-developer-platform/src/features/policy-as-code/contracts"
-	pacadapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/domain/rules"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/infrastructure/ports"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/service"
 	"internal-developer-platform/src/infra/clients/gitops"
 	"internal-developer-platform/src/infra/clients/kms"
 	k8sclient "internal-developer-platform/src/infra/clients/kubernetes"
@@ -393,55 +391,24 @@ func TestWorkloadProvisioningServiceWithLiveK8sClient(t *testing.T) {
 	}
 }
 
+type stubPolicyExceptionGuard struct {
+	exception *ports.ActivePolicyException
+}
+
+func (s *stubPolicyExceptionGuard) GetActiveExceptionForWorkload(ctx context.Context, tenantID, namespace, workloadName string) (*ports.ActivePolicyException, error) {
+	return s.exception, nil
+}
+
 func TestWorkloadProvisioningWithActivePolicyException(t *testing.T) {
 	ctx := context.Background()
 	store := adapters.NewMemoryWorkloadRepositoryAdapter()
 	k8sAdapter := adapters.NewKubernetesClientAdapter("https://10.0.0.1:6443")
-	policyRepo := pacadapters.NewMemoryPolicyRepositoryAdapter()
-	svc := service.NewWorkloadProvisioningService(store, k8sAdapter, policyRepo)
-
-	now := time.Now().UTC()
-	policy := paccontracts.PolicyRecord{
-		ID:               "11111111-2222-3333-4444-555555555555",
-		PublicID:         "POL-ROOT-BANNED",
-		TenantID:         "tenant-exc-test",
-		Source:           paccontracts.PolicySourceSystem,
-		ExternalID:       "EXT-ROOT-001",
-		CorrelationID:    "66666666-7777-8888-9999-000000000000",
-		Name:             "Restricted Pod Security Root Ban",
-		EnforcementPoint: paccontracts.EnforcementPointCEL,
-		Severity:         paccontracts.SeverityCritical,
-		LifecycleState:   paccontracts.LifecycleDeny,
-		RuleExpression:   "!c.securityContext.privileged",
-		Exceptable:       true,
-		DetectionPair:    "DET-01",
-		Version:          1,
-		CreatedAt:        now,
-		UpdatedAt:        now,
-	}
-	if err := policyRepo.SavePolicy(ctx, policy); err != nil {
-		t.Fatalf("failed to save policy: %v", err)
-	}
-
-	exc := paccontracts.PolicyExceptionRecord{
-		ID:            "99999999-8888-7777-6666-555555555555",
-		PublicID:      "EXC-LEGACY-ROOT-001",
-		TenantID:      "tenant-exc-test",
-		PolicyID:      policy.ID,
-		WorkloadID:    "legacy-daemon",
-		Namespace:     "tenant-exc-test",
-		ApproverID:    "secops-lead@internal",
-		Justification: "Migration waiver granted until Q3 for legacy daemon",
-		Status:        paccontracts.ExceptionStatusActive,
-		ExpiresAt:     now.Add(48 * time.Hour),
-		CorrelationID: "66666666-7777-8888-9999-000000000000",
-		Version:       1,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
-	if err := policyRepo.SaveException(ctx, exc); err != nil {
-		t.Fatalf("failed to save policy exception: %v", err)
-	}
+	svc := service.NewWorkloadProvisioningService(store, k8sAdapter, &stubPolicyExceptionGuard{
+		exception: &ports.ActivePolicyException{
+			PublicID:   "EXC-LEGACY-ROOT-001",
+			ApproverID: "secops-lead@internal",
+		},
+	})
 
 	cmd := contracts.WorkloadProvisionCommand{
 		ID:             "wkld-exc-001",

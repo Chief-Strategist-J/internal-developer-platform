@@ -8,8 +8,8 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/machines"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/domain/machines"
 )
 
 func TestTransitionWorkloadStateFlow(t *testing.T) {

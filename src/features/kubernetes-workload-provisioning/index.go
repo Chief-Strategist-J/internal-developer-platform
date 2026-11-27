@@ -1,26 +1,61 @@
-// Package kubernetesworkloadprovisioning provides the public facade for the
-// Kubernetes Workload Provisioning feature.
-//
-// Architectural Blueprint:
-//   - Step 13 Public Facade: Shields internal infrastructure adapters and queries.
-//   - Exports strictly the domain orchestrator Service, public DTOs, and Port abstractions.
-//   - External callers and dependency injectors must import concrete adapters from
-//     infrastructure/adapters directly.
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD PROVISIONING INDEX (V.3 role 13, X-05)
+
+ 1. Public Surface:
+    - Exports only WorkloadModule, BuildModule, and consumer bridge port interfaces.
+    - Internal services, adapters, and ports stay behind internal/.
+*/
 package kubernetesworkloadprovisioning
 
 import (
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/service"
+	"context"
+	"time"
 )
 
-type Service = service.WorkloadProvisioningService
-type Command = contracts.WorkloadProvisionCommand
-type Result = contracts.WorkloadProvisionResult
-type Record = contracts.WorkloadProvisionRecord
-type StorePort = ports.WorkloadStorePort
-type ClientPort = ports.K8sClientPort
-type GitOpsPort = ports.GitOpsDeliveryPort
-type KmsPort = ports.KmsEncryptionPort
+type AsyncJobDriftRequest struct {
+	SubjectID    string
+	JTI          string
+	QueueLatency time.Duration
+}
 
-var NewService = service.NewWorkloadProvisioningService
+type AsyncJobDriftResult struct {
+	Revoked   bool
+	Reason    string
+	Granted   bool
+	Directive string
+}
+
+type AsyncDriftBridge interface {
+	EvaluateAsyncJobDrift(ctx context.Context, req AsyncJobDriftRequest) (AsyncJobDriftResult, error)
+}
+
+type RegimeEvaluationRequest struct {
+	TenantID            string
+	Namespace           string
+	AuditRetentionDays  int
+	HasEncryptedSecrets bool
+	KMSKeyURI           string
+}
+
+type RegimeViolation struct {
+	Rule    string
+	Message string
+}
+
+type RegimeEvaluationResult struct {
+	Allowed    bool
+	Violations []RegimeViolation
+}
+
+type RegimeGuardBridge interface {
+	EvaluateWorkloadRegime(ctx context.Context, req RegimeEvaluationRequest) (RegimeEvaluationResult, error)
+}
+
+type ActivePolicyException struct {
+	PublicID   string
+	ApproverID string
+}
+
+type PolicyExceptionBridge interface {
+	GetActiveExceptionForWorkload(ctx context.Context, tenantID string, namespace string, workloadName string) (*ActivePolicyException, error)
+}

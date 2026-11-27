@@ -36,6 +36,10 @@ ports:
     adapters: [k8s]
   - name: async-drift
     adapters: [bridge]
+  - name: regime-guard
+    adapters: [bridge]
+  - name: policy-exception-guard
+    adapters: [bridge]
 
 lifecycles: []
 
@@ -44,9 +48,5 @@ ingress:
 
 tiers: [rules, machine, workflow]
 
-deviations:
-  - rule: G-02
-    reason: "Still imports platform-regime and policy-as-code ports directly; tracked for Phase 4 bridge extraction"
-    phase: 4
-
+deviations: []
 waivers: []

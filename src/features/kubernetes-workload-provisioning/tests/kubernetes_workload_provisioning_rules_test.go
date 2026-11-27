@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/domain/rules"
 )
 
 func TestEvaluateWorkloadMutationsDefaults(t *testing.T) {
