@@ -1091,11 +1091,22 @@ func (s *RBACService) dispatchAuditDecision(ctx context.Context, req rbacContrac
 	if s.auditOutbox == nil {
 		return nil
 	}
+	tenantID := strings.TrimSpace(req.TargetTenantID)
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(req.Subject.TenantID)
+	}
+	if tenantID == "" {
+		tenantID = "_unauthenticated"
+	}
+	subjectID := strings.TrimSpace(req.Subject.ID)
+	if subjectID == "" {
+		subjectID = "anonymous"
+	}
 	return observability.WithSpan(ctx, rbacSpanPrefix+".dispatch_audit_decision", func(ctx context.Context) error {
 		return s.auditOutbox.EnqueueAuditEvent(ctx, rbacContracts.RBACAuditEvent{
 			ID:            fmt.Sprintf("rbac-aud-%d", time.Now().UnixNano()),
-			TenantID:      req.TargetTenantID,
-			SubjectID:     req.Subject.ID,
+			TenantID:      tenantID,
+			SubjectID:     subjectID,
 			Resource:      req.Resource,
 			Action:        req.Action,
 			Decision:      decisionLabel,
@@ -1103,7 +1114,7 @@ func (s *RBACService) dispatchAuditDecision(ctx context.Context, req rbacContrac
 			ViolationCode: res.ViolationCode,
 			OccurredAt:    time.Now().UTC(),
 		})
-	}, attribute.String("rbac.decision", decisionLabel), attribute.String("subject.id", req.Subject.ID), attribute.String("target.tenant_id", req.TargetTenantID))
+	}, attribute.String("rbac.decision", decisionLabel), attribute.String("subject.id", subjectID), attribute.String("target.tenant_id", tenantID))
 }
 
 func (s *RBACService) dispatchLifecycleAudit(ctx context.Context, tenantID string, subjectID string, resource rbacContracts.Resource, action rbacContracts.Action, decision string, reason string) error {
