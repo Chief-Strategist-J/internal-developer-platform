@@ -16,8 +16,9 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 
-	"internal-developer-platform/src/features/platform-regime/contracts"
-	"internal-developer-platform/src/features/platform-regime/infrastructure/ports"
+	"internal-developer-platform/src/features/platform-regime/internal/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/domain/rules"
+	"internal-developer-platform/src/features/platform-regime/internal/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -102,4 +103,13 @@ func (s *PlatformRegimeService) GetActiveRegimePolicy(ctx context.Context, tenan
 		fallback.TenantID = tenantID
 		return &fallback, nil
 	}, attribute.String("tenant.id", tenantID))
+}
+
+func (s *PlatformRegimeService) EvaluateWorkloadCompliance(ctx context.Context, tenantID string, input contracts.WorkloadComplianceInput) (bool, []contracts.ComplianceViolation, error) {
+	regime, err := s.GetActiveRegimePolicy(ctx, tenantID)
+	if err != nil || regime == nil {
+		return true, nil, nil
+	}
+	ok, violations := rules.ValidateWorkloadAgainstRegime(input, *regime)
+	return ok, violations, nil
 }

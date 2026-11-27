@@ -98,3 +98,15 @@ func ComputeRegimePolicyPublicID(rawID string) string {
 	clean := strings.ToUpper(digest[:26])
 	return fmt.Sprintf("rgm_%s", clean)
 }
+
+type WorkloadComplianceInput struct {
+	Namespace           string
+	AuditRetentionDays  int
+	HasEncryptedSecrets bool
+	KMSKeyURI           string
+}
+
+type ComplianceViolation struct {
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}

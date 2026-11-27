@@ -12,7 +12,7 @@ package ports
 import (
 	"context"
 
-	"internal-developer-platform/src/features/platform-regime/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/contracts"
 )
 
 type PlatformRegimeRepositoryPort interface {

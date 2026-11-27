@@ -1,3 +1,6 @@
+SET lock_timeout = '3s';
+SET statement_timeout = '5min';
+
 -- migration:      0013.rollback
 -- description:    rollback platform regime policies table and lookup references
 -- author:         chief-strategist
