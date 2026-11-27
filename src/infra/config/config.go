@@ -38,18 +38,35 @@ type AuthConfig struct {
 }
 
 type KubernetesConfig struct {
-	Endpoint string `yaml:"endpoint"`
+	Endpoint       string `yaml:"endpoint"`
+	KubeconfigPath string `yaml:"kubeconfig_path"`
 }
 
 type ArgoCDConfig struct {
-	Endpoint string `yaml:"endpoint"`
-	Token    string `yaml:"token"`
+	Endpoint      string `yaml:"endpoint"`
+	Token         string `yaml:"token"`
+	WebhookSecret string `yaml:"webhook_secret"`
 }
 
 type GCPConfig struct {
-	ProjectID        string `yaml:"project_id"`
-	CloudSQLAdminURL string `yaml:"cloud_sql_admin_url"`
-	CloudDNSURL      string `yaml:"cloud_dns_url"`
+	ProjectID          string `yaml:"project_id"`
+	CloudSQLAdminURL   string `yaml:"cloud_sql_admin_url"`
+	CloudDNSURL        string `yaml:"cloud_dns_url"`
+	OAuthAccessToken   string `yaml:"oauth_access_token"`
+	CloudDNSZone       string `yaml:"cloud_dns_zone"`
+	CloudDNSRecordName string `yaml:"cloud_dns_record_name"`
+	StandbyLBIP        string `yaml:"standby_lb_ip"`
+	PrimaryLBIP        string `yaml:"primary_lb_ip"`
+}
+
+type ObservabilityConfig struct {
+	OTLPEndpoint string `yaml:"otlp_endpoint"`
+}
+
+type DRCLIConfig struct {
+	APIBaseURL string `yaml:"api_base_url"`
+	TenantID   string `yaml:"tenant_id"`
+	AuthToken  string `yaml:"auth_token"`
 }
 
 type RBACConfig struct {
@@ -96,17 +113,19 @@ type EndpointsConfig struct {
 }
 
 type AppConfig struct {
-	Environment  string           `yaml:"environment"`
-	Server       ServerConfig     `yaml:"server"`
-	Database     DatabaseConfig   `yaml:"database"`
-	Redis        RedisConfig      `yaml:"redis"`
-	Auth         AuthConfig       `yaml:"auth"`
-	Kubernetes   KubernetesConfig `yaml:"kubernetes"`
-	ArgoCD       ArgoCDConfig     `yaml:"argocd"`
-	GCP          GCPConfig        `yaml:"gcp"`
-	RBAC         RBACConfig       `yaml:"rbac"`
-	FeatureFlags FeatureFlags     `yaml:"feature_flags"`
-	Endpoints    EndpointsConfig  `yaml:"endpoints"`
+	Environment   string              `yaml:"environment"`
+	Server        ServerConfig        `yaml:"server"`
+	Database      DatabaseConfig      `yaml:"database"`
+	Redis         RedisConfig         `yaml:"redis"`
+	Auth          AuthConfig          `yaml:"auth"`
+	Kubernetes    KubernetesConfig    `yaml:"kubernetes"`
+	ArgoCD        ArgoCDConfig        `yaml:"argocd"`
+	GCP           GCPConfig           `yaml:"gcp"`
+	RBAC          RBACConfig          `yaml:"rbac"`
+	Observability ObservabilityConfig `yaml:"observability"`
+	DRCLI         DRCLIConfig         `yaml:"dr_cli"`
+	FeatureFlags  FeatureFlags        `yaml:"feature_flags"`
+	Endpoints     EndpointsConfig     `yaml:"endpoints"`
 }
 
 func LoadConfig(configPathOrDir string) (*AppConfig, error) {
@@ -242,6 +261,41 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 	}
 	if env := os.Getenv("ENVIRONMENT"); env != "" {
 		cfg.Environment = env
+	} else if appEnv := os.Getenv("APP_ENV"); appEnv != "" {
+		cfg.Environment = appEnv
+	}
+	if kubeCfg := os.Getenv("KUBECONFIG"); kubeCfg != "" {
+		cfg.Kubernetes.KubeconfigPath = kubeCfg
+	}
+	if webhookSecret := os.Getenv("GITOPS_WEBHOOK_SECRET"); webhookSecret != "" {
+		cfg.ArgoCD.WebhookSecret = webhookSecret
+	}
+	if otlp := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); otlp != "" {
+		cfg.Observability.OTLPEndpoint = otlp
+	}
+	if gcpTok := os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN"); gcpTok != "" {
+		cfg.GCP.OAuthAccessToken = gcpTok
+	}
+	if zone := os.Getenv("CLOUD_DNS_MANAGED_ZONE"); zone != "" {
+		cfg.GCP.CloudDNSZone = zone
+	}
+	if rec := os.Getenv("CLOUD_DNS_RECORD_NAME"); rec != "" {
+		cfg.GCP.CloudDNSRecordName = rec
+	}
+	if sip := os.Getenv("STANDBY_LOAD_BALANCER_IP"); sip != "" {
+		cfg.GCP.StandbyLBIP = sip
+	}
+	if pip := os.Getenv("PRIMARY_LOAD_BALANCER_IP"); pip != "" {
+		cfg.GCP.PrimaryLBIP = pip
+	}
+	if drURL := os.Getenv("DR_API_BASE_URL"); drURL != "" {
+		cfg.DRCLI.APIBaseURL = drURL
+	}
+	if drTenant := os.Getenv("DR_TENANT_ID"); drTenant != "" {
+		cfg.DRCLI.TenantID = drTenant
+	}
+	if drToken := os.Getenv("DR_AUTH_TOKEN"); drToken != "" {
+		cfg.DRCLI.AuthToken = drToken
 	}
 }
 

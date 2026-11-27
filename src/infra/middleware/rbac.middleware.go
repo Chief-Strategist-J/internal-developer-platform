@@ -2,10 +2,10 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC INGRESS MIDDLEWARE
 
  1. Ingress Execution (G-06, VI.1 #9):
-   - Extracts Bearer JWT and ABAC / Break-Glass / Split-Brain HTTP headers.
-   - Delegates authorization strictly through the kernel authz.Authorizer capability (X-02).
-   - Stores verified *authz.SubjectContext on request context without importing feature internals (G-01).
-   - Zero mid-function inline comments.
+    - Extracts Bearer JWT and ABAC / Break-Glass / Split-Brain HTTP headers.
+    - Delegates authorization strictly through the kernel authz.Authorizer capability (X-02).
+    - Stores verified *authz.SubjectContext on request context without importing feature internals (G-01).
+    - Zero mid-function inline comments.
 */
 package middleware
 
