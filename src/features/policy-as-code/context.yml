@@ -1,121 +1,43 @@
 feature: policy-as-code
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
 
-entity: policies
-owner: platform-security
-fields:
-  - name: id             type: uuid          null: no   default: uuidv7()            constraint: PK, UNIQUE(tenant_id, id), immutable
-  - name: public_id      type: text          null: no   default: generated          constraint: UNIQUE, immutable, format 'pol_' + 26 chars
-  - name: tenant_id      type: uuid          null: no   constraint: immutable
-  - name: source         type: text          null: no   constraint: CHECK (source IN ('GIT', 'API', 'SYSTEM'))
-  - name: external_id    type: text          null: no   normalize: trim            constraint: UNIQUE(tenant_id, source, external_id), length 1..128
-  - name: correlation_id type: uuid          null: no   constraint: immutable, no FK
-  - name: name           type: text          null: no   normalize: trim            constraint: CHECK (name = btrim(name) AND name <> ''), length 1..256
-  - name: description    type: text          null: no   default: "''"              constraint: CHECK (description = btrim(description))
-  - name: enforcement_point type: text       null: no   constraint: CHECK (enforcement_point IN ('CEL', 'PSA', 'PC', 'BA', 'ORG', 'CI', 'ACD'))
-  - name: severity       type: text          null: no   constraint: CHECK (severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'ADVISORY'))
-  - name: lifecycle_state type: text         null: no   constraint: FK policy_lifecycle_states(code)
-  - name: rule_expression type: text         null: no   normalize: trim            constraint: CHECK (rule_expression = btrim(rule_expression) AND rule_expression <> '')
-  - name: exceptable     type: boolean       null: no   default: true
-  - name: detection_pair type: text          null: no   normalize: trim            constraint: CHECK (detection_pair = btrim(detection_pair) AND detection_pair <> '')
-  - name: version        type: bigint        null: no   default: 1
-  - name: created_at     type: timestamptz   null: no   default: now()
-  - name: updated_at     type: timestamptz   null: no   default: now()
-invariants:
-  - critical rules must use in-process enforcement points (CEL, PSA, BA, ORG)
-  - non-exceptable rules cannot grant exemptions
-  - storage uniqueness on (tenant_id, id), (tenant_id, source, external_id), and public_id
-  - immutability of id, public_id, tenant_id, correlation_id enforced by trigger
-  - updated_at maintained by trigger, never by app code
-  - lifecycle_state transitions verified against policy_state_transitions table
-pii: [none]
-source_of_truth: db
+provides: []
+exposes:
+  - GetActiveExceptionForWorkload
 
-secondary_entity: policy_exceptions
-owner: platform-security
-fields:
-  - name: id             type: uuid          null: no   default: uuidv7()            constraint: PK, UNIQUE(tenant_id, id), immutable
-  - name: public_id      type: text          null: no   default: generated          constraint: UNIQUE, immutable, format 'pex_' + 26 chars
-  - name: tenant_id      type: uuid          null: no   constraint: immutable
-  - name: policy_id      type: uuid          null: no   constraint: FK policies(tenant_id, id) ON DELETE RESTRICT
-  - name: workload_id    type: text          null: no   normalize: trim            constraint: CHECK (workload_id = btrim(workload_id) AND workload_id <> ''), length 1..256
-  - name: namespace      type: text          null: no   normalize: trim            constraint: CHECK (namespace = btrim(namespace) AND namespace <> ''), length 1..63
-  - name: approver_id    type: text          null: no   constraint: immutable, CHECK (approver_id = btrim(approver_id) AND approver_id <> '')
-  - name: justification  type: text          null: no   normalize: trim            constraint: CHECK (length(btrim(justification)) >= 10)
-  - name: status         type: text          null: no   constraint: FK policy_exception_status(code)
-  - name: expires_at     type: timestamptz   null: no   constraint: CHECK (expires_at > created_at)
-  - name: correlation_id type: uuid          null: no   constraint: immutable, no FK
-  - name: version        type: bigint        null: no   default: 1
-  - name: created_at     type: timestamptz   null: no   default: now()
-  - name: updated_at     type: timestamptz   null: no   default: now()
-invariants:
-  - policy must be exceptable (enforced at service and constraint check)
-  - expiration must be strictly in the future at creation
-  - tenant isolation via composite foreign key (tenant_id, policy_id)
-  - immutability of id, public_id, tenant_id, correlation_id enforced by trigger
-  - updated_at maintained by trigger, never by app code
-pii: [none]
-source_of_truth: db
+asks:
+  - capability: authz
+    reason: "Route authorization for policy CRUD, exceptions, and violation scans"
+    fallback: fail-closed
 
-tertiary_entity: policy_violations
-owner: platform-security
-fields:
-  - name: id             type: uuid          null: no   default: uuidv7()            constraint: PK, UNIQUE(tenant_id, id), immutable
-  - name: public_id      type: text          null: no   default: generated          constraint: UNIQUE, immutable, format 'pvl_' + 26 chars
-  - name: tenant_id      type: uuid          null: no   constraint: immutable
-  - name: policy_id      type: uuid          null: no   constraint: FK policies(tenant_id, id) ON DELETE RESTRICT
-  - name: source         type: text          null: no   constraint: CHECK (source IN ('ADMISSION', 'AUDIT_SCAN', 'CI'))
-  - name: external_id    type: text          null: no   normalize: trim            constraint: UNIQUE(tenant_id, source, external_id), length 1..256
-  - name: correlation_id type: uuid          null: no   constraint: immutable, no FK
-  - name: workload_id    type: text          null: no   normalize: trim            constraint: CHECK (workload_id = btrim(workload_id) AND workload_id <> ''), length 1..256
-  - name: namespace      type: text          null: no   normalize: trim            constraint: CHECK (namespace = btrim(namespace) AND namespace <> ''), length 1..256
-  - name: severity       type: text          null: no   constraint: CHECK (severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'ADVISORY'))
-  - name: enforcement_point type: text       null: no   constraint: CHECK (enforcement_point IN ('CEL', 'PSA', 'PC', 'BA', 'ORG', 'CI', 'ACD'))
-  - name: status         type: text          null: no   constraint: FK policy_violation_status(code)
-  - name: message        type: text          null: no   normalize: trim            constraint: CHECK (message = btrim(message) AND message <> ''), length 1..1024
-  - name: detection_pair type: text          null: no   default: "''"              constraint: CHECK (detection_pair = btrim(detection_pair))
-  - name: version        type: bigint        null: no   default: 1
-  - name: created_at     type: timestamptz   null: no   default: now()
-  - name: updated_at     type: timestamptz   null: no   default: now()
-invariants:
-  - tenant isolation via composite foreign key (tenant_id, policy_id)
-  - status lifecycle managed via policy_violation_status lookup (Never both lifecycle status and deleted_at)
-  - immutability of id, public_id, tenant_id, policy_id, correlation_id enforced by trigger
-  - updated_at maintained by trigger, never by app code
-pii: [none]
-source_of_truth: db
+events:
+  produces: []
+  consumes: []
 
-error_mapping:
-  policies_tenant_id_id_pk: CONFLICT.DUPLICATE_POLICY_ID
-  policies_public_id_uk: CONFLICT.DUPLICATE_PUBLIC_ID
-  policies_tenant_source_ext_uk: CONFLICT.DUPLICATE_EXTERNAL_ID
-  policies_lifecycle_state_fk: VALIDATION.INVALID_LIFECYCLE_STATE
-  policies_name_ck: VALIDATION.INVALID_NAME
-  policies_expression_ck: VALIDATION.EMPTY_RULE_EXPRESSION
-  policy_exceptions_tenant_id_id_pk: CONFLICT.DUPLICATE_EXCEPTION_ID
-  policy_exceptions_public_id_uk: CONFLICT.DUPLICATE_PUBLIC_ID
-  policy_exceptions_policy_fk: VALIDATION.POLICY_NOT_FOUND
-  policy_exceptions_status_fk: VALIDATION.INVALID_EXCEPTION_STATUS
-  policy_exceptions_expires_ck: VALIDATION.EXPIRATION_MUST_BE_FUTURE
-  policy_violations_tenant_id_id_pk: CONFLICT.DUPLICATE_VIOLATION_ID
-  policy_violations_public_id_uk: CONFLICT.DUPLICATE_PUBLIC_ID
-  policy_violations_tenant_source_external_uk: CONFLICT.DUPLICATE_EXTERNAL_ID
-  policy_violations_policy_fk: VALIDATION.POLICY_NOT_FOUND
-  policy_violations_status_fk: VALIDATION.INVALID_VIOLATION_STATUS
+projections: []
 
-invariant_queries:
-  FLOW_CHECK_POLICIES_ORPHAN_EXCEPTIONS: >
-    SELECT pe.id FROM policy_exceptions pe
-    LEFT JOIN policies p ON pe.tenant_id = p.tenant_id AND pe.policy_id = p.id
-    WHERE p.id IS NULL
-  FLOW_CHECK_POLICIES_CRITICAL_FAIL_OPEN: >
-    SELECT p.id FROM policies p
-    WHERE p.severity = 'CRITICAL' AND p.enforcement_point NOT IN ('CEL', 'PSA', 'BA', 'ORG')
-  FLOW_CHECK_POLICY_EXCEPTIONS_NON_EXCEPTABLE: >
-    SELECT pe.id FROM policy_exceptions pe
-    JOIN policies p ON pe.tenant_id = p.tenant_id AND pe.policy_id = p.id
-    WHERE p.exceptable = false
-  FLOW_CHECK_POLICY_VIOLATIONS_ORPHAN_POLICIES: >
-    SELECT pv.id FROM policy_violations pv
-    LEFT JOIN policies p ON pv.tenant_id = p.tenant_id AND pv.policy_id = p.id
-    WHERE p.id IS NULL
+persistence:
+  schema: policy_as_code
+  role: svc_policy_as_code
+  tenant_scoped: true
+  data_classes:
+    tenant_id: internal
+    approver_id: internal
+  erasure: none
+
+ports:
+  - name: repository
+    adapters: [postgres, memory]
+
+lifecycles: []
+
+ingress:
+  rest: contracts/openapi/policy-as-code/v1/openapi.yaml
+
+tiers: [rules, machine, workflow]
+
+deviations: []
+waivers: []

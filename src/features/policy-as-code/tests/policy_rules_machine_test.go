@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: POLICY-AS-CODE RULES & STATE MACHINE TESTS
 
 1. Test Execution Architecture:
-   - Step 14 Tests: Unit test suite for domain machines and domain rules.
-   - Hermetic, in-memory, deterministic execution with no network/database dependencies.
-   - 100% comment-free function bodies.
+  - Step 14 Tests: Unit test suite for domain machines and domain rules.
+  - Hermetic, in-memory, deterministic execution with no network/database dependencies.
+  - 100% comment-free function bodies.
 */
 package tests
 
@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"internal-developer-platform/src/features/policy-as-code/contracts"
-	"internal-developer-platform/src/features/policy-as-code/domain/machines"
-	"internal-developer-platform/src/features/policy-as-code/domain/rules"
+	"internal-developer-platform/src/features/policy-as-code/internal/contracts"
+	"internal-developer-platform/src/features/policy-as-code/internal/domain/machines"
+	"internal-developer-platform/src/features/policy-as-code/internal/domain/rules"
 )
 
 func TestPolicyLifecycleStateMachine_ValidPromotionRing(t *testing.T) {
@@ -208,4 +208,3 @@ func TestPolicyRules_ValidateCELRuleExpression(t *testing.T) {
 		}
 	}
 }
-

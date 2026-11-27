@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"internal-developer-platform/src/features/policy-as-code/contracts"
-	"internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
+	"internal-developer-platform/src/features/policy-as-code/internal/contracts"
+	"internal-developer-platform/src/features/policy-as-code/internal/infrastructure/adapters"
 )
 
 const (
