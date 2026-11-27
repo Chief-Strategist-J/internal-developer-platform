@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
 )
 
 func TestEvaluateSourceTrust(t *testing.T) {

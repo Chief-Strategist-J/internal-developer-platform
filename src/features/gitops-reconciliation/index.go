@@ -1,25 +1,29 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: GITOPS RECONCILIATION INDEX (V.3 role 13, X-05)
+
+ 1. Public Surface:
+    - Exports only GitOpsModule, BuildModule, and TaskLeaseBridge consumer contract.
+    - Internal services, adapters, and ports stay behind internal/.
+*/
 package gitopsreconciliation
 
-import (
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/infrastructure/adapters"
-	"internal-developer-platform/src/features/gitops-reconciliation/infrastructure/ports"
-	"internal-developer-platform/src/features/gitops-reconciliation/service"
-)
+import "context"
 
-type Service = service.GitOpsReconciliationService
-type Command = contracts.SyncCommand
-type Result = contracts.SyncResult
-type Record = contracts.ReconciliationRecord
-type OutboxEvent = contracts.OutboxEvent
-type StorePort = ports.GitOpsStorePort
-type ClientPort = ports.ArgoCDClientPort
+type TaskLeaseRequest struct {
+	SubjectID    string
+	TenantID     string
+	TaskType     string
+	LeaseToken   string
+	TokenExpired bool
+	LeaseExpired bool
+}
 
-var NewService = service.NewGitOpsReconciliationService
-var NewSecretAdapterWithDB = adapters.NewConfigurableSecretAdapterWithDB
-var NewOutboxAdapterWithDB = adapters.NewPostgresOutboxAdapter
-var NewMemoryOutboxAdapter = adapters.NewMemoryOutboxAdapter
-var NewMemoryStore = adapters.NewMemoryGitOpsRepositoryAdapter
-var NewPostgresStore = adapters.NewPostgresGitOpsRepositoryAdapter
-var NewArgoCDClient = adapters.NewArgoCDClientAdapter
-var NewLiveArgoCDClient = adapters.NewLiveArgoCDClientAdapter
+type TaskLeaseResult struct {
+	Granted   bool
+	Reason    string
+	Directive string
+}
+
+type TaskLeaseBridge interface {
+	EvaluateTaskLease(ctx context.Context, req TaskLeaseRequest) (TaskLeaseResult, error)
+}

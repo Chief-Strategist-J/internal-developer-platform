@@ -2,22 +2,24 @@
 //
 // Blueprint:
 //  1. Constructs Postgres store, ArgoCD client, secret adapter, outbox port, handler, router, and outbox-relay lifecycle.
-//  2. Consumes RBAC's task-lease capability indirectly via SetTaskLeasePort (X-03).
+//  2. Consumes RBAC's task-lease capability via TaskLeaseBridge interface without exposing internal ports (X-03, GO-INT-001).
 //
 // Invariants:
 //   - No raw goroutines or tickers created during BuildModule (G-11).
+//   - Never exports internal Service (X-05).
 package gitopsreconciliation
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"time"
 
-	restv1 "internal-developer-platform/src/features/gitops-reconciliation/api/rest/v1"
-	"internal-developer-platform/src/features/gitops-reconciliation/infrastructure/adapters"
-	gitopsLifecycle "internal-developer-platform/src/features/gitops-reconciliation/infrastructure/lifecycle"
-	"internal-developer-platform/src/features/gitops-reconciliation/infrastructure/ports"
-	"internal-developer-platform/src/features/gitops-reconciliation/service"
+	restv1 "internal-developer-platform/src/features/gitops-reconciliation/internal/api/rest/v1"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	gitopsLifecycle "internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/lifecycle"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/ports"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 	argocdClientPkg "internal-developer-platform/src/infra/clients/argocd"
 	"internal-developer-platform/src/infra/clients/resilience"
 	"internal-developer-platform/src/infra/config"
@@ -30,7 +32,27 @@ type ModuleDeps struct {
 	Config         *config.AppConfig
 	ResilienceCfg  resilience.ResilienceConfig
 	RBACMiddleware *middleware.RBACMiddleware
-	TaskLeasePort  ports.TaskLeaseGuardPort
+	TaskLeasePort  TaskLeaseBridge
+}
+
+type taskLeasePortAdapter struct {
+	bridge TaskLeaseBridge
+}
+
+func (a *taskLeasePortAdapter) EvaluateTaskLease(ctx context.Context, req ports.TaskLeaseRequest) (ports.TaskLeaseResult, error) {
+	res, err := a.bridge.EvaluateTaskLease(ctx, TaskLeaseRequest{
+		SubjectID:    req.SubjectID,
+		TenantID:     req.TenantID,
+		TaskType:     req.TaskType,
+		LeaseToken:   req.LeaseToken,
+		TokenExpired: req.TokenExpired,
+		LeaseExpired: req.LeaseExpired,
+	})
+	return ports.TaskLeaseResult{
+		Granted:   res.Granted,
+		Reason:    res.Reason,
+		Directive: res.Directive,
+	}, err
 }
 
 type GitOpsModule struct {
@@ -57,9 +79,9 @@ func BuildModule(deps ModuleDeps) *GitOpsModule {
 	svc.SetSecretAdapter(adapters.NewConfigurableSecretAdapterWithDB(deps.DB))
 	svc.SetOutboxPort(adapters.NewPostgresOutboxAdapter(deps.DB))
 	if deps.TaskLeasePort != nil {
-		svc.SetTaskLeasePort(deps.TaskLeasePort)
+		svc.SetTaskLeasePort(&taskLeasePortAdapter{bridge: deps.TaskLeasePort})
 	}
-	handler := restv1.NewGitOpsReconciliationHandler(svc)
+	handler := restv1.NewGitOpsReconciliationHandlerWithSecret(svc, deps.Config.ArgoCD.WebhookSecret)
 	router := restv1.NewGitOpsReconciliationRouter(handler, deps.RBACMiddleware)
 	var lcs []kernel.Lifecycle
 	if deps.DB != nil {
@@ -73,12 +95,11 @@ func BuildModule(deps ModuleDeps) *GitOpsModule {
 	}
 }
 
-func (m *GitOpsModule) Name() string                                  { return "gitops-reconciliation" }
-func (m *GitOpsModule) Routes() []kernel.Route                        { return nil }
-func (m *GitOpsModule) EventHandlers() []kernel.EventHandler          { return nil }
-func (m *GitOpsModule) Lifecycles() []kernel.Lifecycle                { return m.lifecycles }
-func (m *GitOpsModule) Provides() []string                            { return nil }
-func (m *GitOpsModule) Service() *service.GitOpsReconciliationService { return m.svc }
+func (m *GitOpsModule) Name() string                         { return "gitops-reconciliation" }
+func (m *GitOpsModule) Routes() []kernel.Route               { return nil }
+func (m *GitOpsModule) EventHandlers() []kernel.EventHandler { return nil }
+func (m *GitOpsModule) Lifecycles() []kernel.Lifecycle       { return m.lifecycles }
+func (m *GitOpsModule) Provides() []string                   { return nil }
 
 func (m *GitOpsModule) RegisterRoutes(mux *http.ServeMux) {
 	if m.router != nil {

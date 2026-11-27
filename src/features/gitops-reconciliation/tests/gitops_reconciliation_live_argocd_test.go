@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 	"internal-developer-platform/src/infra/clients/argocd"
 	"internal-developer-platform/src/infra/clients/resilience"
 )
@@ -32,7 +33,7 @@ func TestLiveArgoCDClusterReconciliation(t *testing.T) {
 	resCfg := resilience.DefaultResilienceConfig()
 	client := argocd.NewArgoCDClient(argoCfg, resCfg)
 
-	adapter := gitopsreconciliation.NewLiveArgoCDClient(client)
+	adapter := adapters.NewLiveArgoCDClientAdapter(client)
 
 	ctx := context.Background()
 	appName := "internal-developer-platform-dev"
@@ -51,8 +52,8 @@ func TestLiveArgoCDClusterReconciliation(t *testing.T) {
 	db := getTestPostgresDB(t)
 	defer db.Close()
 
-	pgStore := gitopsreconciliation.NewPostgresStore(db)
-	svc := gitopsreconciliation.NewService(pgStore, adapter)
+	pgStore := adapters.NewPostgresGitOpsRepositoryAdapter(db)
+	svc := service.NewGitOpsReconciliationService(pgStore, adapter)
 
 	cmd := contracts.SyncCommand{
 		ID:                 fmt.Sprintf("rec-live-cluster-%d", time.Now().UnixNano()),

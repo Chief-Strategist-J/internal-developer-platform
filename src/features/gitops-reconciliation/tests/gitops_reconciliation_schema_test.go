@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
 )
 
 func TestValidateSyncCommand(t *testing.T) {

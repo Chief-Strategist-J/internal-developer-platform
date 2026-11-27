@@ -11,17 +11,18 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 )
 
 func TestGitOpsReconciliationOutboxEventEmission(t *testing.T) {
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
-	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", "test-token")
-	outbox := gitopsreconciliation.NewMemoryOutboxAdapter()
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
+	argoClient := adapters.NewArgoCDClientAdapter("https://argocd.internal:443", "test-token")
+	outbox := adapters.NewMemoryOutboxAdapter()
 
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 	svc.SetOutboxPort(outbox)
 
 	cmd := contracts.SyncCommand{
@@ -78,9 +79,9 @@ func TestGitOpsReconciliationOutboxEventEmission(t *testing.T) {
 
 func TestBreakGlassAutoSyncGuard(t *testing.T) {
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
-	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", "test-token")
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
+	argoClient := adapters.NewArgoCDClientAdapter("https://argocd.internal:443", "test-token")
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 
 	cmd := contracts.SyncCommand{
 		ID:                          "rec-bg-01",
@@ -115,10 +116,10 @@ func TestOutboxRelayMultiSpanTracing(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
-	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", "test-token")
-	outbox := gitopsreconciliation.NewMemoryOutboxAdapter()
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
+	argoClient := adapters.NewArgoCDClientAdapter("https://argocd.internal:443", "test-token")
+	outbox := adapters.NewMemoryOutboxAdapter()
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 	svc.SetOutboxPort(outbox)
 
 	if err := outbox.Enqueue(ctx, contracts.OutboxEvent{

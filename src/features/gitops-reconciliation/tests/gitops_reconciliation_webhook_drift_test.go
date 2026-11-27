@@ -11,10 +11,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	restv1 "internal-developer-platform/src/features/gitops-reconciliation/api/rest/v1"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
+	restv1 "internal-developer-platform/src/features/gitops-reconciliation/internal/api/rest/v1"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 )
 
 type MockFullArgoClient struct {
@@ -82,9 +83,9 @@ func (m *MockFullArgoClient) RefreshAppsForRepo(ctx context.Context, repoURL str
 }
 
 func TestGitOpsWebhookHMACVerificationAndIngress(t *testing.T) {
-	store := gitopsreconciliation.NewMemoryStore()
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
 	argoClient := NewMockFullArgoClient()
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 	handler := restv1.NewGitOpsReconciliationHandler(svc)
 	router := restv1.NewGitOpsReconciliationRouter(handler, nil)
 
@@ -126,9 +127,9 @@ func TestGitOpsWebhookHMACVerificationAndIngress(t *testing.T) {
 
 func TestGitOpsDriftInspectionEndpoint(t *testing.T) {
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
 	argoClient := NewMockFullArgoClient()
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 
 	cmd := contracts.SyncCommand{
 		ID:                 "rec-drift-01",
