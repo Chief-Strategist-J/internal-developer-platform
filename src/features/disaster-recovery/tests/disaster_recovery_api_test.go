@@ -214,3 +214,34 @@ func TestDisasterRecoveryAPIRoutes(t *testing.T) {
 		t.Fatalf("expected 200 OK on GET restore op, got %d: %s", wGetRestore.Code, wGetRestore.Body.String())
 	}
 }
+
+func TestDisasterRecoveryAPI_InvalidTenantAndErrorSanitization(t *testing.T) {
+	pgStore := adapters.NewPostgresDRRepositoryAdapter(nil)
+	cloud := adapters.NewCloudProviderDRAdapter()
+	svc := service.NewDisasterRecoveryService(pgStore, cloud, cloud, cloud, cloud, cloud)
+	h := restv1.NewDisasterRecoveryHandler(svc)
+	router := restv1.NewDisasterRecoveryRouter(h, nil)
+
+	mux := http.NewServeMux()
+	router.RegisterRoutes(mux)
+
+	reqEmpty := httptest.NewRequest(http.MethodGet, constants.EndpointDRPlans, nil)
+	wEmpty := httptest.NewRecorder()
+	mux.ServeHTTP(wEmpty, reqEmpty)
+	if wEmpty.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for empty tenant header, got %d: %s", wEmpty.Code, wEmpty.Body.String())
+	}
+
+	reqNilDB := httptest.NewRequest(http.MethodGet, constants.EndpointDRPlans, nil)
+	reqNilDB.Header.Set(constants.HeaderXTenantID, "tenant-live")
+	wNilDB := httptest.NewRecorder()
+	mux.ServeHTTP(wNilDB, reqNilDB)
+	if wNilDB.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 Internal Server Error for uninitialized DB, got %d", wNilDB.Code)
+	}
+	var errResp types.ApiResponse
+	_ = json.Unmarshal(wNilDB.Body.Bytes(), &errResp)
+	if errResp.Error == nil || errResp.Error.Message != "internal server error" {
+		t.Fatalf("expected sanitized 500 message, got %+v", errResp.Error)
+	}
+}
