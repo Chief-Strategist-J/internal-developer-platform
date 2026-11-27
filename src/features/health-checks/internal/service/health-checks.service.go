@@ -10,8 +10,8 @@ import (
 	"context"
 	"time"
 
-	healthContracts "internal-developer-platform/src/features/health-checks/contracts"
-	healthPorts "internal-developer-platform/src/features/health-checks/infrastructure/ports"
+	healthContracts "internal-developer-platform/src/features/health-checks/internal/contracts"
+	healthPorts "internal-developer-platform/src/features/health-checks/internal/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 )
 

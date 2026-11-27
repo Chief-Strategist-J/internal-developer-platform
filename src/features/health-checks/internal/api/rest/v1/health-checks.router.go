@@ -1,16 +1,14 @@
-package routers
+package restv1
 
 import (
 	"net/http"
-
-	"internal-developer-platform/src/api/rest/v1/handlers"
 )
 
 type HealthCheckRouter struct {
-	handler *handlers.HealthCheckHandler
+	handler *HealthCheckHandler
 }
 
-func NewHealthCheckRouter(h *handlers.HealthCheckHandler) *HealthCheckRouter {
+func NewHealthCheckRouter(h *HealthCheckHandler) *HealthCheckRouter {
 	return &HealthCheckRouter{handler: h}
 }
 

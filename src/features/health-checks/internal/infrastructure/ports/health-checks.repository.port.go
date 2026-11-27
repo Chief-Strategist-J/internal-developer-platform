@@ -3,7 +3,7 @@ package healthchecks
 import (
 	"context"
 
-	healthContracts "internal-developer-platform/src/features/health-checks/contracts"
+	healthContracts "internal-developer-platform/src/features/health-checks/internal/contracts"
 )
 
 type HealthCheckPort interface {
