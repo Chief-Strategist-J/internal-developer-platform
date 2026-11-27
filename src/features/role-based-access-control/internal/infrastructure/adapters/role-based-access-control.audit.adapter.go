@@ -27,6 +27,7 @@ import (
 
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
 	rbacQueries "internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/queries"
+	"internal-developer-platform/src/infra/db"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -70,7 +71,16 @@ func (a *PostgresRBACAuditOutboxAdapter) EnqueueAuditEvent(ctx context.Context, 
 				publicID,
 			)
 		} else {
-			_, err = a.db.ExecContext(
+			featureTx, beginErr := db.BeginFeatureTx(ctx, a.db, db.FeatureTxScope{
+				Schema:   "role_based_access_control",
+				Role:     "svc_rbac",
+				TenantID: event.TenantID,
+			})
+			if beginErr != nil {
+				return fmt.Errorf("failed to begin rbac audit outbox transaction: %w", beginErr)
+			}
+			defer featureTx.Rollback()
+			_, err = featureTx.ExecContext(
 				ctx,
 				rbacQueries.FlowInsertRBACAuditOutbox,
 				event.ID,
@@ -84,6 +94,9 @@ func (a *PostgresRBACAuditOutboxAdapter) EnqueueAuditEvent(ctx context.Context, 
 				occurredAt,
 				publicID,
 			)
+			if err == nil {
+				err = featureTx.Commit()
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("failed to enqueue rbac audit outbox event: %w", err)
@@ -182,6 +195,20 @@ func NewHTTPBreakGlassTicketAdapter(pdEndpoint string, pdToken string, jiraEndpo
 	}
 }
 
+type pagerDutyIncidentResponse struct {
+	Incident struct {
+		Status string `json:"status"`
+	} `json:"incident"`
+}
+
+type jiraIssueResponse struct {
+	Fields struct {
+		Status struct {
+			Name string `json:"name"`
+		} `json:"status"`
+	} `json:"fields"`
+}
+
 func (a *HTTPBreakGlassTicketAdapter) VerifyTicketApproval(ctx context.Context, ticketID string) (bool, error) {
 	return observability.RunTraced(ctx, "http.rbac.verify_breakglass_ticket", func(ctx context.Context) (bool, error) {
 		if ticketID == "" {
@@ -189,11 +216,17 @@ func (a *HTTPBreakGlassTicketAdapter) VerifyTicketApproval(ctx context.Context, 
 		}
 		targetURL := ""
 		authHeader := ""
+		isPagerDuty := false
 		if strings.HasPrefix(strings.ToUpper(ticketID), "PD-") && a.pagerDutyEndpoint != "" && a.pagerDutyToken != "" {
-			targetURL = fmt.Sprintf("%s/incidents/%s", a.pagerDutyEndpoint, ticketID)
+			isPagerDuty = true
+			normalizedID := ticketID[3:]
+			if normalizedID == "" {
+				return false, errors.NewValidationError("break-glass pagerduty incident id is required")
+			}
+			targetURL = fmt.Sprintf("%s/incidents/%s", a.pagerDutyEndpoint, url.PathEscape(normalizedID))
 			authHeader = "Token token=" + a.pagerDutyToken
 		} else if a.jiraEndpoint != "" && a.jiraToken != "" {
-			targetURL = fmt.Sprintf("%s/rest/api/3/issue/%s", a.jiraEndpoint, ticketID)
+			targetURL = fmt.Sprintf("%s/rest/api/3/issue/%s", a.jiraEndpoint, url.PathEscape(ticketID))
 			authHeader = "Bearer " + a.jiraToken
 		}
 		if targetURL == "" {
@@ -210,7 +243,23 @@ func (a *HTTPBreakGlassTicketAdapter) VerifyTicketApproval(ctx context.Context, 
 			return false, fmt.Errorf("ticket verification request failed: %w", err)
 		}
 		defer resp.Body.Close()
-		return resp.StatusCode >= 200 && resp.StatusCode < 300, nil
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return false, nil
+		}
+		if isPagerDuty {
+			var pdResp pagerDutyIncidentResponse
+			if err := json.NewDecoder(resp.Body).Decode(&pdResp); err != nil {
+				return false, fmt.Errorf("failed to decode pagerduty incident response: %w", err)
+			}
+			status := strings.ToLower(strings.TrimSpace(pdResp.Incident.Status))
+			return status == "triggered" || status == "acknowledged", nil
+		}
+		var jiraResp jiraIssueResponse
+		if err := json.NewDecoder(resp.Body).Decode(&jiraResp); err != nil {
+			return false, fmt.Errorf("failed to decode jira issue response: %w", err)
+		}
+		status := strings.ToLower(strings.TrimSpace(jiraResp.Fields.Status.Name))
+		return status == "approved" || status == "in progress" || status == "active" || status == "open" || status == "escalated", nil
 	}, attribute.String("ticket.id", ticketID))
 }
 

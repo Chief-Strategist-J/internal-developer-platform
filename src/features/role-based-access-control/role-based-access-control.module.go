@@ -75,10 +75,19 @@ type RBACModule struct {
 
 func BuildModule(deps ModuleDeps) *RBACModule {
 	cfg := deps.Config
-	revocationRepo := adapters.NewRedisRevocationAdapter(
-		cfg.Redis.Address,
-		time.Duration(cfg.Redis.TimeoutSeconds)*time.Second,
-	)
+	var revocationRepo *adapters.RedisRevocationAdapter
+	if len(cfg.Redis.SentinelAddrs) > 0 && cfg.Redis.SentinelMaster != "" {
+		revocationRepo = adapters.NewRedisSentinelRevocationAdapter(
+			cfg.Redis.SentinelAddrs,
+			cfg.Redis.SentinelMaster,
+			time.Duration(cfg.Redis.TimeoutSeconds)*time.Second,
+		)
+	} else {
+		revocationRepo = adapters.NewRedisRevocationAdapter(
+			cfg.Redis.Address,
+			time.Duration(cfg.Redis.TimeoutSeconds)*time.Second,
+		)
+	}
 	tokenVerifier := adapters.NewJWTTokenVerifierAdapter(cfg.Auth.JWTSecret, cfg.Auth.Issuer)
 	rbacPostgres := adapters.NewPostgresRBACAdapter(deps.DB)
 	rbacAuditOutbox := adapters.NewPostgresRBACAuditOutboxAdapter(deps.DB)

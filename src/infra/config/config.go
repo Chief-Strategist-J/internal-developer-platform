@@ -28,8 +28,10 @@ type DatabaseConfig struct {
 }
 
 type RedisConfig struct {
-	Address        string `yaml:"address"`
-	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	Address        string   `yaml:"address"`
+	TimeoutSeconds int      `yaml:"timeout_seconds"`
+	SentinelAddrs  []string `yaml:"sentinel_addrs"`
+	SentinelMaster string   `yaml:"sentinel_master"`
 }
 
 type AuthConfig struct {
@@ -189,6 +191,22 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 
 	if redisAddr := os.Getenv("REDIS_ADDR"); redisAddr != "" {
 		cfg.Redis.Address = redisAddr
+	}
+
+	if sentinelAddrs := os.Getenv("REDIS_SENTINEL_ADDRS"); sentinelAddrs != "" {
+		parts := strings.Split(sentinelAddrs, ",")
+		cleaned := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				cleaned = append(cleaned, trimmed)
+			}
+		}
+		cfg.Redis.SentinelAddrs = cleaned
+	}
+
+	if sentinelMaster := os.Getenv("REDIS_SENTINEL_MASTER"); sentinelMaster != "" {
+		cfg.Redis.SentinelMaster = strings.TrimSpace(sentinelMaster)
 	}
 
 	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {

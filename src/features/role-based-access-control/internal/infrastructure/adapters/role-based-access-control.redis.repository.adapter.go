@@ -49,6 +49,27 @@ func NewRedisRevocationAdapter(addr string, timeout time.Duration) *RedisRevocat
 	}
 }
 
+func NewRedisSentinelRevocationAdapter(sentinelAddrs []string, masterName string, timeout time.Duration) *RedisRevocationAdapter {
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	var client *redis.Client
+	if len(sentinelAddrs) > 0 && masterName != "" {
+		client = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:    masterName,
+			SentinelAddrs: sentinelAddrs,
+			DialTimeout:   timeout,
+			ReadTimeout:   timeout,
+			WriteTimeout:  timeout,
+		})
+	}
+	return &RedisRevocationAdapter{
+		client:       client,
+		addr:         masterName,
+		localRevoked: make(map[string]time.Time),
+	}
+}
+
 func (a *RedisRevocationAdapter) isLocallyRevoked(key string) bool {
 	if key == "" || a.localRevoked == nil {
 		return false
