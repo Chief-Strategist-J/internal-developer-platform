@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/rules"
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/domain/workflows"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/domain/rules"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/domain/workflows"
 )
 
 func TestExecuteProvisionDAG_SynthesizesCanaryAndCloudBundle(t *testing.T) {

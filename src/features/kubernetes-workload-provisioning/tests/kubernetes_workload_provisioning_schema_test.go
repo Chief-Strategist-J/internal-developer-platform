@@ -8,7 +8,7 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/internal/contracts"
 )
 
 func TestValidateWorkloadCommand(t *testing.T) {
