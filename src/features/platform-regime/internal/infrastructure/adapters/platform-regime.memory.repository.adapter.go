@@ -12,7 +12,7 @@ import (
 	"context"
 	"sync"
 
-	"internal-developer-platform/src/features/platform-regime/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/contracts"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )

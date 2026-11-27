@@ -13,8 +13,8 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"internal-developer-platform/src/features/platform-regime/contracts"
-	"internal-developer-platform/src/features/platform-regime/infrastructure/queries"
+	"internal-developer-platform/src/features/platform-regime/internal/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )

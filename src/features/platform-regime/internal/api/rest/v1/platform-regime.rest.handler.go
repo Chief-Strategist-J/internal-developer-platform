@@ -8,7 +8,7 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME REST HANDLER
   - Dispatches to PlatformRegimeService under child span.
   - Returns typed ApiResponse envelopes with no comments inside function bodies.
 */
-package handlers
+package restv1
 
 import (
 	"context"
@@ -16,8 +16,9 @@ import (
 	"errors"
 	"net/http"
 
-	platformregime "internal-developer-platform/src/features/platform-regime"
-	"internal-developer-platform/src/features/platform-regime/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/service"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"
@@ -25,16 +26,16 @@ import (
 )
 
 type PlatformRegimeHandler struct {
-	service *platformregime.PlatformRegimeService
+	service *service.PlatformRegimeService
 }
 
-func NewPlatformRegimeHandler(s *platformregime.PlatformRegimeService) *PlatformRegimeHandler {
+func NewPlatformRegimeHandler(s *service.PlatformRegimeService) *PlatformRegimeHandler {
 	return &PlatformRegimeHandler{service: s}
 }
 
 func (h *PlatformRegimeHandler) RegisterRegimePolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "platform_regime.handler.register_policy", func(ctx context.Context) error {
-		meta := utils.ExtractIngressMetadata(r)
+		meta := middleware.ExtractIngressMetadata(r)
 		cmd, err := decodeRegimePayload(r, meta)
 		if err != nil {
 			h.handleError(w, meta, err)
@@ -54,7 +55,7 @@ func (h *PlatformRegimeHandler) RegisterRegimePolicy(w http.ResponseWriter, r *h
 
 func (h *PlatformRegimeHandler) GetActiveRegimePolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "platform_regime.handler.get_active_policy", func(ctx context.Context) error {
-		meta := utils.ExtractIngressMetadata(r)
+		meta := middleware.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID

@@ -1,0 +1,43 @@
+feature: platform-regime
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
+
+provides: []
+exposes:
+  - EvaluateWorkloadCompliance
+
+asks:
+  - capability: authz
+    reason: "Route authorization for regime policy registration and lookup"
+    fallback: fail-closed
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+persistence:
+  schema: platform_regime
+  role: svc_platform_regime
+  tenant_scoped: true
+  data_classes:
+    tenant_id: internal
+    jurisdiction: internal
+  erasure: none
+
+ports:
+  - name: repository
+    adapters: [postgres, memory]
+
+lifecycles: []
+
+ingress:
+  rest: contracts/openapi/platform-regime/v1/openapi.yaml
+
+tiers: [rules]
+
+deviations: []
+waivers: []

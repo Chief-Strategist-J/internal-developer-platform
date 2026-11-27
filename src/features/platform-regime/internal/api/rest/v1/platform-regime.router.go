@@ -7,23 +7,22 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: PLATFORM REGIME REST ROUTER
   - Enforces RBAC permissions via RequirePermission: ResourceInfrastructure ActionWrite for register, ActionRead for active.
   - Zero inline comments inside function bodies.
 */
-package routers
+package restv1
 
 import (
 	"net/http"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type PlatformRegimeRouter struct {
-	handler    *handlers.PlatformRegimeHandler
+	handler    *PlatformRegimeHandler
 	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewPlatformRegimeRouter(h *handlers.PlatformRegimeHandler, m *middleware.RBACMiddleware) *PlatformRegimeRouter {
+func NewPlatformRegimeRouter(h *PlatformRegimeHandler, m *middleware.RBACMiddleware) *PlatformRegimeRouter {
 	return &PlatformRegimeRouter{
 		handler:    h,
 		rbacMiddle: m,

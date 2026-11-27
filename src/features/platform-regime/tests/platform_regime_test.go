@@ -15,11 +15,10 @@ import (
 	"testing"
 	"time"
 
-	workloadcontracts "internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
-	"internal-developer-platform/src/features/platform-regime/contracts"
-	"internal-developer-platform/src/features/platform-regime/domain/rules"
-	"internal-developer-platform/src/features/platform-regime/infrastructure/adapters"
-	"internal-developer-platform/src/features/platform-regime/service"
+	"internal-developer-platform/src/features/platform-regime/internal/contracts"
+	"internal-developer-platform/src/features/platform-regime/internal/domain/rules"
+	"internal-developer-platform/src/features/platform-regime/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/platform-regime/internal/service"
 )
 
 func sampleValidRegimeCommand() contracts.CreateRegimePolicyCommand {
@@ -76,13 +75,11 @@ func TestValidateWorkloadAgainstRegime(t *testing.T) {
 		TenantIsolationMode:  contracts.TenancyModeInternalOnly,
 	}
 
-	cmd := workloadcontracts.WorkloadProvisionCommand{
-		Namespace: "fintech-prod",
-		AuditLogging: workloadcontracts.AuditLoggingConfig{
-			RetentionDays: 30,
-		},
-		EncryptedSecrets: map[string]string{"SECRET_KEY": "dummy"},
-		KMSKeyURI:        "",
+	cmd := contracts.WorkloadComplianceInput{
+		Namespace:           "fintech-prod",
+		AuditRetentionDays:  30,
+		HasEncryptedSecrets: true,
+		KMSKeyURI:           "",
 	}
 
 	ok, violations := rules.ValidateWorkloadAgainstRegime(cmd, regime)
