@@ -1,160 +1,52 @@
+# context.yml — kubernetes-workload-provisioning feature (v3.0 schema, XI.1)
 feature: kubernetes-workload-provisioning
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
 
-entity: workload_provisions
-owner: platform-core
-fields:
-  - name: id
-    type: uuid
-    null: no
-    default: gen_random_uuid()
-    constraint: PK(tenant_id, id), immutable
-  - name: public_id
-    type: text
-    null: no
-    constraint: UNIQUE, immutable, format 'wld_' + 26 chars
-  - name: tenant_id
-    type: uuid
-    null: no
-    constraint: PK(tenant_id, id), immutable
-  - name: source
-    type: text
-    null: no
-    constraint: CHECK (source = btrim(source) AND source <> '')
-  - name: external_id
-    type: text
-    null: no
-    normalize: trim
-    constraint: UNIQUE(tenant_id, source, external_id), length 1..128
-  - name: correlation_id
-    type: uuid
-    null: no
-    constraint: immutable, no FK
-  - name: spec_hash
-    type: text
-    null: no
-    constraint: immutable, sha256 hex digest
-  - name: approved_spec_hash
-    type: text
-    null: no
-    constraint: immutable, matching spec_hash at approval time
-  - name: approver_role
-    type: text
-    null: no
-    default: 'system-auto'
-  - name: image_pull_policy
-    type: text
-    null: no
-    default: 'IfNotPresent'
-  - name: breakglass_justification
-    type: text
-    null: yes
-  - name: service_id
-    type: text
-    null: no
-    constraint: immutable, INDEX(tenant_id, service_id)
-  - name: namespace
-    type: text
-    null: no
-    normalize: trim
-    constraint: immutable, CHECK (namespace = btrim(namespace) AND namespace <> '')
-  - name: workload_name
-    type: text
-    null: no
-    normalize: trim
-    constraint: immutable, CHECK (workload_name = btrim(workload_name) AND workload_name <> '')
-  - name: cpu_request
-    type: text
-    null: no
-  - name: cpu_limit
-    type: text
-    null: no
-  - name: memory_request
-    type: text
-    null: no
-  - name: memory_limit
-    type: text
-    null: no
-  - name: replicas
-    type: integer
-    null: no
-    default: 2
-    constraint: CHECK (replicas >= 1 AND replicas <= 100)
-  - name: status
-    type: text
-    null: no
-    constraint: FK workload_lifecycle_states(code), INDEX(status)
-  - name: strategy
-    type: text
-    null: no
-    default: 'Canary'
-    constraint: FK workload_deployment_strategies(code)
-  - name: enable_data_access_logs
-    type: boolean
-    null: no
-    default: false
-  - name: audit_destination_bucket
-    type: text
-    null: no
-    default: ''
-  - name: audit_retention_days
-    type: integer
-    null: no
-    default: 30
-  - name: audit_locked_retention
-    type: boolean
-    null: no
-    default: false
-  - name: on_call_pager
-    type: text
-    null: no
-    default: ''
-  - name: runbook_url
-    type: text
-    null: no
-    default: ''
-  - name: incident_tier
-    type: text
-    null: no
-    default: 'TIER_2'
-    constraint: CHECK (incident_tier IN ('TIER_1', 'TIER_2', 'TIER_3'))
-  - name: idempotency_key
-    type: text
-    null: no
-    constraint: UNIQUE(tenant_id, idempotency_key), immutable
-  - name: version
-    type: bigint
-    null: no
-    default: 1
-  - name: created_at
-    type: timestamptz
-    null: no
-    default: now()
-  - name: updated_at
-    type: timestamptz
-    null: no
-    default: now()
-invariants:
-  - tenant_id, source, and external_id uniquely identify an upstream system record
-  - tenant_id and idempotency_key uniquely identify a provision request
-  - immutability enforced on id, public_id, tenant_id, and correlation_id
-  - status transitions follow strict FSM rules
-  - version increments on every successful mutation
+provides: []
+exposes: []
+
+asks:
+  - capability: authz
+    reason: "Route authorization and async job token revocation drift verification"
+    fallback: fail-closed
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+persistence:
+  schema: kubernetes_workload_provisioning
+  role: svc_workload_provisioning
+  tenant_scoped: true
+  data_classes:
+    tenant_id: internal
+    namespace: internal
+    workload_name: internal
+  erasure: none
+
 ports:
-  outbound:
-    - name: WorkloadStorePort
-      role: persistence
-      type: abstract_interface
-      methods: [Save, GetByID, GetByIdempotencyKey, List, Update]
-    - name: K8sClientPort
-      role: cluster_orchestration
-      type: abstract_interface
-      methods: [ApplyDeployment, ApplyPDB, GetWorkloadHealth, GenerateManifestBundle, GetAppliedManifests, GetNamespaceQuota, ObserveWorkloadReadiness]
-    - name: GitOpsDeliveryPort
-      role: gitops_delivery
-      type: abstract_interface
-      methods: [CommitManifestBundle, RevertManifestBundle]
-    - name: KmsEncryptionPort
-      role: security_encryption
-      type: abstract_interface
-      methods: [EncryptSecret]
+  - name: repository
+    adapters: [postgres, memory]
+  - name: kubernetes
+    adapters: [k8s]
+  - name: async-drift
+    adapters: [bridge]
+
+lifecycles: []
+
+ingress:
+  rest: contracts/openapi/kubernetes-workload-provisioning/v1/openapi.yaml
+
+tiers: [rules, machine, workflow]
+
+deviations:
+  - rule: G-02
+    reason: "Still imports platform-regime and policy-as-code ports directly; tracked for Phase 4 bridge extraction"
+    phase: 4
+
+waivers: []

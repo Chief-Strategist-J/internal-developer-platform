@@ -13,9 +13,9 @@ import (
 	"net/http"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type PlatformRegimeRouter struct {
@@ -36,13 +36,13 @@ func (r *PlatformRegimeRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointRegimes, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			regimeHandler,
 		))
 		mux.HandleFunc(constants.EndpointRegimesActive, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			activeHandler,
 		))
 		return

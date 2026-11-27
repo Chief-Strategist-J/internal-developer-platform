@@ -1,58 +1,65 @@
+# context.yml — gitops-reconciliation feature (v3.0 schema, XI.1)
 feature: gitops-reconciliation
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
 
-entity: gitops_reconciliations
-owner: platform-core
-fields:
-  - name: id
-    type: varchar(128)
-    null: no
-    constraint: PK(tenant_id, id), immutable
-  - name: tenant_id
-    type: varchar(128)
-    null: no
-    constraint: PK(tenant_id, id), immutable
-  - name: service_id
-    type: varchar(128)
-    null: no
-    constraint: immutable, INDEX(tenant_id, service_id)
-  - name: app_name
-    type: varchar(256)
-    null: no
-    constraint: immutable, format RFC-1123
-  - name: target_revision
-    type: varchar(128)
-    null: no
-    constraint: immutable
-  - name: current_revision
-    type: varchar(128)
-    null: no
-    default: "''"
-  - name: sync_phase
-    type: varchar(64)
-    null: no
-    constraint: CHECK IN ('PENDING', 'SYNCING', 'SYNCED', 'FAILED', 'DRIFT_DETECTED'), INDEX(sync_phase)
-  - name: health_status
-    type: varchar(64)
-    null: no
-    constraint: CHECK IN ('HEALTHY', 'PROGRESSING', 'DEGRADED', 'MISSING', 'UNKNOWN')
-  - name: idempotency_key
-    type: varchar(256)
-    null: no
-    constraint: UNIQUE(tenant_id, idempotency_key), immutable
-  - name: version
-    type: bigint
-    null: no
-    default: 1
-  - name: created_at
-    type: timestamptz
-    null: no
-    default: now()
-  - name: updated_at
-    type: timestamptz
-    null: no
-    default: now()
-invariants:
-  - tenant_id and idempotency_key uniquely identify a reconciliation request
-  - sync_phase follows valid state machine transitions
-  - version increments on every successful update
+provides: []
+exposes: []
+
+asks:
+  - capability: authz
+    reason: "Route authorization and task-execution lease guard before reconciliation dispatch"
+    fallback: fail-closed
+
+events:
+  produces:
+    - type: gitops-reconciliation.reconciliation.succeeded.v1
+      schema: contracts/asyncapi/gitops-reconciliation/v1/reconciliation.succeeded.json
+      retention: 90d
+    - type: gitops-reconciliation.reconciliation.failed.v1
+      schema: contracts/asyncapi/gitops-reconciliation/v1/reconciliation.failed.json
+      retention: 90d
+    - type: gitops-reconciliation.rollback.triggered.v1
+      schema: contracts/asyncapi/gitops-reconciliation/v1/rollback.triggered.json
+      retention: 90d
+  consumes: []
+
+projections: []
+
+persistence:
+  schema: gitops_reconciliation
+  role: svc_gitops_reconciliation
+  tenant_scoped: true
+  data_classes:
+    tenant_id: internal
+    service_id: internal
+    app_name: internal
+  erasure: none
+
+ports:
+  - name: repository
+    adapters: [postgres, memory]
+  - name: argocd
+    adapters: [http]
+  - name: secret-mechanism
+    adapters: [postgres, memory]
+  - name: outbox
+    adapters: [postgres, memory]
+  - name: task-lease
+    adapters: [bridge]
+
+lifecycles:
+  - name: outbox-relay
+    roles: [worker]
+    schedule: "*/1 * * * *"
+    lease: false
+
+ingress:
+  rest: contracts/openapi/gitops-reconciliation/v1/openapi.yaml
+
+tiers: [rules, machine, workflow]
+
+deviations: []
+waivers: []

@@ -16,9 +16,9 @@ import (
 	"strings"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type PolicyAsCodeRouter struct {
@@ -42,28 +42,28 @@ func (r *PolicyAsCodeRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointPoliciesEvaluate, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			admissionHandler,
 		))
 		mux.HandleFunc(constants.EndpointPoliciesAuditScan, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			auditScanHandler,
 		))
 		mux.HandleFunc(constants.EndpointPoliciesReconcileExceptions, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			reconcileHandler,
 		))
 		mux.HandleFunc(constants.EndpointPolicies, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			collectionHandler,
 		))
 		mux.HandleFunc(constants.EndpointPoliciesPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			subresourceHandler,
 		))
 		return

@@ -21,6 +21,7 @@ import (
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"
+	"internal-developer-platform/src/shared/utils"
 )
 
 type PlatformRegimeHandler struct {
@@ -33,7 +34,7 @@ func NewPlatformRegimeHandler(s *platformregime.PlatformRegimeService) *Platform
 
 func (h *PlatformRegimeHandler) RegisterRegimePolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "platform_regime.handler.register_policy", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		cmd, err := decodeRegimePayload(r, meta)
 		if err != nil {
 			h.handleError(w, meta, err)
@@ -53,7 +54,7 @@ func (h *PlatformRegimeHandler) RegisterRegimePolicy(w http.ResponseWriter, r *h
 
 func (h *PlatformRegimeHandler) GetActiveRegimePolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "platform_regime.handler.get_active_policy", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -75,7 +76,7 @@ func (h *PlatformRegimeHandler) GetActiveRegimePolicy(w http.ResponseWriter, r *
 	})
 }
 
-func (h *PlatformRegimeHandler) handleError(w http.ResponseWriter, meta IngressMetadata, err error) {
+func (h *PlatformRegimeHandler) handleError(w http.ResponseWriter, meta utils.IngressMetadata, err error) {
 	var appErr *appErrors.ApplicationError
 	if errors.As(err, &appErr) {
 		h.writeErrorResponse(w, appErr.StatusCode, appErr.CanonicalCode, appErr.Message, meta)
@@ -84,7 +85,7 @@ func (h *PlatformRegimeHandler) handleError(w http.ResponseWriter, meta IngressM
 	h.writeErrorResponse(w, http.StatusInternalServerError, constants.ErrCodeInternalError, "internal server error", meta)
 }
 
-func (h *PlatformRegimeHandler) writeSuccessResponse(w http.ResponseWriter, status int, data any, meta IngressMetadata) {
+func (h *PlatformRegimeHandler) writeSuccessResponse(w http.ResponseWriter, status int, data any, meta utils.IngressMetadata) {
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	if meta.Traceparent != "" {
 		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
@@ -97,11 +98,11 @@ func (h *PlatformRegimeHandler) writeSuccessResponse(w http.ResponseWriter, stat
 		"success":    true,
 		"statusCode": status,
 		"data":       data,
-		"meta":       buildMeta(meta),
+		"meta":       utils.BuildResponseMeta(meta),
 	})
 }
 
-func (h *PlatformRegimeHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta IngressMetadata) {
+func (h *PlatformRegimeHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta utils.IngressMetadata) {
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	if meta.Traceparent != "" {
 		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
@@ -117,11 +118,11 @@ func (h *PlatformRegimeHandler) writeErrorResponse(w http.ResponseWriter, status
 			"code":    code,
 			"message": msg,
 		},
-		"meta": buildMeta(meta),
+		"meta": utils.BuildResponseMeta(meta),
 	})
 }
 
-func decodeRegimePayload(r *http.Request, meta IngressMetadata) (contracts.CreateRegimePolicyCommand, error) {
+func decodeRegimePayload(r *http.Request, meta utils.IngressMetadata) (contracts.CreateRegimePolicyCommand, error) {
 	var cmd contracts.CreateRegimePolicyCommand
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()

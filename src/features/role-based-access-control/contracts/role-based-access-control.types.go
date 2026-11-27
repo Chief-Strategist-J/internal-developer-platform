@@ -44,19 +44,19 @@ type Role struct {
 }
 
 type Subject struct {
-	ID               string       `json:"id"`
-	TenantID         string       `json:"tenantId"`
-	Roles            []RoleName   `json:"roles"`
-	GroupMemberships []string     `json:"groupMemberships,omitempty"`
-	ClientType       string       `json:"clientType,omitempty"`
+	ID                   string              `json:"id"`
+	TenantID             string              `json:"tenantId"`
+	Roles                []RoleName          `json:"roles"`
+	GroupMemberships     []string            `json:"groupMemberships,omitempty"`
+	ClientType           string              `json:"clientType,omitempty"`
 	Permissions          []Permission        `json:"permissions,omitempty"`
 	DenyPermissions      []Permission        `json:"denyPermissions,omitempty"`
 	FlattenedPermissions map[string]struct{} `json:"-"`
-	MFAVerified      bool         `json:"mfaVerified,omitempty"`
-	Classification   string       `json:"classification,omitempty"`
-	Issuer           string       `json:"issuer"`
-	ExpiresAt        time.Time    `json:"expiresAt"`
-	JTI              string       `json:"jti,omitempty"`
+	MFAVerified          bool                `json:"mfaVerified,omitempty"`
+	Classification       string              `json:"classification,omitempty"`
+	Issuer               string              `json:"issuer"`
+	ExpiresAt            time.Time           `json:"expiresAt"`
+	JTI                  string              `json:"jti,omitempty"`
 }
 
 type BreakGlassContext struct {
@@ -75,23 +75,25 @@ type FederationHandshake struct {
 }
 
 type EvaluationRequest struct {
-	Subject                 Subject                    `json:"subject"`
-	TargetTenantID          string                     `json:"targetTenantId"`
-	TargetNamespace         string                     `json:"targetNamespace,omitempty"`
-	Resource                Resource                   `json:"resource"`
-	Action                  Action                     `json:"action"`
-	TargetEnvironment       string                     `json:"targetEnvironment,omitempty"`
-	ChangeFreezeActive      bool                       `json:"changeFreezeActive,omitempty"`
-	RequireStepUpMFA        bool                       `json:"requireStepUpMfa,omitempty"`
-	ResourceClassification  string                     `json:"resourceClassification,omitempty"`
-	CurrentQuotaUsage       int                        `json:"currentQuotaUsage,omitempty"`
-	MaxTenantQuota          int                        `json:"maxTenantQuota,omitempty"`
-	AllowedStartHourUTC     int                        `json:"allowedStartHourUtc,omitempty"`
-	AllowedEndHourUTC       int                        `json:"allowedEndHourUtc,omitempty"`
-	BreakGlass              *BreakGlassContext         `json:"breakGlass,omitempty"`
-	CrossTenantFederation   *FederationHandshake       `json:"crossTenantFederation,omitempty"`
-	FederationHMACSecret    string                     `json:"-"`
-	ResolvedRolePermissions map[RoleName][]Permission  `json:"-"`
+	Subject                 Subject                   `json:"subject"`
+	TargetTenantID          string                    `json:"targetTenantId"`
+	TargetNamespace         string                    `json:"targetNamespace,omitempty"`
+	Resource                Resource                  `json:"resource"`
+	Action                  Action                    `json:"action"`
+	TargetEnvironment       string                    `json:"targetEnvironment,omitempty"`
+	ChangeFreezeActive      bool                      `json:"changeFreezeActive,omitempty"`
+	RequireStepUpMFA        bool                      `json:"requireStepUpMfa,omitempty"`
+	ResourceClassification  string                    `json:"resourceClassification,omitempty"`
+	CurrentQuotaUsage       int                       `json:"currentQuotaUsage,omitempty"`
+	MaxTenantQuota          int                       `json:"maxTenantQuota,omitempty"`
+	AllowedStartHourUTC     int                       `json:"allowedStartHourUtc,omitempty"`
+	AllowedEndHourUTC       int                       `json:"allowedEndHourUtc,omitempty"`
+	BreakGlass              *BreakGlassContext        `json:"breakGlass,omitempty"`
+	CrossTenantFederation   *FederationHandshake      `json:"crossTenantFederation,omitempty"`
+	GlobalAuthorityDown     bool                      `json:"globalAuthorityDown,omitempty"`
+	PolicySnapshotAgeSec    int64                     `json:"policySnapshotAgeSeconds,omitempty"`
+	FederationHMACSecret    string                    `json:"-"`
+	ResolvedRolePermissions map[RoleName][]Permission `json:"-"`
 }
 
 type EvaluationResult struct {
@@ -209,10 +211,10 @@ type PermissionUsageRecord struct {
 }
 
 type UnusedPermissionFinding struct {
-	Role       RoleName  `json:"role"`
+	Role       RoleName   `json:"role"`
 	Permission Permission `json:"permission"`
-	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
-	Reason     string    `json:"reason"`
+	LastUsedAt time.Time  `json:"lastUsedAt,omitempty"`
+	Reason     string     `json:"reason"`
 }
 
 type LeastPrivilegeReport struct {

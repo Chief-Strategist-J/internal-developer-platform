@@ -1,0 +1,77 @@
+# violations.todo.yml — v3.0 adoption ratchet (XII.2)
+# Updated after Phase 2/3 migration of role-based-access-control, gitops-reconciliation,
+# kubernetes-workload-provisioning, and src/infra/middleware.
+# CI fails on any violation NOT in this file and on any entry whose violation is fixed but not removed.
+# This file may ONLY shrink; never add new entries beyond baseline legacy features.
+
+format_version: "1.0"
+contract_version: "3.0.0"
+
+violations:
+  # --- §II.3 / V.6: Legacy feature routers/handlers not yet moved to src/features/{f}/api/ ---
+  - id: F-ROUTER-004
+    rule: "V.6, §II.3"
+    description: "disaster-recovery.router.go + handler in src/api/rest/v1/ — move to src/features/disaster-recovery/api/rest/v1/"
+    path: src/api/rest/v1/routers/disaster-recovery.router.go
+    status: open
+    phase: 3
+
+  - id: F-ROUTER-005
+    rule: "V.6, §II.3"
+    description: "platform-regime.router.go + handler in src/api/rest/v1/ — move to src/features/platform-regime/api/rest/v1/"
+    path: src/api/rest/v1/routers/platform-regime.router.go
+    status: open
+    phase: 3
+
+  - id: F-ROUTER-006
+    rule: "V.6, §II.3"
+    description: "policy-as-code.router.go + handler in src/api/rest/v1/ — move to src/features/policy-as-code/api/rest/v1/"
+    path: src/api/rest/v1/routers/policy-as-code.router.go
+    status: open
+    phase: 3
+
+  - id: F-ROUTER-007
+    rule: "V.6, §II.3"
+    description: "service-catalog.router.go + handler in src/api/rest/v1/ — move to src/features/service-catalog/api/rest/v1/"
+    path: src/api/rest/v1/routers/service-catalog.router.go
+    status: open
+    phase: 3
+
+  - id: F-ROUTER-008
+    rule: "V.6, §II.3"
+    description: "health-checks.router.go + handler in src/api/rest/v1/ — move to src/features/health-checks/api/rest/v1/"
+    path: src/api/rest/v1/routers/health-checks.router.go
+    status: open
+    phase: 3
+
+  # --- G-02: Remaining cross-feature import inside kubernetes-workload-provisioning ---
+  - id: G-02-001
+    rule: G-02
+    description: "kubernetes-workload-provisioning service imports platform-regime and policy-as-code ports directly; replace with X-03 consumer ports + bridges"
+    path: src/features/kubernetes-workload-provisioning/service/kubernetes-workload-provisioning.service.go
+    status: open
+    phase: 4
+
+  # --- G-11: Legacy background prober in disaster-recovery ---
+  - id: G-11-002
+    rule: G-11
+    description: "DisasterRecoveryService.StartBackgroundProber should move to a kernel Lifecycle runner"
+    path: src/main.go
+    status: open
+    phase: 4
+
+  # --- D-01 / G-08: Migrations in package root, not per-feature ---
+  - id: D-01-001
+    rule: "D-01, G-08, V.3 role 17"
+    description: "database/migrations/sql/ is a package-level flat directory; MUST be split into src/features/{f}/database/migrations/ in Phase 5"
+    path: database/migrations/sql/
+    status: open
+    phase: 5
+
+  # --- Go profile Appendix A: internal/ encapsulation ---
+  - id: GO-INT-001
+    rule: "Appendix A, IV.5"
+    description: "Feature internals are not yet moved under src/features/{f}/internal/"
+    path: src/features/
+    status: open
+    phase: 3

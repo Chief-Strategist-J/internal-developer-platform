@@ -33,28 +33,32 @@ const (
 )
 
 type SyncCommand struct {
-	ID                    string `json:"id"`
-	TenantID              string `json:"tenantId"`
-	ServiceID             string `json:"serviceId"`
-	AppName               string `json:"appName"`
-	TargetRevision        string `json:"targetRevision"`
-	LastKnownGoodRevision string `json:"lastKnownGoodRevision,omitempty"`
-	LastFailedSHA         string `json:"lastFailedSha,omitempty"`
-	Prune                 bool   `json:"prune"`
-	DryRun                bool   `json:"dryRun"`
-	IsManualSync          bool   `json:"isManualSync"`
-	ProjectEnforcesSig    bool   `json:"projectEnforcesSig"`
-	CommitSigned          bool   `json:"commitSigned"`
-	AllowedSigningKey     bool   `json:"allowedSigningKey"`
-	RoleReviewed          bool   `json:"roleReviewed"`
-	AllowWindowExists     bool   `json:"allowWindowExists"`
-	InAllowWindow         bool   `json:"inAllowWindow"`
-	InDenyWindow          bool   `json:"inDenyWindow"`
-	WindowAllowsManual           bool              `json:"windowAllowsManual"`
-	EmergencyChangePending       bool              `json:"emergencyChangePending"`
-	EmergencyCommittedAndSigned  bool              `json:"emergencyCommittedAndSigned"`
-	OwnerAppMap                  map[string]string `json:"ownerAppMap,omitempty"`
-	IdempotencyKey               string            `json:"idempotencyKey"`
+	ID                          string            `json:"id"`
+	TenantID                    string            `json:"tenantId"`
+	ServiceID                   string            `json:"serviceId"`
+	AppName                     string            `json:"appName"`
+	TargetRevision              string            `json:"targetRevision"`
+	LastKnownGoodRevision       string            `json:"lastKnownGoodRevision,omitempty"`
+	LastFailedSHA               string            `json:"lastFailedSha,omitempty"`
+	Prune                       bool              `json:"prune"`
+	DryRun                      bool              `json:"dryRun"`
+	IsManualSync                bool              `json:"isManualSync"`
+	ProjectEnforcesSig          bool              `json:"projectEnforcesSig"`
+	CommitSigned                bool              `json:"commitSigned"`
+	AllowedSigningKey           bool              `json:"allowedSigningKey"`
+	RoleReviewed                bool              `json:"roleReviewed"`
+	AllowWindowExists           bool              `json:"allowWindowExists"`
+	InAllowWindow               bool              `json:"inAllowWindow"`
+	InDenyWindow                bool              `json:"inDenyWindow"`
+	WindowAllowsManual          bool              `json:"windowAllowsManual"`
+	EmergencyChangePending      bool              `json:"emergencyChangePending"`
+	EmergencyCommittedAndSigned bool              `json:"emergencyCommittedAndSigned"`
+	OwnerAppMap                 map[string]string `json:"ownerAppMap,omitempty"`
+	IdempotencyKey              string            `json:"idempotencyKey"`
+	LeaseToken                  string            `json:"leaseToken,omitempty"`
+	TokenExpired                bool              `json:"tokenExpired,omitempty"`
+	LeaseExpired                bool              `json:"leaseExpired,omitempty"`
+	TaskLeaseRequired           bool              `json:"taskLeaseRequired,omitempty"`
 }
 
 type RollbackResult struct {
@@ -176,13 +180,13 @@ const (
 )
 
 type OutboxEvent struct {
-	ID            string          `json:"id"`
-	TenantID      string          `json:"tenantId"`
-	AggregateID   string          `json:"aggregateId"`
-	EventType     OutboxEventType `json:"eventType"`
-	AppName       string          `json:"appName"`
-	Revision      string          `json:"revision"`
-	OccurredAt    time.Time       `json:"occurredAt"`
+	ID          string          `json:"id"`
+	TenantID    string          `json:"tenantId"`
+	AggregateID string          `json:"aggregateId"`
+	EventType   OutboxEventType `json:"eventType"`
+	AppName     string          `json:"appName"`
+	Revision    string          `json:"revision"`
+	OccurredAt  time.Time       `json:"occurredAt"`
 }
 
 type ClusterRing string

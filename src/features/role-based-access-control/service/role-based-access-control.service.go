@@ -3,27 +3,27 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC SERVICE (feature-files.md §4 COMPLIANT
 
 1. Public Functions (grouped by shape):
   - S1 Command:
-    * RequestJITAccess(ctx, req) -> (*AccessGrantRecord, error) [deadline -> validate -> UnitOfWork(persistGrant + auditOutbox)]
-    * RevokeJITAccess(ctx, tenantID, grantID) -> error [deadline -> UnitOfWork(loadGrant -> machine.TransitionGrantStatus -> persistRevokeGrant + auditOutbox)]
-    * BindUserRole(ctx, binding) -> error [deadline -> UnitOfWork(persistUserBinding + auditOutbox)]
-    * UnbindUserRole(ctx, tenantID, subjectID, role) -> error [deadline -> invalidateCache -> UnitOfWork(removeUserBinding + auditOutbox)]
-    * RevokeSubject(ctx, subjectID) -> error [deadline -> invalidateCache -> revocationStore.RevokeSubject]
-    * RevokeJTI(ctx, jti) -> error [deadline -> revocationStore.RevokeJTI]
+  - RequestJITAccess(ctx, req) -> (*AccessGrantRecord, error) [deadline -> validate -> UnitOfWork(persistGrant + auditOutbox)]
+  - RevokeJITAccess(ctx, tenantID, grantID) -> error [deadline -> UnitOfWork(loadGrant -> machine.TransitionGrantStatus -> persistRevokeGrant + auditOutbox)]
+  - BindUserRole(ctx, binding) -> error [deadline -> UnitOfWork(persistUserBinding + auditOutbox)]
+  - UnbindUserRole(ctx, tenantID, subjectID, role) -> error [deadline -> invalidateCache -> UnitOfWork(removeUserBinding + auditOutbox)]
+  - RevokeSubject(ctx, subjectID) -> error [deadline -> invalidateCache -> revocationStore.RevokeSubject]
+  - RevokeJTI(ctx, jti) -> error [deadline -> revocationStore.RevokeJTI]
   - S2 Query:
-    * AuthenticateToken(ctx, rawToken) -> (*Subject, error) [deadline -> verifyToken -> fail-closed revocation check]
-    * Authorize(ctx, subject, targetTenant, resource, action) -> error
-    * AuthenticateAndAuthorize(ctx, rawToken, targetTenant, resource, action) -> (*Subject, error)
-    * AuthorizeWithContext(ctx, req) -> (EvaluationResult, error) [deadline -> permitCache -> rules.EvaluateAuthorization -> auditOutbox / denyFailoverLog]
-    * ListActiveGrants(ctx, tenantID, subjectID) -> ([]AccessGrantRecord, error)
-    * ListActiveGrantsPage(ctx, tenantID, subjectID, pageSize, cursor) -> (AccessGrantPage, error)
-    * GetUserRoles(ctx, tenantID, subjectID) -> ([]RoleName, error)
-    * ValidateRoleHierarchy(ctx, edges) -> error
-    * VerifyImpersonation(ctx, callerMTLS, hasImpersonateGrant, targetProtectedAdmin) -> error
-    * VerifyDelegationScope(ctx, isTenantDelegation, tokenTenantID, targetTenantID) -> error
-    * EvaluateTaskLease(ctx, req) -> (TaskExecutionLeaseResult, error)
-    * EvaluateAsyncJobDrift(ctx, subjectID, jti, queueLatency, oidcIntrospect) -> (AsyncJobRevocationResult, error)
-    * EvaluateSplitBrain(ctx, globalAuthorityReachable, isRoleMutation, snapshotAge) -> (RegionalSplitBrainResult, error)
-    * EvaluateStreamingHeartbeat(expiresAt, sessionStart) -> StreamingHeartbeatResult
+  - AuthenticateToken(ctx, rawToken) -> (*Subject, error) [deadline -> verifyToken -> fail-closed revocation check]
+  - Authorize(ctx, subject, targetTenant, resource, action) -> error
+  - AuthenticateAndAuthorize(ctx, rawToken, targetTenant, resource, action) -> (*Subject, error)
+  - AuthorizeWithContext(ctx, req) -> (EvaluationResult, error) [deadline -> permitCache -> rules.EvaluateAuthorization -> auditOutbox / denyFailoverLog]
+  - ListActiveGrants(ctx, tenantID, subjectID) -> ([]AccessGrantRecord, error)
+  - ListActiveGrantsPage(ctx, tenantID, subjectID, pageSize, cursor) -> (AccessGrantPage, error)
+  - GetUserRoles(ctx, tenantID, subjectID) -> ([]RoleName, error)
+  - ValidateRoleHierarchy(ctx, edges) -> error
+  - VerifyImpersonation(ctx, callerMTLS, hasImpersonateGrant, targetProtectedAdmin) -> error
+  - VerifyDelegationScope(ctx, isTenantDelegation, tokenTenantID, targetTenantID) -> error
+  - EvaluateTaskLease(ctx, req) -> (TaskExecutionLeaseResult, error)
+  - EvaluateAsyncJobDrift(ctx, subjectID, jti, queueLatency, oidcIntrospect) -> (AsyncJobRevocationResult, error)
+  - EvaluateSplitBrain(ctx, globalAuthorityReachable, isRoleMutation, snapshotAge) -> (RegionalSplitBrainResult, error)
+  - EvaluateStreamingHeartbeat(expiresAt, sessionStart) -> StreamingHeartbeatResult
 
 2. Private Functions (grouped by purpose):
   - loading: loadGrant, findActiveGrants
@@ -91,6 +91,8 @@ type RBACServiceDeps struct {
 	ExclusiveClaimRepo   ports.ExclusiveClaimPort
 	FederationHMACSecret string
 	TaskLeaseHMACSecret  string
+	BootstrapSecret      string
+	Environment          string
 	DevStagingMaxQuota   int
 	AllowedStartHourUTC  int
 	AllowedEndHourUTC    int
@@ -193,6 +195,8 @@ type RBACService struct {
 	sidecarPDP           ports.SidecarPDPPort
 	federationHMACSecret string
 	taskLeaseHMACSecret  string
+	bootstrapSecret      string
+	environment          string
 	devStagingMaxQuota   int
 	allowedStartHourUTC  int
 	allowedEndHourUTC    int
@@ -221,6 +225,8 @@ func NewRBACServiceWithDeps(deps RBACServiceDeps) *RBACService {
 		exclusiveClaimRepo:   deps.ExclusiveClaimRepo,
 		federationHMACSecret: deps.FederationHMACSecret,
 		taskLeaseHMACSecret:  deps.TaskLeaseHMACSecret,
+		bootstrapSecret:      deps.BootstrapSecret,
+		environment:          deps.Environment,
 		devStagingMaxQuota:   deps.DevStagingMaxQuota,
 		allowedStartHourUTC:  deps.AllowedStartHourUTC,
 		allowedEndHourUTC:    deps.AllowedEndHourUTC,
@@ -334,6 +340,25 @@ func (s *RBACService) AnalyzeLeastPrivilege(roles map[rbacContracts.RoleName][]r
 	return rules.AnalyzeLeastPrivilege(roles, usage, staleWindow, time.Now().UTC())
 }
 
+func (s *RBACService) RunLeastPrivilegeAuditCycle(ctx context.Context, staleWindow time.Duration) (rbacContracts.LeastPrivilegeReport, error) {
+	return observability.RunTraced(ctx, rbacSpanPrefix+".least_privilege_audit_cycle", func(ctx context.Context) (rbacContracts.LeastPrivilegeReport, error) {
+		roles := rules.DefaultRoleDefinitions
+		if s.roleDefRepo != nil {
+			if loaded, err := s.roleDefRepo.LoadRolePermissions(ctx); err == nil && len(loaded) > 0 {
+				roles = loaded
+			}
+		}
+		report := rules.AnalyzeLeastPrivilege(roles, nil, staleWindow, time.Now().UTC())
+		if len(report.Findings) > 0 {
+			observability.GetLogger().Info(ctx, "least privilege audit cycle identified unused permissions",
+				observability.Int("total_roles", report.TotalRoles),
+				observability.Int("findings_count", len(report.Findings)),
+			)
+		}
+		return report, nil
+	})
+}
+
 func (s *RBACService) PruneUnusedPermissions(ctx context.Context, roles map[rbacContracts.RoleName][]rbacContracts.Permission, usage []rbacContracts.PermissionUsageRecord, staleWindow time.Duration) (map[rbacContracts.RoleName][]rbacContracts.Permission, rbacContracts.LeastPrivilegeReport) {
 	now := time.Now().UTC()
 	report := rules.AnalyzeLeastPrivilege(roles, usage, staleWindow, now)
@@ -406,6 +431,14 @@ func (s *RBACService) Authorize(ctx context.Context, subject rbacContracts.Subje
 }
 
 func (s *RBACService) AuthenticateAndAuthorize(ctx context.Context, rawToken string, targetTenant string, resource rbacContracts.Resource, action rbacContracts.Action) (*rbacContracts.Subject, error) {
+	return s.AuthenticateAndAuthorizeWithContext(ctx, rawToken, rbacContracts.EvaluationRequest{
+		TargetTenantID: targetTenant,
+		Resource:       resource,
+		Action:         action,
+	})
+}
+
+func (s *RBACService) AuthenticateAndAuthorizeWithContext(ctx context.Context, rawToken string, req rbacContracts.EvaluationRequest) (*rbacContracts.Subject, error) {
 	return observability.RunTraced(ctx, rbacSpanPrefix+".authenticate_and_authorize", func(ctx context.Context) (*rbacContracts.Subject, error) {
 		if err := resilience.ValidateDeadlineBudget(ctx, rbacDeadlineMargin, 0); err != nil {
 			return nil, err
@@ -414,11 +447,51 @@ func (s *RBACService) AuthenticateAndAuthorize(ctx context.Context, rawToken str
 		if err != nil {
 			return nil, err
 		}
-		if err := s.Authorize(ctx, *subject, targetTenant, resource, action); err != nil {
+		req.Subject = *subject
+		if s.sidecarPDP != nil && req.BreakGlass == nil {
+			sidecarRes, sidecarErr := s.EvaluateWithSidecarPDP(ctx, req)
+			if sidecarErr != nil {
+				return nil, sidecarErr
+			}
+			if !sidecarRes.Granted {
+				return nil, errors.NewForbiddenError(sidecarRes.Reason)
+			}
+		}
+		if _, err := observability.RunTraced(ctx, rbacSpanPrefix+".authorize", func(ctx context.Context) (rbacContracts.EvaluationResult, error) {
+			return s.AuthorizeWithContext(ctx, req)
+		}); err != nil {
 			return nil, err
 		}
 		return subject, nil
-	}, attribute.String("target_tenant", targetTenant), attribute.String("resource", string(resource)), attribute.String("action", string(action)))
+	}, attribute.String("target_tenant", req.TargetTenantID), attribute.String("resource", string(req.Resource)), attribute.String("action", string(req.Action)))
+}
+
+func (s *RBACService) VerifyTokenIssuanceAccess(ctx context.Context, bootstrapHeader string, authHeader string) error {
+	return observability.WithSpan(ctx, rbacSpanPrefix+".verify_token_issuance_access", func(ctx context.Context) error {
+		logger := observability.GetLogger()
+		if s.bootstrapSecret != "" && bootstrapHeader != "" {
+			if hmac.Equal([]byte(bootstrapHeader), []byte(s.bootstrapSecret)) {
+				return nil
+			}
+			err := errors.NewForbiddenError("invalid bootstrap secret")
+			logger.Warn(ctx, "token issuance rejected: invalid bootstrap secret", observability.String("error", err.Error()))
+			return err
+		}
+		if strings.HasPrefix(authHeader, constants.BearerPrefix) {
+			rawToken := strings.TrimPrefix(authHeader, constants.BearerPrefix)
+			_, err := s.AuthenticateAndAuthorize(ctx, rawToken, "", rbacContracts.ResourceAuth, rbacContracts.ActionWrite)
+			if err != nil {
+				logger.Warn(ctx, "token issuance rejected: bearer authorization failed", observability.String("error", err.Error()))
+			}
+			return err
+		}
+		if s.bootstrapSecret != "" || strings.EqualFold(s.environment, "production") {
+			err := errors.NewUnauthorizedError("token issuance requires bootstrap secret or admin authorization")
+			logger.Warn(ctx, "token issuance rejected: missing credentials", observability.String("error", err.Error()))
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *RBACService) IssueToken(subject rbacContracts.Subject) (string, error) {
@@ -444,7 +517,12 @@ func (s *RBACService) RevokeSubject(ctx context.Context, subjectID string) error
 			s.permitCache.invalidateSubject(subjectID)
 		}
 		if s.revocationStore != nil {
-			return s.revocationStore.RevokeSubject(ctx, subjectID)
+			if err := s.revocationStore.RevokeSubject(ctx, subjectID); err != nil {
+				return err
+			}
+			if ackStore, ok := s.revocationStore.(ports.InvalidationAckPort); ok {
+				_, _ = ackStore.PublishInvalidationWithAck(ctx, subjectID, 1, 500*time.Millisecond)
+			}
 		}
 		return nil
 	}, attribute.String("subject.id", subjectID))
@@ -591,6 +669,9 @@ func (s *RBACService) UnbindUserRole(ctx context.Context, tenantID string, subje
 		if s.permitCache != nil {
 			s.permitCache.invalidateSubject(subjectID)
 		}
+		if ackStore, ok := s.revocationStore.(ports.InvalidationAckPort); ok {
+			_, _ = ackStore.PublishInvalidationWithAck(ctx, subjectID, 1, 500*time.Millisecond)
+		}
 		return s.runInUnitOfWork(ctx, func(txCtx context.Context) error {
 			if err := s.removeUserBinding(txCtx, tenantID, subjectID, role); err != nil {
 				return err
@@ -622,6 +703,17 @@ func (s *RBACService) AuthorizeWithContext(ctx context.Context, req rbacContract
 			return rbacContracts.EvaluationResult{}, err
 		}
 		now := time.Now()
+		if req.GlobalAuthorityDown {
+			isMutation := req.Action == rbacContracts.ActionWrite || req.Action == rbacContracts.ActionDelete || req.Action == rbacContracts.ActionUpdate || req.Action == rbacContracts.ActionAll
+			sbRes, sbErr := s.EvaluateSplitBrain(ctx, false, isMutation, time.Duration(req.PolicySnapshotAgeSec)*time.Second)
+			if sbErr != nil || !sbRes.Granted {
+				return rbacContracts.EvaluationResult{
+					Granted:       false,
+					Reason:        sbRes.Reason,
+					ViolationCode: sbRes.ViolationCode,
+				}, errors.NewForbiddenError(sbRes.Reason)
+			}
+		}
 		req = s.enrichEvaluationRequest(ctx, req)
 		bypassCache := shouldBypassPermitCache(req)
 		cacheKey := buildPermitCacheKey(req)
@@ -729,6 +821,10 @@ func (s *RBACService) EvaluateTaskLease(ctx context.Context, req rbacContracts.T
 	return observability.RunTraced(ctx, rbacSpanPrefix+".evaluate_task_lease", func(ctx context.Context) (rbacContracts.TaskExecutionLeaseResult, error) {
 		res := rules.EvaluateTaskExecutionLease(req)
 		if !res.Granted {
+			observability.GetLogger().Warn(ctx, "task execution lease denied",
+				observability.String("violation_code", res.ViolationCode),
+				observability.String("reason", res.Reason),
+			)
 			return res, errors.NewUnauthorizedError(res.Reason)
 		}
 		return res, nil
@@ -741,12 +837,22 @@ func (s *RBACService) EvaluateAsyncJobDrift(ctx context.Context, subjectID strin
 		if s.revocationStore != nil {
 			r, err := s.revocationStore.IsRevoked(ctx, subjectID, jti)
 			if err != nil {
+				observability.GetLogger().Error(ctx, "async job drift revocation lookup failed",
+					observability.String("subject_id", subjectID),
+					observability.String("error", err.Error()),
+				)
 				return rbacContracts.AsyncJobRevocationResult{Granted: false, Directive: "DISCARD", Reason: constants.ErrRevocationStoreUnavailable, ViolationCode: "ERR_REVOCATION_UNAVAILABLE"}, errors.NewUnauthorizedError(constants.ErrRevocationStoreUnavailable)
 			}
 			revoked = r
 		}
 		res := rules.EvaluateAsyncJobRevocationDrift(ctx, revoked, queueLatency, oidcIntrospect)
 		if !res.Granted {
+			observability.GetLogger().Warn(ctx, "async job drift evaluation denied",
+				observability.String("subject_id", subjectID),
+				observability.String("directive", res.Directive),
+				observability.String("violation_code", res.ViolationCode),
+				observability.String("reason", res.Reason),
+			)
 			return res, errors.NewForbiddenError(res.Reason)
 		}
 		return res, nil
@@ -757,6 +863,11 @@ func (s *RBACService) EvaluateSplitBrain(ctx context.Context, globalAuthorityRea
 	return observability.RunTraced(ctx, rbacSpanPrefix+".evaluate_split_brain", func(ctx context.Context) (rbacContracts.RegionalSplitBrainResult, error) {
 		res := rules.EvaluateRegionalSplitBrain(globalAuthorityReachable, isRoleMutation, snapshotAge)
 		if !res.Granted {
+			observability.GetLogger().Warn(ctx, "regional split-brain guard denied request",
+				observability.Bool("is_role_mutation", isRoleMutation),
+				observability.String("violation_code", res.ViolationCode),
+				observability.String("reason", res.Reason),
+			)
 			return res, errors.NewForbiddenError(res.Reason)
 		}
 		return res, nil
@@ -889,36 +1000,25 @@ func (s *RBACService) TrackStreamingSession(sessionID string, conn io.Closer, ex
 	})
 }
 
-func (s *RBACService) StartStreamingSocketReaper(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = 60 * time.Second
-	}
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				now := time.Now().UTC()
-				s.streamingSessions.Range(func(key, value interface{}) bool {
-					sessionID := key.(string)
-					sess := value.(activeStreamingSession)
-					res := rules.EvaluateStreamingSessionHeartbeat(sess.expiresAt, sess.startedAt, now)
-					if res.Terminate {
-						_ = sess.conn.Close()
-						s.streamingSessions.Delete(sessionID)
-						observability.GetLogger().Warn(ctx, "terminated expired streaming session",
-							observability.String("session_id", sessionID),
-							observability.String("duration", res.SessionDuration.String()),
-						)
-					}
-					return true
-				})
-			}
+func (s *RBACService) ReapExpiredStreamingSessions(ctx context.Context) int {
+	now := time.Now().UTC()
+	reaped := 0
+	s.streamingSessions.Range(func(key, value interface{}) bool {
+		sessionID := key.(string)
+		sess := value.(activeStreamingSession)
+		res := rules.EvaluateStreamingSessionHeartbeat(sess.expiresAt, sess.startedAt, now)
+		if res.Terminate {
+			_ = sess.conn.Close()
+			s.streamingSessions.Delete(sessionID)
+			reaped++
+			observability.GetLogger().Warn(ctx, "terminated expired streaming session",
+				observability.String("session_id", sessionID),
+				observability.String("duration", res.SessionDuration.String()),
+			)
 		}
-	}()
+		return true
+	})
+	return reaped
 }
 
 func (s *RBACService) emitBreakGlassSIEMAlert(ctx context.Context, req rbacContracts.EvaluationRequest, decision rbacContracts.EvaluationResult) {

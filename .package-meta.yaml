@@ -1,2 +1,19 @@
 name: internal-developer-platform
-version: 1.0.0
+language: go
+structure_contract: 3.0.0
+subsystems:
+  contracts: [openapi]
+  database: [postgres]
+  messaging: []
+  deploy: [docker, helm, k8s, argocd]
+  frontend: false
+process_roles: [api, worker, migrate]
+features_registry: src/app/modules
+owners: "@platform-core"
+migration_phase: 3
+migration_notes: |
+  Phase 1 (baseline) done: .package-meta.yaml + violations.todo.yml created.
+  Phase 2 (boundary enforcement) done: src/shared/kernel/capabilities/authz + RBAC architecture test enforcing G-01/G-02/G-07/G-11.
+  Phase 3 (location moves) partial: src/infra/middleware moved, RBAC + GitOps + Workload routers/handlers moved to feature api/rest/v1/, modules + lifecycles wired in src/app/ and src/main.go; 5 legacy routers tracked in violations.todo.yml.
+  Phase 4 (cross-feature coupling removal) partial: authz capability + GitOps/Workload X-03 bridges wired and tested; kubernetes-workload-provisioning -> platform-regime/policy-as-code tracked in violations.todo.yml.
+  Phase 5 (data ownership) pending: per-feature schemas and migrations tracked in violations.todo.yml.

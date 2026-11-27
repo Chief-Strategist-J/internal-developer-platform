@@ -23,9 +23,9 @@ import (
 	"net/http"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type DisasterRecoveryRouter struct {
@@ -56,78 +56,78 @@ func (r *DisasterRecoveryRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointDRPlans, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			plansHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRPlansPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			singlePlanHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRIncidentsDeclare, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			declareIncidentHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRIncidentsApprovePrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			approveIncidentHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRFailovers, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			failoverHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRFailoversPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			singleFailoverHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRFailbacks, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			failbackHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRFailbacksPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			failbackHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRDatasetsPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			datasetsHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRDrills, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			drillsHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRDrillsPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			drillsHandler,
 		))
 		mux.HandleFunc(constants.EndpointDREvidencePrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			evidenceHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRRestores, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			restoresHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRRestoresPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			restoresHandler,
 		))
 		mux.HandleFunc(constants.EndpointDRBreakglassActivate, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			breakglassHandler,
 		))
 		return

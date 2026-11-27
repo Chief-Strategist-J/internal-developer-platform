@@ -17,7 +17,7 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: RBAC REST HANDLER (feature-files.md §2.1 CO
   - Zero mid-function inline comments.
   - Headers set before WriteHeader.
 */
-package handlers
+package restv1
 
 import (
 	"context"
@@ -27,9 +27,9 @@ import (
 	"strings"
 	"time"
 
-	"internal-developer-platform/src/api/rest/v1/middleware"
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
 	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	sharedErrors "internal-developer-platform/src/shared/errors"
@@ -49,6 +49,11 @@ func NewRBACHandler(s *rbacService.RBACService) *RBACHandler {
 func (h *RBACHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".issue_token", func(ctx context.Context) error {
 		start := time.Now()
+		if err := h.rbacSvc.VerifyTokenIssuanceAccess(ctx, r.Header.Get(constants.HeaderXBootstrapSecret), r.Header.Get(constants.HeaderAuthorization)); err != nil {
+			h.emitFailure(w, r, err, start)
+			h.completeRequest(ctx, r.URL.Path, http.StatusUnauthorized, err)
+			return err
+		}
 		var req rbacContracts.IssueTokenRequest
 		if err := h.decodeClosedJSON(r, &req); err != nil {
 			h.emitFailure(w, r, sharedErrors.NewValidationError("malformed request payload"), start)
@@ -93,7 +98,7 @@ func (h *RBACHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 func (h *RBACHandler) GetCallerIdentity(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".get_caller_identity", func(ctx context.Context) error {
 		start := time.Now()
-		sub := middleware.GetSubjectFromContext(ctx)
+		sub := rbacContracts.SubjectFromAuthzContext(middleware.GetSubjectFromContext(ctx))
 		if sub == nil {
 			err := sharedErrors.NewUnauthorizedError("unauthenticated session")
 			h.emitFailure(w, r, err, start)
@@ -143,7 +148,7 @@ func (h *RBACHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 func (h *RBACHandler) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".evaluate_policy", func(ctx context.Context) error {
 		start := time.Now()
-		sub := middleware.GetSubjectFromContext(ctx)
+		sub := rbacContracts.SubjectFromAuthzContext(middleware.GetSubjectFromContext(ctx))
 		if sub == nil {
 			err := sharedErrors.NewUnauthorizedError("unauthenticated")
 			h.emitFailure(w, r, err, start)
@@ -171,7 +176,7 @@ func (h *RBACHandler) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 func (h *RBACHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".authorize", func(ctx context.Context) error {
 		start := time.Now()
-		sub := middleware.GetSubjectFromContext(ctx)
+		sub := rbacContracts.SubjectFromAuthzContext(middleware.GetSubjectFromContext(ctx))
 		if sub == nil {
 			err := sharedErrors.NewUnauthorizedError("unauthenticated")
 			h.emitFailure(w, r, err, start)
@@ -613,4 +618,100 @@ func (h *RBACHandler) EnforceEBPFHook(w http.ResponseWriter, r *http.Request) {
 	}
 	h.emitSuccess(w, r, http.StatusOK, map[string]bool{"allowed": true}, start)
 	h.completeRequest(ctx, constants.EndpointRBACEBPFEnforce, http.StatusOK, nil)
+}
+
+func (h *RBACHandler) EvaluateTaskLease(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".evaluate_task_lease", func(ctx context.Context) error {
+		start := time.Now().UTC()
+		var req rbacContracts.TaskExecutionLeaseRequest
+		if err := h.decodeClosedJSON(r, &req); err != nil {
+			valErr := sharedErrors.NewValidationError(err.Error())
+			h.emitFailureWithStatus(w, r, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start)
+			h.completeRequest(ctx, constants.EndpointRBACLeasesEvaluate, http.StatusBadRequest, valErr)
+			return valErr
+		}
+
+		res, err := h.rbacSvc.EvaluateTaskLease(ctx, req)
+		if err != nil {
+			h.emitFailure(w, r, err, start)
+			h.completeRequest(ctx, constants.EndpointRBACLeasesEvaluate, http.StatusUnauthorized, err)
+			return err
+		}
+		h.emitSuccess(w, r, http.StatusOK, res, start)
+		h.completeRequest(ctx, constants.EndpointRBACLeasesEvaluate, http.StatusOK, nil)
+		return nil
+	})
+}
+
+type asyncJobDriftRequest struct {
+	SubjectID           string `json:"subjectId"`
+	JTI                 string `json:"jti"`
+	RawToken            string `json:"rawToken"`
+	QueueLatencySeconds int64  `json:"queueLatencySeconds"`
+}
+
+func (h *RBACHandler) EvaluateAsyncJobDrift(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".evaluate_async_job_drift", func(ctx context.Context) error {
+		start := time.Now().UTC()
+		var req asyncJobDriftRequest
+		if err := h.decodeClosedJSON(r, &req); err != nil {
+			valErr := sharedErrors.NewValidationError(err.Error())
+			h.emitFailureWithStatus(w, r, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), start)
+			h.completeRequest(ctx, constants.EndpointRBACJobsEvaluateDrift, http.StatusBadRequest, valErr)
+			return valErr
+		}
+
+		res, err := h.rbacSvc.EvaluateAsyncJobDriftWithOIDC(ctx, req.SubjectID, req.JTI, req.RawToken, time.Duration(req.QueueLatencySeconds)*time.Second)
+		if err != nil {
+			h.emitFailure(w, r, err, start)
+			h.completeRequest(ctx, constants.EndpointRBACJobsEvaluateDrift, http.StatusForbidden, err)
+			return err
+		}
+		h.emitSuccess(w, r, http.StatusOK, res, start)
+		h.completeRequest(ctx, constants.EndpointRBACJobsEvaluateDrift, http.StatusOK, nil)
+		return nil
+	})
+}
+
+type streamingSessionCloser struct {
+	cancel context.CancelFunc
+}
+
+func (c *streamingSessionCloser) Close() error {
+	c.cancel()
+	return nil
+}
+
+func (h *RBACHandler) StreamTerminalSession(w http.ResponseWriter, r *http.Request) {
+	_ = observability.WithSpan(r.Context(), rbacHandlerSpanPrefix+".stream_terminal_session", func(ctx context.Context) error {
+		sub := rbacContracts.SubjectFromAuthzContext(middleware.GetSubjectFromContext(ctx))
+		if sub == nil {
+			err := sharedErrors.NewUnauthorizedError("unauthenticated session")
+			h.emitFailure(w, r, err, time.Now().UTC())
+			h.completeRequest(ctx, constants.EndpointRBACSessionsStream, http.StatusUnauthorized, err)
+			return err
+		}
+
+		expiresAt := sub.ExpiresAt
+		if expiresAt.IsZero() {
+			expiresAt = time.Now().UTC().Add(30 * time.Minute)
+		}
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		sessionID := sub.ID + ":" + sub.JTI + ":" + time.Now().UTC().Format(time.RFC3339Nano)
+		h.rbacSvc.TrackStreamingSession(sessionID, &streamingSessionCloser{cancel: cancel}, expiresAt)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			_, _ = w.Write([]byte("event: connected\ndata: {\"sessionId\":\"" + sessionID + "\"}\n\n"))
+			flusher.Flush()
+		}
+
+		<-streamCtx.Done()
+		h.completeRequest(ctx, constants.EndpointRBACSessionsStream, http.StatusOK, nil)
+		return nil
+	})
 }

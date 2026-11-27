@@ -1,17 +1,28 @@
 import { BaseState } from "../../../shared/client-kernel/index";
-import { CallerIdentityModel, PolicyEvaluationModel } from "../models/role-based-access-control.model";
+import {
+  AccessGrantRecordModel,
+  CallerIdentityModel,
+  LeastPrivilegeReportModel,
+  PolicyEvaluationModel
+} from "../models/role-based-access-control.model";
 
 export class RoleBasedAccessControlState extends BaseState {
   public token: string | null = null;
   public identity: CallerIdentityModel | null = null;
   public lastEvaluation: PolicyEvaluationModel | null = null;
   public isRevoked = false;
+  public activeGrants: readonly AccessGrantRecordModel[] = [];
+  public leastPrivilegeReport: LeastPrivilegeReportModel | null = null;
+  public hierarchyValid: boolean | null = null;
 
   public reset(): void {
     this.token = null;
     this.identity = null;
     this.lastEvaluation = null;
     this.isRevoked = false;
+    this.activeGrants = [];
+    this.leastPrivilegeReport = null;
+    this.hierarchyValid = null;
     this.isLoading = false;
     this.hasError = false;
     this.errorMessage = null;

@@ -12,6 +12,7 @@ package adapters
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -22,8 +23,10 @@ import (
 )
 
 type RedisRevocationAdapter struct {
-	client *redis.Client
-	addr   string
+	client       *redis.Client
+	addr         string
+	mu           sync.RWMutex
+	localRevoked map[string]time.Time
 }
 
 func NewRedisRevocationAdapter(addr string, timeout time.Duration) *RedisRevocationAdapter {
@@ -40,13 +43,36 @@ func NewRedisRevocationAdapter(addr string, timeout time.Duration) *RedisRevocat
 		})
 	}
 	return &RedisRevocationAdapter{
-		client: client,
-		addr:   addr,
+		client:       client,
+		addr:         addr,
+		localRevoked: make(map[string]time.Time),
 	}
+}
+
+func (a *RedisRevocationAdapter) isLocallyRevoked(key string) bool {
+	if key == "" || a.localRevoked == nil {
+		return false
+	}
+	a.mu.RLock()
+	exp, ok := a.localRevoked[key]
+	a.mu.RUnlock()
+	return ok && time.Now().UTC().Before(exp)
+}
+
+func (a *RedisRevocationAdapter) markLocallyRevoked(key string, ttl time.Duration) {
+	if key == "" || a.localRevoked == nil {
+		return
+	}
+	a.mu.Lock()
+	a.localRevoked[key] = time.Now().UTC().Add(ttl)
+	a.mu.Unlock()
 }
 
 func (a *RedisRevocationAdapter) IsRevoked(ctx context.Context, subjectID string, jti string) (bool, error) {
 	return observability.RunTraced(ctx, "redis.revocation.is_revoked", func(ctx context.Context) (bool, error) {
+		if a.isLocallyRevoked("sub:"+subjectID) || a.isLocallyRevoked("jti:"+jti) {
+			return true, nil
+		}
 		if a.client == nil {
 			return false, fmt.Errorf("redis client is not configured")
 		}
@@ -81,6 +107,7 @@ func (a *RedisRevocationAdapter) RevokeSubject(ctx context.Context, subjectID st
 		if err := a.client.Set(ctx, rbacQueries.BuildRevocationSubKey(subjectID), rbacQueries.RevokedSentinelValue, ttl).Err(); err != nil {
 			return fmt.Errorf("redis revoke subject failed: %w", err)
 		}
+		a.markLocallyRevoked("sub:"+subjectID, ttl)
 		_ = a.client.Publish(ctx, constants.RBACInvalidationChannel, subjectID).Err()
 		return nil
 	})
@@ -112,7 +139,7 @@ func (a *RedisRevocationAdapter) PublishInvalidation(ctx context.Context, subjec
 }
 
 func (a *RedisRevocationAdapter) PublishInvalidationWithAck(ctx context.Context, subjectID string, expectedNodes int, ackTimeout time.Duration) (int, error) {
-	return observability.RunTraced(ctx, "redis.revocation.publish_invalidation_ack", func(ctx context.Context) (int, error) {
+	return observability.RunTracedClient(ctx, "redis.revocation.publish_invalidation_ack", func(ctx context.Context) (int, error) {
 		if a.client == nil {
 			return 0, fmt.Errorf("redis client is not configured")
 		}

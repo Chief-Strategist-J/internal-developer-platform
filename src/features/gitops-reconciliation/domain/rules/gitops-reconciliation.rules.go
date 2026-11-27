@@ -147,9 +147,9 @@ func ValidateTenantProjectGuardrails(isTenantScope bool, kind string) error {
 	}
 
 	clusterScoped := map[string]bool{
-		"CustomResourceDefinition":      true,
-		"ClusterRole":                   true,
-		"ClusterRoleBinding":            true,
+		"CustomResourceDefinition":       true,
+		"ClusterRole":                    true,
+		"ClusterRoleBinding":             true,
 		"ValidatingWebhookConfiguration": true,
 		"MutatingWebhookConfiguration":   true,
 	}

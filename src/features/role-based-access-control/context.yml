@@ -1,38 +1,76 @@
+# context.yml — role-based-access-control feature (v3.0 schema, XI.1)
 feature: role-based-access-control
-mode: backend
-owner: platform-core
-invariants:
-  - P0-01 Default Deny: absence of policy or explicit DENY always rejects with 403
-  - P0-02 Multi-Tenant Isolation: cross-tenant access requires explicit federation or PlatformAdmin without guardrail violation
-  - P0-03 Immutable Audit Logging: ELEVATED_PERMIT halts if outbox fails; DENY writes local failover log if outbox fails
-  - P1-04 Role Hierarchy DAG: cycles and depth > 5 rejected at definition time
-  - Fail-closed Redis revocation: Redis errors reject authentication as 401
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
+
+provides: [authz]
+
+exposes:
+  - EvaluateTaskLease
+  - EvaluateAsyncJobDrift
+  - AuthenticateAndAuthorize
+  - AuthenticateAndAuthorizeWithContext
+
+asks: []
+
+events:
+  produces:
+    - type: role-based-access-control.permission.granted.v1
+      schema: contracts/asyncapi/role-based-access-control/v1/permission.granted.json
+      retention: 90d
+    - type: role-based-access-control.permission.denied.v1
+      schema: contracts/asyncapi/role-based-access-control/v1/permission.denied.json
+      retention: 90d
+    - type: role-based-access-control.subject.revoked.v1
+      schema: contracts/asyncapi/role-based-access-control/v1/subject.revoked.json
+      retention: 90d
+  consumes: []
+
+projections: []
+
+persistence:
+  schema: role_based_access_control
+  role: svc_rbac
+  tenant_scoped: true
+  data_classes:
+    subject_id: internal
+    tenant_id: internal
+    role_name: internal
+    decision: internal
+  erasure: crypto-shredding
+
 ports:
-  - TokenVerifierPort (JWTTokenVerifierAdapter via github.com/golang-jwt/jwt/v5)
-  - RevocationStorePort (RedisRevocationAdapter via github.com/redis/go-redis/v9)
-  - AccessGrantRepositoryPort (PostgresRBACAdapter)
-  - UserBindingRepositoryPort (PostgresRBACAdapter)
-  - RBACAuditOutboxPort (PostgresRBACAuditOutboxAdapter)
-entities:
-  - name: rbac_user_bindings
-    source_of_truth: db
-    fields:
-      - name: subject_id  type: varchar(128) null: no  constraint: PK
-      - name: tenant_id   type: varchar(128) null: no  constraint: PK, RLS
-      - name: role_name   type: varchar(64)  null: no  constraint: PK, FK rbac_roles(name)
-      - name: version     type: bigint       null: no  default: 1
-      - name: created_at  type: timestamptz  null: no  default: NOW()
-      - name: updated_at  type: timestamptz  null: no  default: NOW()
-  - name: rbac_audit_outbox
-    source_of_truth: db
-    fields:
-      - name: id             type: varchar(128) null: no  constraint: PK, CHECK(id <> '')
-      - name: tenant_id      type: varchar(128) null: no  constraint: CHECK(tenant_id <> ''), RLS
-      - name: subject_id     type: varchar(255) null: no  constraint: CHECK(subject_id <> '')
-      - name: decision       type: varchar(64)  null: no  constraint: CHECK IN ('PERMIT','DENY','ELEVATED_PERMIT')
-inheritance_chain:
-  - class: RBACService
-    parents: []
-    linearization: [RBACService]
-    shared_ancestors: []
-    ports: [TokenVerifierPort, RevocationStorePort, AccessGrantRepositoryPort, UserBindingRepositoryPort, RBACAuditOutboxPort]
+  - name: repository
+    adapters: [postgres, redis, memory]
+  - name: token-verifier
+    adapters: [jwt]
+  - name: revocation-store
+    adapters: [redis, memory]
+  - name: audit-outbox
+    adapters: [postgres, memory]
+  - name: unit-of-work
+    adapters: [postgres]
+  - name: sidecar-pdp
+    adapters: [http]
+
+lifecycles:
+  - name: invalidation-listener
+    roles: [api, worker]
+  - name: prune-scheduler
+    roles: [worker]
+    schedule: "0 2 * * *"
+    lease: true
+  - name: streaming-reaper
+    roles: [api]
+  - name: audit-outbox-relay
+    roles: [worker]
+
+ingress:
+  rest: contracts/openapi/role-based-access-control/v1/openapi.yaml
+
+tiers: [rules, machine]
+
+deviations: []
+waivers: []
