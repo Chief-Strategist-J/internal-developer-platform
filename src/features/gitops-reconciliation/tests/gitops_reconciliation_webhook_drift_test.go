@@ -11,9 +11,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/routers"
 	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
+	restv1 "internal-developer-platform/src/features/gitops-reconciliation/api/rest/v1"
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
 	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
 )
@@ -47,10 +46,10 @@ func (m *MockFullArgoClient) DiffManifests(ctx context.Context, appName string, 
 
 func (m *MockFullArgoClient) GetDetailedDrift(ctx context.Context, appName string, revision string) (*contracts.DetailedDriftReport, error) {
 	return &contracts.DetailedDriftReport{
-		AppName:         appName,
-		TargetRevision:  revision,
-		HasDrift:        true,
-		Items:           []contracts.ClassifiedDriftItem{
+		AppName:        appName,
+		TargetRevision: revision,
+		HasDrift:       true,
+		Items: []contracts.ClassifiedDriftItem{
 			{
 				ResourceKind:     "Deployment",
 				ResourceName:     appName,
@@ -86,8 +85,8 @@ func TestGitOpsWebhookHMACVerificationAndIngress(t *testing.T) {
 	store := gitopsreconciliation.NewMemoryStore()
 	argoClient := NewMockFullArgoClient()
 	svc := gitopsreconciliation.NewService(store, argoClient)
-	handler := handlers.NewGitOpsReconciliationHandler(svc)
-	router := routers.NewGitOpsReconciliationRouter(handler, nil)
+	handler := restv1.NewGitOpsReconciliationHandler(svc)
+	router := restv1.NewGitOpsReconciliationRouter(handler, nil)
 
 	mux := http.NewServeMux()
 	router.RegisterRoutes(mux)
@@ -150,8 +149,8 @@ func TestGitOpsDriftInspectionEndpoint(t *testing.T) {
 		t.Fatalf("expected trigger to succeed, got %v", err)
 	}
 
-	handler := handlers.NewGitOpsReconciliationHandler(svc)
-	router := routers.NewGitOpsReconciliationRouter(handler, nil)
+	handler := restv1.NewGitOpsReconciliationHandler(svc)
+	router := restv1.NewGitOpsReconciliationRouter(handler, nil)
 	mux := http.NewServeMux()
 	router.RegisterRoutes(mux)
 
@@ -217,4 +216,3 @@ func TestTenantGuardrailsPreventClusterScopedObjects(t *testing.T) {
 		t.Fatalf("expected platform-scoped project to allow CRD, got: %v", err)
 	}
 }
-

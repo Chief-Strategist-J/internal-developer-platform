@@ -91,6 +91,10 @@ func (t *Tracer) StartServerSpan(ctx context.Context, spanName string, attrs ...
 	return t.tracer.Start(ctx, spanName, trace.WithAttributes(attrs...), trace.WithSpanKind(trace.SpanKindServer))
 }
 
+func (t *Tracer) StartClientSpan(ctx context.Context, spanName string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+	return t.tracer.Start(ctx, spanName, trace.WithAttributes(attrs...), trace.WithSpanKind(trace.SpanKindClient))
+}
+
 func RecordError(span trace.Span, err error) {
 	if span == nil || err == nil {
 		return
@@ -120,6 +124,29 @@ func WithSpan(ctx context.Context, spanName string, fn func(ctx context.Context)
 
 func RunTraced[T any](ctx context.Context, spanName string, fn func(ctx context.Context) (T, error), attrs ...attribute.KeyValue) (T, error) {
 	ctx, span := GetTracer().StartSpan(ctx, spanName, attrs...)
+	defer span.End()
+	val, err := fn(ctx)
+	if err != nil {
+		RecordError(span, err)
+		return val, err
+	}
+	span.SetStatus(codes.Ok, "")
+	return val, nil
+}
+
+func WithClientSpan(ctx context.Context, spanName string, fn func(ctx context.Context) error, attrs ...attribute.KeyValue) error {
+	ctx, span := GetTracer().StartClientSpan(ctx, spanName, attrs...)
+	defer span.End()
+	if err := fn(ctx); err != nil {
+		RecordError(span, err)
+		return err
+	}
+	span.SetStatus(codes.Ok, "")
+	return nil
+}
+
+func RunTracedClient[T any](ctx context.Context, spanName string, fn func(ctx context.Context) (T, error), attrs ...attribute.KeyValue) (T, error) {
+	ctx, span := GetTracer().StartClientSpan(ctx, spanName, attrs...)
 	defer span.End()
 	val, err := fn(ctx)
 	if err != nil {

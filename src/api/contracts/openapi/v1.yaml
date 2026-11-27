@@ -316,6 +316,88 @@ paths:
           description: Hook event permitted
         '403':
           description: Hook event blocked by eBPF policy
+  /api/v1/rbac/leases/evaluate:
+    post:
+      summary: Evaluate long-running task execution lease validity
+      operationId: evaluateTaskLease
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                tokenExpired:
+                  type: boolean
+                isIdempotentBatchStep:
+                  type: boolean
+                hasSignedTaskLease:
+                  type: boolean
+                leaseExpired:
+                  type: boolean
+                refreshSucceeded:
+                  type: boolean
+      responses:
+        '200':
+          description: Task lease valid or refreshed
+        '401':
+          description: Task lease expired or unrefreshable
+  /api/v1/rbac/jobs/evaluate-drift:
+    post:
+      summary: Evaluate async job queue drift and OIDC revocation status
+      operationId: evaluateAsyncJobDrift
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subjectId, jti, queueLatencySeconds]
+              properties:
+                subjectId:
+                  type: string
+                jti:
+                  type: string
+                rawToken:
+                  type: string
+                queueLatencySeconds:
+                  type: integer
+      responses:
+        '200':
+          description: Async job permitted for execution
+        '403':
+          description: Async job discarded due to revocation
+  /api/v1/rbac/sessions/stream:
+    get:
+      summary: Open a time-bounded streaming terminal session tracked by the socket reaper
+      operationId: streamTerminalSession
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active SSE terminal session stream
+        '401':
+          description: Unauthenticated or expired session
+        '403':
+          description: Missing infrastructure execute permission
   /api/v1/rbac/authorize:
     post:
       summary: Authorize RBAC and ABAC evaluation request with decision caching and audit outbox

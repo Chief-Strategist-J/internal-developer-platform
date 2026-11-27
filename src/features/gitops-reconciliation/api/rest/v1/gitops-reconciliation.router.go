@@ -1,21 +1,20 @@
-package routers
+package restv1
 
 import (
 	"net/http"
 	"strings"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type GitOpsReconciliationRouter struct {
-	handler    *handlers.GitOpsReconciliationHandler
+	handler    *GitOpsReconciliationHandler
 	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewGitOpsReconciliationRouter(h *handlers.GitOpsReconciliationHandler, m *middleware.RBACMiddleware) *GitOpsReconciliationRouter {
+func NewGitOpsReconciliationRouter(h *GitOpsReconciliationHandler, m *middleware.RBACMiddleware) *GitOpsReconciliationRouter {
 	return &GitOpsReconciliationRouter{
 		handler:    h,
 		rbacMiddle: m,
@@ -84,13 +83,13 @@ func (r *GitOpsReconciliationRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointReconciliations, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceServiceCatalog,
-			rbacContracts.ActionWrite,
+			authz.ResourceServiceCatalog,
+			authz.ActionWrite,
 			reconcileHandler,
 		))
 		mux.HandleFunc(constants.EndpointReconciliationsPrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceServiceCatalog,
-			rbacContracts.ActionRead,
+			authz.ResourceServiceCatalog,
+			authz.ActionRead,
 			singleReconcileHandler,
 		))
 	} else {

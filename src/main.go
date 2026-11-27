@@ -1,3 +1,14 @@
+// Package main is the composition root for internal-developer-platform (L-02, C.6).
+//
+// Blueprint:
+//  1. Phase load-config / init-observability / build-infra handled by chassis.Run.
+//  2. Phase build-modules constructs feature modules in dependency order (providers first).
+//  3. Phase bind-capabilities & bind-bridges wires kernel Authorizer and cross-feature bridges.
+//  4. Phase start-lifecycles starts all module Lifecycle runners from StartBackgroundWorkers (G-11, P3-1).
+//
+// Invariants:
+//   - BuildServices contains ZERO goroutine spawns or time.NewTicker calls (G-11).
+//   - Zero mid-function inline comments.
 package main
 
 import (
@@ -9,38 +20,37 @@ import (
 
 	cliHandlers "internal-developer-platform/src/api/cli/handlers"
 	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
 	"internal-developer-platform/src/api/rest/v1/routers"
+	"internal-developer-platform/src/app"
+	"internal-developer-platform/src/app/bridges"
 	disasterrecovery "internal-developer-platform/src/features/disaster-recovery"
 	drAdapters "internal-developer-platform/src/features/disaster-recovery/infrastructure/adapters"
 	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
 	healthAdapters "internal-developer-platform/src/features/health-checks/infrastructure/adapters"
 	healthService "internal-developer-platform/src/features/health-checks/service"
 	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
-	workloadAdapters "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/adapters"
-	workloadPorts "internal-developer-platform/src/features/kubernetes-workload-provisioning/infrastructure/ports"
 	platformregime "internal-developer-platform/src/features/platform-regime"
 	regimeContracts "internal-developer-platform/src/features/platform-regime/contracts"
 	policyAdapters "internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
 	policyService "internal-developer-platform/src/features/policy-as-code/service"
-	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	rbac "internal-developer-platform/src/features/role-based-access-control"
 	catalogAdapters "internal-developer-platform/src/features/service-catalog/infrastructure/adapters"
 	catalogService "internal-developer-platform/src/features/service-catalog/service"
 	"internal-developer-platform/src/infra/chassis"
-	argocdClientPkg "internal-developer-platform/src/infra/clients/argocd"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/cluster"
-	k8sClientPkg "internal-developer-platform/src/infra/clients/kubernetes"
 	"internal-developer-platform/src/infra/clients/resilience"
+	"internal-developer-platform/src/infra/middleware"
+	"internal-developer-platform/src/shared/kernel"
 )
 
 type AppServices struct {
-	RBACRouter      *routers.RBACRouter
+	Registry        *app.Registry
+	Bindings        app.CapabilityBindings
+	RBACModule      *rbac.RBACModule
+	GitOpsModule    *gitopsreconciliation.GitOpsModule
+	WorkloadModule  *kubernetesworkloadprovisioning.WorkloadModule
 	CatalogRouter   *routers.ServiceCatalogRouter
-	GitOpsRouter    *routers.GitOpsReconciliationRouter
-	WorkloadRouter  *routers.KubernetesWorkloadRouter
 	RegimeRouter    *routers.PlatformRegimeRouter
 	HealthRouter    *routers.HealthCheckRouter
 	OfferingsRouter *routers.OfferingsRouter
@@ -90,81 +100,36 @@ func describeService() chassis.ServiceSpec {
 			if deps.DB == nil {
 				return nil, fmt.Errorf("database connection is required for production persistence")
 			}
-			revocationRepo := rbacAdapters.NewRedisRevocationAdapter(deps.Config.Redis.Address, time.Duration(deps.Config.Redis.TimeoutSeconds)*time.Second)
-			tokenVerifier := rbacAdapters.NewJWTTokenVerifierAdapter(deps.Config.Auth.JWTSecret, deps.Config.Auth.Issuer)
-			rbacPostgres := rbacAdapters.NewPostgresRBACAdapter(deps.DB)
-			rbacAuditOutbox := rbacAdapters.NewPostgresRBACAuditOutboxAdapter(deps.DB)
-			ticketVerifier := rbacAdapters.NewHTTPBreakGlassTicketAdapter(
-				deps.Config.RBAC.PagerDutyEndpoint,
-				deps.Config.RBAC.PagerDutyAPIToken,
-				deps.Config.RBAC.JiraEndpoint,
-				deps.Config.RBAC.JiraAPIToken,
-			)
-			siemEmitter := rbacAdapters.NewHTTPSIEMAlertAdapter(
-				deps.Config.RBAC.SIEMWebhookURL,
-				deps.Config.RBAC.SIEMAPIToken,
-			)
-			oidcIntrospector := rbacAdapters.NewHTTPOIDCIntrospectorAdapter(
-				deps.Config.RBAC.OIDCIntrospectEndpoint,
-				deps.Config.RBAC.OIDCClientID,
-				deps.Config.RBAC.OIDCClientSecret,
-			)
-			rbacSvc := rbacService.NewRBACServiceWithDeps(rbacService.RBACServiceDeps{
-				TokenVerifier:        tokenVerifier,
-				RevocationStore:      revocationRepo,
-				GrantRepo:            rbacPostgres,
-				BindingRepo:          rbacPostgres,
-				AuditOutbox:          rbacAuditOutbox,
-				UnitOfWork:           rbacPostgres,
-				TicketVerifier:       ticketVerifier,
-				SIEMAlertEmitter:     siemEmitter,
-				RoleDefRepo:          rbacPostgres,
-				OIDCIntrospector:     oidcIntrospector,
-				ExclusiveClaimRepo:   rbacPostgres,
-				FederationHMACSecret: deps.Config.RBAC.FederationHMACSecret,
-				TaskLeaseHMACSecret:  deps.Config.RBAC.TaskLeaseHMACSecret,
-				DevStagingMaxQuota:   deps.Config.RBAC.DevStagingMaxQuota,
-				AllowedStartHourUTC:  deps.Config.RBAC.ABACAllowedStartHour,
-				AllowedEndHourUTC:    deps.Config.RBAC.ABACAllowedEndHour,
+
+			resConfig := resilience.DefaultResilienceConfig()
+			rbacMod := rbac.BuildModule(rbac.ModuleDeps{
+				DB:     deps.DB,
+				Config: deps.Config,
 			})
-			revocationRepo.SubscribeInvalidation(context.Background(), rbacSvc.InvalidateLocalCache)
-			rbacSvc.StartStreamingSocketReaper(context.Background(), 60*time.Second)
-			if deps.Config.RBAC.SidecarPDPEndpoint != "" {
-				sidecarAdapter := rbacAdapters.NewHTTPSidecarPDPAdapter(rbacContracts.SidecarPDPConfig{
-					Engine:    rbacContracts.SidecarPDPEngine(deps.Config.RBAC.SidecarPDPEngine),
-					Endpoint:  deps.Config.RBAC.SidecarPDPEndpoint,
-					TimeoutMs: deps.Config.RBAC.SidecarPDPTimeoutMs,
-				})
-				rbacSvc.SetSidecarPDP(sidecarAdapter)
+			bindings := app.CapabilityBindings{
+				Authorizer: rbacMod.Authorizer(),
 			}
-			rbacMW := middleware.NewRBACMiddleware(rbacSvc)
-			rbacHandler := handlers.NewRBACHandler(rbacSvc)
-			rbacRouter := routers.NewRBACRouter(rbacHandler, rbacMW)
-			go func(relayCtx context.Context) {
-				ticker := time.NewTicker(5 * time.Second)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-relayCtx.Done():
-						return
-					case <-ticker.C:
-						events, err := rbacAuditOutbox.ListPendingAuditEvents(relayCtx, 50)
-						if err != nil {
-							continue
-						}
-						for _, ev := range events {
-							if err := siemEmitter.EmitSecurityAlert(relayCtx, ev); err != nil {
-								continue
-							}
-							_ = rbacAuditOutbox.MarkAuditEventPublished(relayCtx, ev.ID)
-						}
-					}
-				}
-			}(context.Background())
+			rbacMW := middleware.NewRBACMiddleware(bindings.Authorizer)
+
+			gitopsBridge := bridges.NewGitopsRBACBridge(rbacMod.Service())
+			workloadBridge := bridges.NewWorkloadRBACBridge(rbacMod.Service())
+
+			gitopsMod := gitopsreconciliation.BuildModule(gitopsreconciliation.ModuleDeps{
+				DB:             deps.DB,
+				Config:         deps.Config,
+				ResilienceCfg:  resConfig,
+				RBACMiddleware: rbacMW,
+				TaskLeasePort:  gitopsBridge,
+			})
+			workloadMod := kubernetesworkloadprovisioning.BuildModule(kubernetesworkloadprovisioning.ModuleDeps{
+				DB:             deps.DB,
+				Config:         deps.Config,
+				ResilienceCfg:  resConfig,
+				RBACMiddleware: rbacMW,
+				AsyncDriftPort: workloadBridge,
+			})
 
 			catalogRepo := catalogAdapters.NewPostgresServiceCatalogAdapter(deps.DB)
-			gitopsStore := gitopsreconciliation.NewPostgresStore(deps.DB)
-			workloadStore := workloadAdapters.NewPostgresWorkloadRepositoryAdapter(deps.DB)
 			regimeRepo := platformregime.NewPostgresRepository(deps.DB)
 			policyRepo := policyAdapters.NewPostgresPolicyRepositoryAdapter(deps.DB)
 			drStore := drAdapters.NewPostgresDRRepositoryAdapter(deps.DB)
@@ -172,50 +137,6 @@ func describeService() chassis.ServiceSpec {
 			catalogSvc := catalogService.NewServiceCatalogService(catalogRepo)
 			catalogHandler := handlers.NewServiceCatalogHandler(catalogSvc)
 			catalogRouter := routers.NewServiceCatalogRouter(catalogHandler, rbacMW)
-
-			resConfig := resilience.DefaultResilienceConfig()
-			var argoClient gitopsreconciliation.ClientPort
-			if deps.Config.ArgoCD.Endpoint != "" && deps.Config.ArgoCD.Token != "" {
-				liveArgo := argocdClientPkg.NewArgoCDClient(argocdClientPkg.ArgoCDClientConfig{
-					BaseURL:   deps.Config.ArgoCD.Endpoint,
-					AuthToken: deps.Config.ArgoCD.Token,
-					Timeout:   15 * time.Second,
-				}, resConfig)
-				argoClient = gitopsreconciliation.NewLiveArgoCDClient(liveArgo)
-			} else {
-				argoClient = gitopsreconciliation.NewArgoCDClient(deps.Config.ArgoCD.Endpoint, deps.Config.ArgoCD.Token)
-			}
-			gitopsSvc := gitopsreconciliation.NewService(gitopsStore, argoClient)
-			gitopsSvc.SetSecretAdapter(gitopsreconciliation.NewSecretAdapterWithDB(deps.DB))
-			gitopsSvc.SetOutboxPort(gitopsreconciliation.NewOutboxAdapterWithDB(deps.DB))
-			if deps.DB != nil {
-				go func(relayCtx context.Context) {
-					ticker := time.NewTicker(5 * time.Second)
-					defer ticker.Stop()
-					for {
-						select {
-						case <-relayCtx.Done():
-							return
-						case <-ticker.C:
-							_, _ = gitopsSvc.RelayPendingOutboxEvents(relayCtx, 50, func(ctx context.Context, ev gitopsreconciliation.OutboxEvent) error {
-								return nil
-							})
-						}
-					}
-				}(context.Background())
-			}
-			gitopsHandler := handlers.NewGitOpsReconciliationHandler(gitopsSvc)
-			gitopsRouter := routers.NewGitOpsReconciliationRouter(gitopsHandler, rbacMW)
-
-			var k8sClient workloadPorts.K8sClientPort
-			if realK8s, err := k8sClientPkg.NewKubernetesClientFromConfig("", deps.Config.Kubernetes.Endpoint, resConfig); err == nil && realK8s != nil {
-				k8sClient = workloadAdapters.NewLiveKubernetesClientAdapter(realK8s)
-			} else {
-				k8sClient = workloadAdapters.NewKubernetesClientAdapter(deps.Config.Kubernetes.Endpoint)
-			}
-			workloadSvc := kubernetesworkloadprovisioning.NewService(workloadStore, k8sClient)
-			workloadHandler := handlers.NewKubernetesWorkloadHandler(workloadSvc)
-			workloadRouter := routers.NewKubernetesWorkloadRouter(workloadHandler, rbacMW)
 
 			healthRepo := healthAdapters.NewMemoryHealthCheckerAdapter()
 			healthSvc := healthService.NewHealthCheckService(healthRepo)
@@ -243,7 +164,7 @@ func describeService() chassis.ServiceSpec {
 			regimeHandler := handlers.NewPlatformRegimeHandler(regimeSvc)
 			regimeRouter := routers.NewPlatformRegimeRouter(regimeHandler, rbacMW)
 
-			workloadSvc.WithRegimeRepository(regimeRepo)
+			workloadMod.Service().WithRegimeRepository(regimeRepo)
 
 			clusterClient := cluster.NewGKEClusterClient(resConfig)
 			clusterHandler := handlers.NewClusterHandler(clusterClient)
@@ -263,11 +184,15 @@ func describeService() chassis.ServiceSpec {
 			drRouter := routers.NewDisasterRecoveryRouter(drHandler, rbacMW)
 			drCLI := cliHandlers.NewDisasterRecoveryCLIHandler()
 
+			registry := app.NewRegistry(rbacMod, gitopsMod, workloadMod)
+
 			return &AppServices{
-				RBACRouter:      rbacRouter,
+				Registry:        registry,
+				Bindings:        bindings,
+				RBACModule:      rbacMod,
+				GitOpsModule:    gitopsMod,
+				WorkloadModule:  workloadMod,
 				CatalogRouter:   catalogRouter,
-				GitOpsRouter:    gitopsRouter,
-				WorkloadRouter:  workloadRouter,
 				RegimeRouter:    regimeRouter,
 				HealthRouter:    healthRouter,
 				OfferingsRouter: offeringsRouter,
@@ -279,10 +204,10 @@ func describeService() chassis.ServiceSpec {
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
 			appServices := services.(*AppServices)
-			appServices.RBACRouter.RegisterRoutes(mux)
+			appServices.RBACModule.RegisterRoutes(mux)
+			appServices.GitOpsModule.RegisterRoutes(mux)
+			appServices.WorkloadModule.RegisterRoutes(mux)
 			appServices.CatalogRouter.RegisterRoutes(mux)
-			appServices.GitOpsRouter.RegisterRoutes(mux)
-			appServices.WorkloadRouter.RegisterRoutes(mux)
 			appServices.RegimeRouter.RegisterRoutes(mux)
 			appServices.OfferingsRouter.RegisterRoutes(mux)
 			appServices.PolicyRouter.RegisterRoutes(mux)
@@ -297,6 +222,11 @@ func describeService() chassis.ServiceSpec {
 
 		StartBackgroundWorkers: func(ctx context.Context, services interface{}) {
 			appServices := services.(*AppServices)
+			if appServices.Registry != nil {
+				for _, lc := range appServices.Registry.Lifecycles() {
+					startLifecycle(ctx, lc)
+				}
+			}
 			if appServices.DRService != nil {
 				appServices.DRService.StartBackgroundProber(ctx, 30*time.Second)
 			}
@@ -313,4 +243,11 @@ func describeService() chassis.ServiceSpec {
 			}
 		},
 	}
+}
+
+func startLifecycle(ctx context.Context, lc kernel.Lifecycle) {
+	if lc == nil {
+		return
+	}
+	_ = lc.Start(ctx)
 }

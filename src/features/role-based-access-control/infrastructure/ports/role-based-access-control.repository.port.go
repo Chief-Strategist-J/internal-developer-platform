@@ -3,12 +3,17 @@ package ports
 import (
 	"context"
 	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"time"
 )
 
 type RevocationStorePort interface {
 	IsRevoked(ctx context.Context, subjectID string, jti string) (bool, error)
 	RevokeSubject(ctx context.Context, subjectID string) error
 	RevokeJTI(ctx context.Context, jti string) error
+}
+
+type InvalidationAckPort interface {
+	PublishInvalidationWithAck(ctx context.Context, subjectID string, expectedNodes int, ackTimeout time.Duration) (int, error)
 }
 
 type TokenVerifierPort interface {

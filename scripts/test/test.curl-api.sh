@@ -17,6 +17,7 @@ SECRET="real-curl-test-secret-key-production-32bytes"
 export PORT="${CLI_PORT}"
 export ADMIN_PORT="${CLI_ADMIN_PORT}"
 export JWT_SECRET="${SECRET}"
+export RBAC_BOOTSTRAP_SECRET="real-curl-bootstrap-secret-32bytes"
 export REDIS_ADDR="127.0.0.1:6379"
 
 if [ -f "${PROJECT_ROOT}/.env" ]; then
@@ -28,6 +29,7 @@ if [ -f "${PROJECT_ROOT}/.env" ]; then
     export ADMIN_PORT="${CLI_ADMIN_PORT}"
     export JWT_SECRET="${SECRET}"
     export REDIS_ADDR="127.0.0.1:6379"
+    export ARGOCD_TOKEN=""
 fi
 
 echo -e "\033[1;34m[BUILD]\033[0m Compiling platform binary..."
@@ -62,6 +64,7 @@ echo "--------------------------------------------------------------------------
 DEV_SUB="dev-sarah-$(date +%s%N)"
 DEV_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"subjectId\": \"${DEV_SUB}\",
     \"tenantId\": \"fintech-team\",
@@ -101,6 +104,7 @@ echo "--------------------------------------------------------------------------
 EVAL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/evaluate" \
   -H "Authorization: Bearer ${DEV_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d '{
     "targetTenantId": "fintech-team",
     "resource": "service-catalog",
@@ -124,6 +128,7 @@ SERVICE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/ap
   -H "Authorization: Bearer ${DEV_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"id\": \"${SVC_ID}\",
     \"tenantId\": \"fintech-team\",
@@ -147,6 +152,7 @@ echo "[CURL TEST 5] POST /api/v1/auth/token -> Issue PlatformAdmin Token"
 echo "--------------------------------------------------------------------------------"
 ADMIN_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d '{
     "subjectId": "secops-officer-marcus",
     "tenantId": "system-admin",
@@ -163,6 +169,7 @@ echo "--------------------------------------------------------------------------
 REVOKE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/revoke" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"subjectId\": \"${DEV_SUB}\",
     \"reason\": \"Routine security session termination\"
@@ -203,6 +210,7 @@ echo "--------------------------------------------------------------------------
 WKLD_DEV_SUB="wkld-dev-$(date +%s%N)"
 WKLD_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"subjectId\": \"${WKLD_DEV_SUB}\",
     \"tenantId\": \"fintech-team\",
@@ -221,6 +229,7 @@ WORKLOAD_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/a
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: ${TRACEPARENT}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"id\": \"${WKLD_ID}\",
     \"tenantId\": \"fintech-team\",
@@ -272,6 +281,7 @@ REGIME_POST_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: 00-$(openssl rand -hex 16)-$(openssl rand -hex 8)-01" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"tenantId\": \"fintech-team\",
     \"externalId\": \"${REGIME_EXT_ID}\",
@@ -322,6 +332,7 @@ REGIME_ERR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}
   -H "X-Tenant-ID: fintech-team" \
   -H "traceparent: 00-$(openssl rand -hex 16)-$(openssl rand -hex 8)-01" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"tenantId\": \"fintech-team\",
     \"externalId\": \"regime-ext-floor-$(date +%s%N)\",
@@ -356,6 +367,7 @@ BIND_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"subjectId\": \"${BIND_SUB}\",
     \"tenantId\": \"fintech-team\",
@@ -392,6 +404,7 @@ echo "[CURL TEST 15] POST /api/v1/auth/token -> Token Resolution from User Bindi
 echo "--------------------------------------------------------------------------------"
 RESOLVED_TOKEN_RESP=$(curl --noproxy "*" -s -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/auth/token" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"subjectId\": \"${BIND_SUB}\",
     \"tenantId\": \"fintech-team\"
@@ -412,6 +425,7 @@ echo "--------------------------------------------------------------------------
 CLUSTER_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/clusters" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d '{
     "clusterId": "gke-fedramp-prod-01",
     "projectId": "gov-cloud-production",
@@ -455,6 +469,7 @@ echo "--------------------------------------------------------------------------
 CR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d '{
     "project_id": "gov-cloud-production",
     "ksa_name": "orders-sa",
@@ -486,6 +501,7 @@ TIMELINE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/a
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: fintech-team" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d '{
     "tenantId": "fintech-team",
     "workloadId": "fintech-ledger-api",
@@ -516,6 +532,7 @@ POL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${POL_TENANT}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"tenantId\": \"${POL_TENANT}\",
     \"externalId\": \"SEC-01\",
@@ -550,6 +567,7 @@ EVAL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${POL_TENANT}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"tenantId\": \"${POL_TENANT}\",
     \"namespace\": \"fintech-prod\",
@@ -586,6 +604,7 @@ EXC_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Tenant-ID: ${POL_TENANT}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d "{
     \"tenantId\": \"${POL_TENANT}\",
     \"policyId\": \"${POL_ID}\",
@@ -626,6 +645,7 @@ echo "--------------------------------------------------------------------------
 RECON_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/cloud-resources/reconcile" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -d '{
     "activeWorkloadIds": ["non-matching-workload"]
   }')
@@ -646,6 +666,7 @@ DR_TENANT_ID="00a02d55-cd2a-43d8-be83-a151ebc41553"
 DR_PLAN_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/plans" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
   -H "X-Idempotency-Key: idemp-dr-plan-curl-01" \
   -d "{
@@ -713,6 +734,7 @@ echo "--------------------------------------------------------------------------
 DR_INC_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/incidents:declare" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
   -d "{
     \"tenantId\": \"${DR_TENANT_ID}\",
@@ -738,6 +760,7 @@ DATASET_ID="ledger-postgres-cluster-01"
 FENCE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/datasets/${DATASET_ID}:fence" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
   -d '{
     "authority": "DR_REPLICA"
@@ -774,6 +797,7 @@ echo "--------------------------------------------------------------------------
 DRILL_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/drills" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
   -d "{
     \"planId\": \"${PLAN_ID}\",
@@ -848,6 +872,7 @@ echo "--------------------------------------------------------------------------
 RESTORE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/restores" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
   -d "{
     \"tenantId\": \"${DR_TENANT_ID}\",
@@ -892,6 +917,7 @@ echo "--------------------------------------------------------------------------
 BREAKGLASS_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/dr/breakglass:activate" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-ID: ${DR_TENANT_ID}" \
   -d "{
     \"tenantId\": \"${DR_TENANT_ID}\",
@@ -920,6 +946,7 @@ echo "--------------------------------------------------------------------------
 GITOPS_SYNC_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/reconciliations" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
   -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
   -d "{
@@ -983,6 +1010,7 @@ echo "--------------------------------------------------------------------------
 GITOPS_ERR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/reconciliations" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
   -d "{\"appName\":\"\"}")
 
@@ -1001,6 +1029,7 @@ echo "--------------------------------------------------------------------------
 GITOPS_SEC_PUT=$(curl --noproxy "*" -s -i -X PUT "http://127.0.0.1:${CLI_PORT}/api/v1/gitops/secrets/config" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
   -d "{
     \"tenantId\": \"${GITOPS_TENANT_ID}\",
@@ -1040,6 +1069,7 @@ echo "[CURL TEST 43] POST /api/v1/webhooks/gitops -> Ingest GitOps Webhook"
 echo "--------------------------------------------------------------------------------"
 GITOPS_WH_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/webhooks/gitops" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: ${GITOPS_TENANT_ID}" \
   -d "{
     \"repositoryUrl\": \"https://github.com/org/orders-repo.git\",
@@ -1062,6 +1092,7 @@ echo "--------------------------------------------------------------------------
 RBAC_AUTH_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/authorize" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{
     \"targetTenantId\": \"fintech-team\",
@@ -1084,6 +1115,7 @@ echo "--------------------------------------------------------------------------
 RBAC_DAG_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/roles/validate-hierarchy" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{\"edges\":{\"PlatformAdmin\":[\"Developer\"],\"Developer\":[\"Viewer\"]}}")
 
@@ -1102,6 +1134,7 @@ echo "--------------------------------------------------------------------------
 RBAC_SIDECAR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/sidecar/evaluate" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{\"subject\":{\"id\":\"usr_admin\",\"tenantId\":\"fintech-team\",\"roles\":[\"PlatformAdmin\"]},\"targetTenantId\":\"fintech-team\",\"resource\":\"auth\",\"action\":\"read\",\"targetEnvironment\":\"development\"}")
 echo "${RBAC_SIDECAR_RESP}"
@@ -1119,6 +1152,7 @@ echo "--------------------------------------------------------------------------
 RBAC_LP_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/least-privilege/analyze" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{\"roles\":{\"Developer\":[{\"resource\":\"deployments\",\"action\":\"read\"},{\"resource\":\"secrets\",\"action\":\"delete\"}]},\"usage\":[{\"role\":\"Developer\",\"resource\":\"deployments\",\"action\":\"read\",\"lastUsedAt\":\"2026-11-26T00:00:00Z\",\"hitCount\":5}],\"staleHours\":24}")
 echo "${RBAC_LP_RESP}"
@@ -1136,6 +1170,7 @@ echo "--------------------------------------------------------------------------
 RBAC_PRUNE_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/least-privilege/prune" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{\"roles\":{\"Developer\":[{\"resource\":\"deployments\",\"action\":\"read\"},{\"resource\":\"secrets\",\"action\":\"delete\"}]},\"usage\":[{\"role\":\"Developer\",\"resource\":\"deployments\",\"action\":\"read\",\"lastUsedAt\":\"2026-11-26T00:00:00Z\",\"hitCount\":5}],\"staleHours\":24}")
 echo "${RBAC_PRUNE_RESP}"
@@ -1153,6 +1188,7 @@ echo "--------------------------------------------------------------------------
 RBAC_EBPF_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/rbac/ebpf/enforce" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: ${RBAC_BOOTSTRAP_SECRET}" \
   -H "X-Tenant-Id: fintech-team" \
   -d "{\"event\":{\"workloadId\":\"wk-1\",\"namespace\":\"fintech-team\",\"syscall\":\"read\",\"targetPath\":\"/app/config.yaml\",\"uid\":1000},\"policy\":{\"allowedSyscalls\":[\"read\"],\"deniedPaths\":[\"/etc/shadow\"],\"enforce\":true}}")
 echo "${RBAC_EBPF_RESP}"

@@ -25,6 +25,7 @@ import (
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"
 	"internal-developer-platform/src/shared/types"
+	"internal-developer-platform/src/shared/utils"
 )
 
 type PolicyAsCodeHandler struct {
@@ -42,7 +43,7 @@ type LifecycleTransitionRequest struct {
 
 func (h *PolicyAsCodeHandler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.create_policy", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		var p contracts.PolicyRecord
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -71,7 +72,7 @@ func (h *PolicyAsCodeHandler) CreatePolicy(w http.ResponseWriter, r *http.Reques
 
 func (h *PolicyAsCodeHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.get_policy", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -101,7 +102,7 @@ func (h *PolicyAsCodeHandler) GetPolicy(w http.ResponseWriter, r *http.Request) 
 
 func (h *PolicyAsCodeHandler) ListActivePolicies(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.list_active", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -125,7 +126,7 @@ func (h *PolicyAsCodeHandler) ListActivePolicies(w http.ResponseWriter, r *http.
 
 func (h *PolicyAsCodeHandler) TransitionLifecycle(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.transition_lifecycle", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -164,7 +165,7 @@ func (h *PolicyAsCodeHandler) TransitionLifecycle(w http.ResponseWriter, r *http
 
 func (h *PolicyAsCodeHandler) RequestException(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.request_exception", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		policyID, err := extractPolicySubID(r.URL.Path, "exceptions")
 		if err != nil {
 			h.writeErrorResponse(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error(), meta)
@@ -197,7 +198,7 @@ func (h *PolicyAsCodeHandler) RequestException(w http.ResponseWriter, r *http.Re
 
 func (h *PolicyAsCodeHandler) EvaluateAdmission(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.evaluate_admission", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		var input workflows.AdmissionEvaluationInput
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -227,7 +228,7 @@ type ResolveViolationRequest struct {
 
 func (h *PolicyAsCodeHandler) ListViolations(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.list_violations", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -257,7 +258,7 @@ func (h *PolicyAsCodeHandler) ListViolations(w http.ResponseWriter, r *http.Requ
 
 func (h *PolicyAsCodeHandler) ResolveViolation(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.resolve_violation", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -299,7 +300,7 @@ func (h *PolicyAsCodeHandler) ResolveViolation(w http.ResponseWriter, r *http.Re
 
 func (h *PolicyAsCodeHandler) ExecuteAuditScan(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.execute_audit_scan", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		var input workflows.AuditScanInput
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -329,7 +330,7 @@ type ReconcileExceptionsResponse struct {
 
 func (h *PolicyAsCodeHandler) ReconcileExceptions(w http.ResponseWriter, r *http.Request) {
 	_ = observability.WithSpan(r.Context(), "policy.handler.reconcile_exceptions", func(ctx context.Context) error {
-		meta := extractIngressMetadata(r)
+		meta := utils.ExtractIngressMetadata(r)
 		tenantID := r.URL.Query().Get("tenantId")
 		if tenantID == "" {
 			tenantID = meta.TenantID
@@ -351,7 +352,7 @@ func (h *PolicyAsCodeHandler) ReconcileExceptions(w http.ResponseWriter, r *http
 	})
 }
 
-func (h *PolicyAsCodeHandler) handleError(w http.ResponseWriter, meta IngressMetadata, err error) {
+func (h *PolicyAsCodeHandler) handleError(w http.ResponseWriter, meta utils.IngressMetadata, err error) {
 	var appErr *appErrors.ApplicationError
 	if errors.As(err, &appErr) {
 		h.writeErrorResponse(w, appErr.StatusCode, appErr.CanonicalCode, appErr.Message, meta)
@@ -360,7 +361,7 @@ func (h *PolicyAsCodeHandler) handleError(w http.ResponseWriter, meta IngressMet
 	h.writeErrorResponse(w, http.StatusInternalServerError, constants.ErrCodeInternalError, "internal error", meta)
 }
 
-func (h *PolicyAsCodeHandler) writeSuccessResponse(w http.ResponseWriter, status int, data any, meta IngressMetadata) {
+func (h *PolicyAsCodeHandler) writeSuccessResponse(w http.ResponseWriter, status int, data any, meta utils.IngressMetadata) {
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	if meta.Traceparent != "" {
 		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
@@ -373,12 +374,12 @@ func (h *PolicyAsCodeHandler) writeSuccessResponse(w http.ResponseWriter, status
 		Success:    true,
 		StatusCode: status,
 		Data:       data,
-		Meta:       buildMeta(meta),
+		Meta:       utils.BuildResponseMeta(meta),
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (h *PolicyAsCodeHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta IngressMetadata) {
+func (h *PolicyAsCodeHandler) writeErrorResponse(w http.ResponseWriter, status int, code, msg string, meta utils.IngressMetadata) {
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	if meta.Traceparent != "" {
 		w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
@@ -391,7 +392,7 @@ func (h *PolicyAsCodeHandler) writeErrorResponse(w http.ResponseWriter, status i
 		Success:    false,
 		StatusCode: status,
 		Error:      &types.ResponseError{Code: code, Message: msg},
-		Meta:       buildMeta(meta),
+		Meta:       utils.BuildResponseMeta(meta),
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }

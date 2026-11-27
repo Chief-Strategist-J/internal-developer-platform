@@ -12,24 +12,23 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS ROUTER
   - All functions strictly maintain a length <= 20 lines.
   - All endpoint paths reference centralized package constants.
 */
-package routers
+package restv1
 
 import (
 	"net/http"
 	"strings"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type KubernetesWorkloadRouter struct {
-	handler    *handlers.KubernetesWorkloadHandler
+	handler    *KubernetesWorkloadHandler
 	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewKubernetesWorkloadRouter(h *handlers.KubernetesWorkloadHandler, m *middleware.RBACMiddleware) *KubernetesWorkloadRouter {
+func NewKubernetesWorkloadRouter(h *KubernetesWorkloadHandler, m *middleware.RBACMiddleware) *KubernetesWorkloadRouter {
 	return &KubernetesWorkloadRouter{
 		handler:    h,
 		rbacMiddle: m,
@@ -53,8 +52,8 @@ func (r *KubernetesWorkloadRouter) RegisterRoutes(mux *http.ServeMux) {
 	if r.rbacMiddle != nil {
 		r.registerSecuredRoutes(mux, workloadHandler, singleWorkloadHandler)
 		mux.HandleFunc(constants.EndpointTimelinePrefix, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			timelineHandler,
 		))
 		return
@@ -85,13 +84,13 @@ func (r *KubernetesWorkloadRouter) buildSingleWorkloadHandler() http.HandlerFunc
 
 func (r *KubernetesWorkloadRouter) registerSecuredRoutes(mux *http.ServeMux, wh, swh http.HandlerFunc) {
 	mux.HandleFunc(constants.EndpointWorkloads, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceServiceCatalog,
-		rbacContracts.ActionWrite,
+		authz.ResourceServiceCatalog,
+		authz.ActionWrite,
 		wh,
 	))
 	mux.HandleFunc(constants.EndpointWorkloadsPrefix, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceServiceCatalog,
-		rbacContracts.ActionRead,
+		authz.ResourceServiceCatalog,
+		authz.ActionRead,
 		swh,
 	))
 }

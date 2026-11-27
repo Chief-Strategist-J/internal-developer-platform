@@ -18,7 +18,7 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: KUBERNETES WORKLOAD INGRESS HANDLER
   - All functions strictly maintain a length <= 25 lines.
   - All headers and content types reference centralized package constants.
 */
-package handlers
+package restv1
 
 import (
 	"context"
@@ -28,8 +28,8 @@ import (
 	"strings"
 	"time"
 
-	kubernetesworkloadprovisioning "internal-developer-platform/src/features/kubernetes-workload-provisioning"
 	"internal-developer-platform/src/features/kubernetes-workload-provisioning/contracts"
+	"internal-developer-platform/src/features/kubernetes-workload-provisioning/service"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	appErrors "internal-developer-platform/src/shared/errors"
@@ -51,10 +51,10 @@ type IngressMetadata struct {
 }
 
 type KubernetesWorkloadHandler struct {
-	service *kubernetesworkloadprovisioning.Service
+	service *service.WorkloadProvisioningService
 }
 
-func NewKubernetesWorkloadHandler(s *kubernetesworkloadprovisioning.Service) *KubernetesWorkloadHandler {
+func NewKubernetesWorkloadHandler(s *service.WorkloadProvisioningService) *KubernetesWorkloadHandler {
 	return &KubernetesWorkloadHandler{service: s}
 }
 

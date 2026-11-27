@@ -1,4 +1,4 @@
-package handlers
+package restv1
 
 import (
 	"context"

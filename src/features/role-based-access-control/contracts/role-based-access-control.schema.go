@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"internal-developer-platform/src/shared/errors"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type IssueTokenRequest struct {
@@ -208,4 +209,34 @@ func ValidateUnbindUserRoleInput(req UnbindUserRoleRequest) error {
 		return errors.NewValidationError("subjectId, tenantId, and roleName are required")
 	}
 	return nil
+}
+
+func SubjectFromAuthzContext(sub *authz.SubjectContext) *Subject {
+	if sub == nil {
+		return nil
+	}
+	roles := make([]RoleName, 0, len(sub.Roles))
+	for _, r := range sub.Roles {
+		roles = append(roles, RoleName(r))
+	}
+	perms := make([]Permission, 0, len(sub.Permissions))
+	for _, p := range sub.Permissions {
+		perms = append(perms, Permission{
+			Resource: Resource(p.Resource),
+			Action:   Action(p.Action),
+		})
+	}
+	return &Subject{
+		ID:               sub.ID,
+		TenantID:         sub.TenantID,
+		Roles:            roles,
+		GroupMemberships: sub.GroupMemberships,
+		ClientType:       sub.ClientType,
+		Permissions:      perms,
+		MFAVerified:      sub.MFAVerified,
+		Classification:   sub.Classification,
+		Issuer:           sub.Issuer,
+		ExpiresAt:        sub.ExpiresAt,
+		JTI:              sub.JTI,
+	}
 }

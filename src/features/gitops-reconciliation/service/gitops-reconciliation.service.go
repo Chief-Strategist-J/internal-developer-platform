@@ -32,10 +32,11 @@ const (
 )
 
 type GitOpsReconciliationService struct {
-	store      ports.GitOpsStorePort
-	argoCD     ports.ArgoCDClientPort
-	secretPort ports.SecretMechanismPort
-	outboxPort ports.OutboxPort
+	store         ports.GitOpsStorePort
+	argoCD        ports.ArgoCDClientPort
+	secretPort    ports.SecretMechanismPort
+	outboxPort    ports.OutboxPort
+	taskLeasePort ports.TaskLeaseGuardPort
 }
 
 func NewGitOpsReconciliationService(store ports.GitOpsStorePort, argoCD ports.ArgoCDClientPort) *GitOpsReconciliationService {
@@ -51,6 +52,10 @@ func (s *GitOpsReconciliationService) SetSecretAdapter(port ports.SecretMechanis
 
 func (s *GitOpsReconciliationService) SetOutboxPort(port ports.OutboxPort) {
 	s.outboxPort = port
+}
+
+func (s *GitOpsReconciliationService) SetTaskLeasePort(port ports.TaskLeaseGuardPort) {
+	s.taskLeasePort = port
 }
 
 func (s *GitOpsReconciliationService) TriggerReconciliation(ctx context.Context, cmd contracts.SyncCommand) (*contracts.SyncResult, error) {
@@ -245,6 +250,21 @@ func (s *GitOpsReconciliationService) evaluateReconciliationPolicyGates(ctx cont
 		}
 		if err := rules.EvaluateBreakGlassAutoSyncGuard(cmd.EmergencyChangePending, cmd.EmergencyCommittedAndSigned); err != nil {
 			return err
+		}
+		if s.taskLeasePort != nil && (cmd.TaskLeaseRequired || cmd.LeaseToken != "" || cmd.TokenExpired || cmd.LeaseExpired) {
+			leaseRes, leaseErr := s.taskLeasePort.EvaluateTaskLease(ctx, ports.TaskLeaseRequest{
+				TenantID:     cmd.TenantID,
+				TaskType:     "gitops.reconcile",
+				LeaseToken:   cmd.LeaseToken,
+				TokenExpired: cmd.TokenExpired,
+				LeaseExpired: cmd.LeaseExpired,
+			})
+			if leaseErr != nil {
+				return leaseErr
+			}
+			if !leaseRes.Granted {
+				return errors.NewUnauthorizedError(leaseRes.Reason)
+			}
 		}
 		return nil
 	}, attribute.String("app.name", cmd.AppName))
@@ -550,27 +570,99 @@ func (s *GitOpsReconciliationService) RelayPendingOutboxEvents(
 	publishFn func(ctx context.Context, event contracts.OutboxEvent) error,
 ) (int, error) {
 	return observability.RunTraced(ctx, SpanPrefixGitOps+".outbox_relay", func(ctx context.Context) (int, error) {
+		logger := observability.GetLogger()
 		if s.outboxPort == nil {
-			return 0, errors.NewInternalError("outbox port not configured")
+			err := errors.NewInternalError("outbox port not configured")
+			logger.Error(ctx, "outbox relay failed: outbox port not configured", observability.String("error", err.Error()))
+			return 0, err
 		}
-		events, err := s.outboxPort.FetchUnpublished(ctx, limit)
+
+		events, err := observability.RunTraced(ctx, SpanPrefixGitOps+".outbox_relay.fetch", func(fetchCtx context.Context) ([]contracts.OutboxEvent, error) {
+			fetched, fetchErr := s.outboxPort.FetchUnpublished(fetchCtx, limit)
+			if fetchErr != nil {
+				logger.Error(fetchCtx, "failed to fetch unpublished outbox events",
+					observability.Int("batch_limit", limit),
+					observability.String("error", fetchErr.Error()),
+				)
+				return nil, fetchErr
+			}
+			observability.CurrentSpan(fetchCtx).SetAttributes(attribute.Int("outbox.fetched_count", len(fetched)))
+			return fetched, nil
+		}, attribute.Int("outbox.batch_limit", limit))
 		if err != nil {
 			return 0, err
 		}
+
+		observability.CurrentSpan(ctx).SetAttributes(attribute.Int("outbox.fetched_count", len(events)))
+
 		relayed := 0
 		for _, ev := range events {
-			if publishFn != nil {
-				if err := publishFn(ctx, ev); err != nil {
-					return relayed, err
-				}
-			}
-			if err := s.outboxPort.MarkPublished(ctx, ev.ID); err != nil {
+			if err := s.relaySingleOutboxEvent(ctx, ev, publishFn); err != nil {
+				observability.CurrentSpan(ctx).SetAttributes(attribute.Int("outbox.relayed_count", relayed))
 				return relayed, err
 			}
 			relayed++
 		}
+
+		observability.CurrentSpan(ctx).SetAttributes(attribute.Int("outbox.relayed_count", relayed))
 		return relayed, nil
-	})
+	}, attribute.Int("outbox.batch_limit", limit))
+}
+
+func (s *GitOpsReconciliationService) relaySingleOutboxEvent(
+	ctx context.Context,
+	ev contracts.OutboxEvent,
+	publishFn func(ctx context.Context, event contracts.OutboxEvent) error,
+) error {
+	eventCtx := observability.WithTenantID(ctx, ev.TenantID)
+	logger := observability.GetLogger()
+
+	return observability.WithSpan(eventCtx, SpanPrefixGitOps+".outbox_relay.process_event", func(evCtx context.Context) error {
+		if publishFn != nil {
+			if err := observability.WithSpan(evCtx, SpanPrefixGitOps+".outbox_relay.publish", func(pubCtx context.Context) error {
+				if pubErr := publishFn(pubCtx, ev); pubErr != nil {
+					logger.Error(pubCtx, "failed to publish gitops outbox event",
+						observability.String("event_id", ev.ID),
+						observability.String("event_type", string(ev.EventType)),
+						observability.String("aggregate_id", ev.AggregateID),
+						observability.String("error", pubErr.Error()),
+					)
+					return pubErr
+				}
+				return nil
+			},
+				attribute.String("outbox.event_id", ev.ID),
+				attribute.String("outbox.event_type", string(ev.EventType)),
+			); err != nil {
+				return err
+			}
+		}
+
+		if err := s.outboxPort.MarkPublished(evCtx, ev.ID); err != nil {
+			logger.Error(evCtx, "failed to mark gitops outbox event published",
+				observability.String("event_id", ev.ID),
+				observability.String("event_type", string(ev.EventType)),
+				observability.String("error", err.Error()),
+			)
+			return err
+		}
+
+		logger.Info(evCtx, "relayed gitops outbox event",
+			observability.String("event_id", ev.ID),
+			observability.String("event_type", string(ev.EventType)),
+			observability.String("aggregate_id", ev.AggregateID),
+			observability.String("app_name", ev.AppName),
+			observability.String("revision", ev.Revision),
+		)
+		return nil
+	},
+		attribute.String("tenant.id", ev.TenantID),
+		attribute.String("outbox.event_id", ev.ID),
+		attribute.String("outbox.event_type", string(ev.EventType)),
+		attribute.String("aggregate.id", ev.AggregateID),
+		attribute.String("app.name", ev.AppName),
+		attribute.String("git.revision", ev.Revision),
+	)
 }
 
 func (s *GitOpsReconciliationService) ExecuteFleetRingRollout(ctx context.Context, cmd contracts.FleetRolloutCommand) (*contracts.FleetRolloutResult, error) {

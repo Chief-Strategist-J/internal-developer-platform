@@ -40,6 +40,19 @@ type WorkloadProvisioningService struct {
 	regimeRepo     regimeports.PlatformRegimeRepositoryPort
 	gitopsDelivery ports.GitOpsDeliveryPort
 	kmsPort        ports.KmsEncryptionPort
+	asyncDriftPort ports.AsyncJobDriftPort
+}
+
+type asyncJobAuthContextKey struct{}
+
+type AsyncJobAuthContext struct {
+	SubjectID    string
+	JTI          string
+	QueueLatency time.Duration
+}
+
+func WithAsyncJobAuthContext(ctx context.Context, meta AsyncJobAuthContext) context.Context {
+	return context.WithValue(ctx, asyncJobAuthContextKey{}, meta)
 }
 
 func NewWorkloadProvisioningService(store ports.WorkloadStorePort, k8sClient ports.K8sClientPort, policyRepo ...pacports.PolicyRepositoryPort) *WorkloadProvisioningService {
@@ -66,6 +79,11 @@ func (s *WorkloadProvisioningService) WithKMSPort(kmsPort ports.KmsEncryptionPor
 
 func (s *WorkloadProvisioningService) WithGitOpsDelivery(gitopsDelivery ports.GitOpsDeliveryPort) *WorkloadProvisioningService {
 	s.gitopsDelivery = gitopsDelivery
+	return s
+}
+
+func (s *WorkloadProvisioningService) WithAsyncDriftPort(asyncDriftPort ports.AsyncJobDriftPort) *WorkloadProvisioningService {
+	s.asyncDriftPort = asyncDriftPort
 	return s
 }
 
@@ -439,11 +457,36 @@ func (s *WorkloadProvisioningService) AwaitWorkloadReadiness(ctx context.Context
 		if err != nil || record == nil {
 			return nil, errors.NewNotFoundError("workload record not found")
 		}
+		if err := s.verifyAsyncJobDrift(ctx, record); err != nil {
+			return s.markWorkloadDegraded(ctx, record, err)
+		}
 		if record.Status == contracts.StatusObservedReady || record.Status == contracts.StatusActive {
 			return record, nil
 		}
 		return s.pollWorkloadReadiness(ctx, record, timeout)
 	})
+}
+
+func (s *WorkloadProvisioningService) verifyAsyncJobDrift(ctx context.Context, record *contracts.WorkloadProvisionRecord) error {
+	if s.asyncDriftPort == nil {
+		return nil
+	}
+	meta, ok := ctx.Value(asyncJobAuthContextKey{}).(AsyncJobAuthContext)
+	if !ok || meta.SubjectID == "" {
+		return nil
+	}
+	res, err := s.asyncDriftPort.EvaluateAsyncJobDrift(ctx, ports.AsyncJobDriftRequest{
+		SubjectID:    meta.SubjectID,
+		JTI:          meta.JTI,
+		QueueLatency: meta.QueueLatency,
+	})
+	if err != nil {
+		return err
+	}
+	if res.Revoked || !res.Granted {
+		return errors.NewForbiddenError("async workload readiness job revoked: " + res.Reason)
+	}
+	return nil
 }
 
 func (s *WorkloadProvisioningService) pollWorkloadReadiness(ctx context.Context, record *contracts.WorkloadProvisionRecord, timeout time.Duration) (*contracts.WorkloadProvisionRecord, error) {

@@ -70,6 +70,7 @@ type RBACConfig struct {
 	SidecarPDPEngine       string `yaml:"sidecar_pdp_engine"`
 	SidecarPDPEndpoint     string `yaml:"sidecar_pdp_endpoint"`
 	SidecarPDPTimeoutMs    int    `yaml:"sidecar_pdp_timeout_ms"`
+	BootstrapSecret        string `yaml:"bootstrap_secret"`
 }
 
 type FeatureFlags struct {
@@ -95,6 +96,7 @@ type EndpointsConfig struct {
 }
 
 type AppConfig struct {
+	Environment  string           `yaml:"environment"`
 	Server       ServerConfig     `yaml:"server"`
 	Database     DatabaseConfig   `yaml:"database"`
 	Redis        RedisConfig      `yaml:"redis"`
@@ -234,6 +236,12 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 	}
 	if oidcSecret := os.Getenv("OIDC_CLIENT_SECRET"); oidcSecret != "" {
 		cfg.RBAC.OIDCClientSecret = oidcSecret
+	}
+	if bootstrapSecret := os.Getenv("RBAC_BOOTSTRAP_SECRET"); bootstrapSecret != "" {
+		cfg.RBAC.BootstrapSecret = bootstrapSecret
+	}
+	if env := os.Getenv("ENVIRONMENT"); env != "" {
+		cfg.Environment = env
 	}
 }
 

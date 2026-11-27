@@ -129,6 +129,72 @@ export function RoleBasedAccessControlViewComponent({ state, controller }: RBACV
               </div>
             )}
           </div>
+
+          <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: "16px", marginTop: "16px" }}>
+            <h3 style={{ fontSize: "14px", marginBottom: "12px", fontWeight: 600 }}>JIT Elevation & Governance</h3>
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => controller.requestJITAccess({
+                  tenantId: state.identity?.tenantId ?? tenantId,
+                  subjectId: state.identity?.subjectId ?? subjectId,
+                  targetNamespace: "prod-core",
+                  role: "PlatformAdmin",
+                  reason: "incident break-glass elevation",
+                  durationSeconds: 1800,
+                  approverRole: "PlatformAdmin",
+                  idempotencyKey: `jit-${Date.now()}`
+                })}
+              >
+                Request JIT Grant
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => controller.validateRoleHierarchy({ PlatformAdmin: ["Developer"], Developer: ["Viewer"] })}
+              >
+                Validate Role DAG
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => controller.analyzeLeastPrivilege({
+                  roles: { Developer: [{ resource: "service-catalog", action: "read" }] },
+                  usage: [],
+                  staleWindowHours: 24
+                })}
+              >
+                Analyze Least Privilege
+              </button>
+            </div>
+            {state.activeGrants.length > 0 && (
+              <ul style={{ marginTop: "12px", paddingLeft: "16px" }}>
+                {state.activeGrants.map((grant) => (
+                  <li key={grant.id} style={{ marginBottom: "6px" }}>
+                    <span>{grant.role} ({grant.targetNamespace}) — {grant.status}</span>
+                    <button
+                      type="button"
+                      style={{ marginLeft: "10px" }}
+                      onClick={() => controller.revokeJITAccess(grant.id)}
+                    >
+                      Revoke
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {state.hierarchyValid !== null && (
+              <div style={{ marginTop: "8px", fontSize: "13px" }}>
+                Role Hierarchy DAG: {state.hierarchyValid ? "Valid" : "Invalid"}
+              </div>
+            )}
+            {state.leastPrivilegeReport && (
+              <div style={{ marginTop: "8px", fontSize: "13px" }}>
+                Least Privilege Findings: {state.leastPrivilegeReport.findings.length}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

@@ -1,20 +1,19 @@
-package routers
+package restv1
 
 import (
 	"net/http"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type RBACRouter struct {
-	handler    *handlers.RBACHandler
+	handler    *RBACHandler
 	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewRBACRouter(h *handlers.RBACHandler, m *middleware.RBACMiddleware) *RBACRouter {
+func NewRBACRouter(h *RBACHandler, m *middleware.RBACMiddleware) *RBACRouter {
 	return &RBACRouter{
 		handler:    h,
 		rbacMiddle: m,
@@ -38,8 +37,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc(constants.EndpointAuthMe, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		meHandler,
 	))
 
@@ -51,8 +50,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc(constants.EndpointAuthRevoke, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAll,
-		rbacContracts.ActionAll,
+		authz.ResourceAll,
+		authz.ActionAll,
 		revokeHandler,
 	))
 
@@ -64,8 +63,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc(constants.EndpointAuthEvaluate, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		evalHandler,
 	))
 
@@ -80,8 +79,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc(constants.EndpointAuthJITGrants, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		jitHandler,
 	))
 
@@ -93,8 +92,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointAuthJITGrantsPrefix, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAll,
-		rbacContracts.ActionAll,
+		authz.ResourceAll,
+		authz.ActionAll,
 		revokeJitHandler,
 	))
 
@@ -111,8 +110,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc(constants.EndpointAuthBindings, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionWrite,
+		authz.ResourceAuth,
+		authz.ActionWrite,
 		bindingHandler,
 	))
 
@@ -124,8 +123,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointAuthBindingsClaim, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionWrite,
+		authz.ResourceAuth,
+		authz.ActionWrite,
 		claimBindingHandler,
 	))
 
@@ -137,8 +136,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointAuthBindingsPrefix, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		bindingSubjectHandler,
 	))
 
@@ -150,8 +149,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointRBACAuthorize, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		authorizeHandler,
 	))
 
@@ -163,8 +162,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointRBACValidateHierarchy, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionWrite,
+		authz.ResourceAuth,
+		authz.ActionWrite,
 		validateHierarchyHandler,
 	))
 
@@ -176,8 +175,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointRBACSidecarEvaluate, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		sidecarEvaluateHandler,
 	))
 
@@ -189,8 +188,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointRBACLeastPrivilege, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionRead,
+		authz.ResourceAuth,
+		authz.ActionRead,
 		leastPrivilegeHandler,
 	))
 
@@ -202,8 +201,8 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointRBACLeastPrivPrune, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionWrite,
+		authz.ResourceAuth,
+		authz.ActionWrite,
 		leastPrivPruneHandler,
 	))
 
@@ -215,8 +214,47 @@ func (r *RBACRouter) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc(constants.EndpointRBACEBPFEnforce, r.rbacMiddle.RequirePermission(
-		rbacContracts.ResourceAuth,
-		rbacContracts.ActionWrite,
+		authz.ResourceAuth,
+		authz.ActionWrite,
 		ebpfEnforceHandler,
+	))
+
+	leaseEvaluateHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.EvaluateTaskLease(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACLeasesEvaluate, r.rbacMiddle.RequirePermission(
+		authz.ResourceAuth,
+		authz.ActionRead,
+		leaseEvaluateHandler,
+	))
+
+	jobDriftHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.handler.EvaluateAsyncJobDrift(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACJobsEvaluateDrift, r.rbacMiddle.RequirePermission(
+		authz.ResourceAuth,
+		authz.ActionRead,
+		jobDriftHandler,
+	))
+
+	streamSessionHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			r.handler.StreamTerminalSession(w, req)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc(constants.EndpointRBACSessionsStream, r.rbacMiddle.RequirePermission(
+		authz.ResourceInfrastructure,
+		authz.ActionExecute,
+		streamSessionHandler,
 	))
 }

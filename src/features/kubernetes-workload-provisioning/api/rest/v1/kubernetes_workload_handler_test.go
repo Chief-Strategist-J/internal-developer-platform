@@ -2,7 +2,7 @@
 Package handlers tests verify the HTTP REST endpoints for the Kubernetes Workload Provisioning API.
 It tests command validation, header extraction, response envelope compliance, and error formatting.
 */
-package handlers
+package restv1
 
 import (
 	"bytes"

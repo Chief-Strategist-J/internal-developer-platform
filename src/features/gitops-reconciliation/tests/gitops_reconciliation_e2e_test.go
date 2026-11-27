@@ -14,8 +14,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/routers"
+	restv1 "internal-developer-platform/src/features/gitops-reconciliation/api/rest/v1"
 	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
 	"internal-developer-platform/src/features/gitops-reconciliation/infrastructure/adapters"
 	gitopsService "internal-developer-platform/src/features/gitops-reconciliation/service"
@@ -44,8 +43,8 @@ func setupE2EGitOpsServer(t *testing.T) (http.Handler, *tracetest.InMemoryExport
 	svc := gitopsService.NewGitOpsReconciliationService(store, argo)
 	svc.SetSecretAdapter(adapters.NewConfigurableSecretAdapter())
 
-	handler := handlers.NewGitOpsReconciliationHandler(svc)
-	router := routers.NewGitOpsReconciliationRouter(handler, nil)
+	handler := restv1.NewGitOpsReconciliationHandler(svc)
+	router := restv1.NewGitOpsReconciliationRouter(handler, nil)
 
 	mux := http.NewServeMux()
 	router.RegisterRoutes(mux)

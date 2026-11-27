@@ -4,9 +4,9 @@ import (
 	"net/http"
 
 	"internal-developer-platform/src/api/rest/v1/handlers"
-	"internal-developer-platform/src/api/rest/v1/middleware"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
+	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
 type OfferingsRouter struct {
@@ -61,23 +61,23 @@ func (r *OfferingsRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointClusters, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			clHandler,
 		))
 		mux.HandleFunc(constants.EndpointClustersPosture, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionRead,
+			authz.ResourceInfrastructure,
+			authz.ActionRead,
 			postureHandler,
 		))
 		mux.HandleFunc(constants.EndpointCloudResources, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			crHandler,
 		))
 		mux.HandleFunc(constants.EndpointCloudResourcesReconcile, r.rbacMiddle.RequirePermission(
-			rbacContracts.ResourceInfrastructure,
-			rbacContracts.ActionWrite,
+			authz.ResourceInfrastructure,
+			authz.ActionWrite,
 			reconcileHandler,
 		))
 		return

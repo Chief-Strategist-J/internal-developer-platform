@@ -15,12 +15,12 @@ import (
 )
 
 const (
-	MaxJITSessionDurationSeconds   = 14400
-	MinJITSessionDurationSeconds   = 60
-	MaxBreakGlassTTLSeconds        = 7200
-	MaxRoleHierarchyDepth          = 5
-	MaxPermissibleQueueDrift       = 5 * time.Minute
-	SplitBrainStaleGraceWindow     = 2 * time.Hour
+	MaxJITSessionDurationSeconds = 14400
+	MinJITSessionDurationSeconds = 60
+	MaxBreakGlassTTLSeconds      = 7200
+	MaxRoleHierarchyDepth        = 5
+	MaxPermissibleQueueDrift     = 5 * time.Minute
+	SplitBrainStaleGraceWindow   = 2 * time.Hour
 )
 
 var DefaultRoleDefinitions = map[rbacContracts.RoleName][]rbacContracts.Permission{
