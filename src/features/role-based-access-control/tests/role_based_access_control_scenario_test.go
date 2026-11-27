@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	"internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
-	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
+	"internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/adapters"
+	rbacService "internal-developer-platform/src/features/role-based-access-control/internal/service"
 )
 
 func TestRoleBasedAccessControlScenario_JITLifecycleAndRevocation(t *testing.T) {

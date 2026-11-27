@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	"internal-developer-platform/src/features/role-based-access-control/domain/rules"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
+	"internal-developer-platform/src/features/role-based-access-control/internal/domain/rules"
 )
 
 func TestRoleBasedAccessControlRules_AuthorizationDecisionTable(t *testing.T) {

@@ -14,10 +14,10 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	restv1 "internal-developer-platform/src/features/role-based-access-control/api/rest/v1"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	"internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
-	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	restv1 "internal-developer-platform/src/features/role-based-access-control/internal/api/rest/v1"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
+	"internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/adapters"
+	rbacService "internal-developer-platform/src/features/role-based-access-control/internal/service"
 )
 
 func setupE2ERBACService(t *testing.T) (*rbacService.RBACService, *tracetest.InMemoryExporter, func()) {
