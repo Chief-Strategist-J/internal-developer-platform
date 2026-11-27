@@ -2,9 +2,9 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: POLICY SERVICE & WORKFLOW INTEGRATION TESTS
 
 1. Test Execution Architecture:
-   - Step 14 Tests: Validates integration between PolicyAsCodeService, EvaluationWorkflow, and MemoryRepository.
-   - Tests lifecycle transitions, exception grants, and admission verdicts.
-   - 100% comment-free function bodies.
+  - Step 14 Tests: Validates integration between PolicyAsCodeService, EvaluationWorkflow, and MemoryRepository.
+  - Tests lifecycle transitions, exception grants, and admission verdicts.
+  - 100% comment-free function bodies.
 */
 package tests
 
@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"internal-developer-platform/src/features/policy-as-code/contracts"
-	"internal-developer-platform/src/features/policy-as-code/domain/machines"
-	"internal-developer-platform/src/features/policy-as-code/domain/workflows"
-	"internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
-	"internal-developer-platform/src/features/policy-as-code/service"
+	"internal-developer-platform/src/features/policy-as-code/internal/contracts"
+	"internal-developer-platform/src/features/policy-as-code/internal/domain/machines"
+	"internal-developer-platform/src/features/policy-as-code/internal/domain/workflows"
+	"internal-developer-platform/src/features/policy-as-code/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/policy-as-code/internal/service"
 )
 
 func TestPolicyAsCodeService_CompleteLifecycleAndAdmission(t *testing.T) {
@@ -490,5 +490,3 @@ func TestPolicyAsCodeService_ExpandedRuleCatalogEvaluations(t *testing.T) {
 		}
 	}
 }
-
-

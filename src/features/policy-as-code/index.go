@@ -1,32 +1,19 @@
 /*
-ALGORITHM & ARCHITECTURE BLUEPRINT: POLICY AS CODE INDEX
+ALGORITHM & ARCHITECTURE BLUEPRINT: POLICY AS CODE INDEX (V.3 role 13, X-05)
 
-1. Package Entrypoint:
-   - Exposes clean constructors and types for the policy-as-code feature.
-   - Zero comments inside method bodies.
+ 1. Public Surface:
+    - Exports only PolicyAsCodeModule, BuildModule, and PolicyBridgeProvider.
+    - Internal services, adapters, and ports stay behind internal/.
 */
 package policyascode
 
-import (
-	"database/sql"
+import "context"
 
-	"internal-developer-platform/src/features/policy-as-code/infrastructure/adapters"
-	"internal-developer-platform/src/features/policy-as-code/infrastructure/ports"
-	"internal-developer-platform/src/features/policy-as-code/service"
-)
-
-type PolicyAsCodeService = service.PolicyAsCodeService
-type PolicyRepositoryPort = ports.PolicyRepositoryPort
-
-func NewService(repo ports.PolicyRepositoryPort) *PolicyAsCodeService {
-	return service.NewPolicyAsCodeService(repo)
+type ActiveWorkloadException struct {
+	PublicID   string
+	ApproverID string
 }
 
-func NewMemoryRepository() ports.PolicyRepositoryPort {
-	return adapters.NewMemoryPolicyRepositoryAdapter()
+type PolicyBridgeProvider interface {
+	GetActiveExceptionForWorkload(ctx context.Context, tenantID string, namespace string, workloadName string) (*ActiveWorkloadException, error)
 }
-
-func NewPostgresRepository(db *sql.DB) ports.PolicyRepositoryPort {
-	return adapters.NewPostgresPolicyRepositoryAdapter(db)
-}
-
