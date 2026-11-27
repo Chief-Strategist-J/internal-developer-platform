@@ -56,6 +56,18 @@ install_crd_dependencies() {
     kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.9.11/deploy/crds/bundle.yaml --server-side --force-conflicts || true
 }
 
+install_metrics_server() {
+    log_info "Installing Kubernetes metrics-server for HPA (metrics.k8s.io)..."
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml --server-side --force-conflicts
+    if ! kubectl -n kube-system get deployment metrics-server -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q -- '--kubelet-insecure-tls'; then
+        kubectl patch deployment metrics-server -n kube-system --type='json' \
+          -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+    fi
+    log_info "Waiting for metrics-server deployment to become available (timeout: 120s)..."
+    kubectl wait --for=condition=available deployment/metrics-server -n kube-system --timeout=120s
+    log_success "metrics-server is healthy and serving pods.metrics.k8s.io."
+}
+
 install_argocd() {
     log_info "Creating namespace '${ARGOCD_NAMESPACE}'..."
     kubectl get ns "${ARGOCD_NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${ARGOCD_NAMESPACE}"
@@ -177,6 +189,7 @@ main() {
         up)
             create_cluster
             install_crd_dependencies
+            install_metrics_server
             install_argocd
             build_and_load_platform_api
             apply_idp_project
