@@ -2,9 +2,12 @@ package observability
 
 import (
 	"context"
+	stdErrors "errors"
 	"fmt"
 	"strings"
 	"time"
+
+	appErrors "internal-developer-platform/src/shared/errors"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -99,6 +102,16 @@ func (t *Tracer) StartClientSpan(ctx context.Context, spanName string, attrs ...
 
 func RecordError(span trace.Span, err error) {
 	if span == nil || err == nil {
+		return
+	}
+	var appErr *appErrors.ApplicationError
+	if stdErrors.As(err, &appErr) && appErr.StatusCode == 404 {
+		span.SetStatus(codes.Unset, "")
+		span.SetAttributes(
+			attribute.Int("app.status_code", appErr.StatusCode),
+			attribute.String("app.error_code", appErr.CanonicalCode),
+			attribute.String("app.error_message", appErr.Message),
+		)
 		return
 	}
 	span.RecordError(err)
