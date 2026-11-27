@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from "http";
-import { HealthChecksHandler } from "../handlers/health-checks.handler.js";
+import { HealthChecksHandler } from "./health-checks.rest.handler.js";
 
 export class HealthChecksRouter {
   constructor(private readonly handler: HealthChecksHandler) {}

@@ -5,7 +5,7 @@
 #include <string>
 #include "features/health_checks/service/health_checks_service.hpp"
 
-namespace idp::api::rest::v1::handlers {
+namespace idp::features::health_checks::api::rest::v1 {
 
 class HealthChecksHandler {
 public:

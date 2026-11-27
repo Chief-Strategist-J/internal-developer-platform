@@ -1,15 +1,18 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { ServiceCatalogState } from "../features/service-catalog/state/service-catalog.state";
-import { ServiceCatalogController } from "../features/service-catalog/controller/service-catalog.controller";
-import { ServiceCatalogHttpAdapter } from "../features/service-catalog/adapter/service-catalog.adapter";
-import { ServiceCatalogViewComponent } from "../features/service-catalog/ui/service-catalog.view";
-
-import { RoleBasedAccessControlState } from "../features/role-based-access-control/state/role-based-access-control.state";
-import { RoleBasedAccessControlController } from "../features/role-based-access-control/controller/role-based-access-control.controller";
-import { RoleBasedAccessControlHttpAdapter } from "../features/role-based-access-control/adapter/role-based-access-control.adapter";
-import { RoleBasedAccessControlViewComponent } from "../features/role-based-access-control/ui/role-based-access-control.view";
+import {
+  ServiceCatalogState,
+  ServiceCatalogController,
+  ServiceCatalogHttpAdapter,
+  ServiceCatalogViewComponent
+} from "../features/service-catalog/index";
+import {
+  RoleBasedAccessControlState,
+  RoleBasedAccessControlController,
+  RoleBasedAccessControlHttpAdapter,
+  RoleBasedAccessControlViewComponent
+} from "../features/role-based-access-control/index";
 
 export default function DeveloperPortalPage() {
   const [, setTick] = useState(0);

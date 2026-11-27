@@ -3,13 +3,13 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include "api/rest/v1/handlers/health_checks_handler.hpp"
+#include "features/health_checks/api/rest/v1/health_checks_rest_handler.hpp"
 
-namespace idp::api::rest::v1::routers {
+namespace idp::features::health_checks::api::rest::v1 {
 
 class HealthChecksRouter {
 public:
-    explicit HealthChecksRouter(std::shared_ptr<handlers::HealthChecksHandler> handler)
+    explicit HealthChecksRouter(std::shared_ptr<HealthChecksHandler> handler)
         : handler_(std::move(handler)) {}
 
     std::optional<std::pair<int, std::string>> route(const std::string& method, const std::string& path, const std::string& traceId) {
@@ -23,7 +23,7 @@ public:
     }
 
 private:
-    std::shared_ptr<handlers::HealthChecksHandler> handler_;
+    std::shared_ptr<HealthChecksHandler> handler_;
 };
 
 }

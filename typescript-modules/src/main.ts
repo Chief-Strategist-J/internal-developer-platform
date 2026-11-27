@@ -1,17 +1,11 @@
 import http, { IncomingMessage, ServerResponse } from "http";
-import { HealthChecksRepositoryAdapter } from "./features/health-checks/infrastructure/adapters/health-checks.repository.adapter.js";
-import { HealthChecksService } from "./features/health-checks/service/health-checks.service.js";
-import { HealthChecksHandler } from "./api/rest/v1/handlers/health-checks.handler.js";
-import { HealthChecksRouter } from "./api/rest/v1/routers/health-checks.router.js";
+import { buildHealthChecksModule } from "./features/health-checks/index.js";
 import { SYSTEM_CONSTANTS } from "./shared/constants/system.constants.js";
 
-const healthAdapter = new HealthChecksRepositoryAdapter();
-const healthService = new HealthChecksService(healthAdapter);
-const healthHandler = new HealthChecksHandler(healthService);
-const healthRouter = new HealthChecksRouter(healthHandler);
+const healthModule = buildHealthChecksModule();
 
 const adminServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
-  const handled = await healthRouter.handle(req, res);
+  const handled = await healthModule.handle(req, res);
   if (!handled) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
@@ -25,7 +19,7 @@ const adminServer = http.createServer(async (req: IncomingMessage, res: ServerRe
 });
 
 const publicServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
-  const handled = await healthRouter.handle(req, res);
+  const handled = await healthModule.handle(req, res);
   if (!handled) {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
