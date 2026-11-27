@@ -4,15 +4,16 @@ import (
 	"context"
 	"testing"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 )
 
 func TestFleetRingRolloutSuccess(t *testing.T) {
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
-	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", "test-token")
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
+	argoClient := adapters.NewArgoCDClientAdapter("https://argocd.internal:443", "test-token")
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 
 	cmd := contracts.FleetRolloutCommand{
 		TenantID:       "tenant-fleet",

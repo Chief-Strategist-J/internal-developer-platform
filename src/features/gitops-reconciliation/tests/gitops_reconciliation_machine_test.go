@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/machines"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/machines"
 )
 
 func TestTransitionSyncStateValidFlow(t *testing.T) {

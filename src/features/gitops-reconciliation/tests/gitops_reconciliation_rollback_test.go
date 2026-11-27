@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 )
 
 type MockFlakyArgoClient struct {
@@ -65,9 +66,9 @@ func appNameFromURL(repoURL, branch string) string {
 
 func TestStatefulGitOpsRollbackOnDeploymentFailure(t *testing.T) {
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
 	flakyClient := NewMockFlakyArgoClient("v2.1.0-corrupt")
-	svc := gitopsreconciliation.NewService(store, flakyClient)
+	svc := service.NewGitOpsReconciliationService(store, flakyClient)
 
 	seedCmd := contracts.SyncCommand{
 		ID:                 "rec-seed-1",

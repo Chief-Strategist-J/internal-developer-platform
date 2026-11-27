@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
 )
 
 func TestSortBySyncWave(t *testing.T) {

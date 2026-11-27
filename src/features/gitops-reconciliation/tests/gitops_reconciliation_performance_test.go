@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/machines"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/workflows"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/machines"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/workflows"
 )
 
 func BenchmarkSortBySyncWave(b *testing.B) {

@@ -10,8 +10,9 @@ import (
 
 	_ "github.com/lib/pq"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 	"internal-developer-platform/src/infra/observability"
 )
 
@@ -36,9 +37,9 @@ func TestLivePostgresGitOpsReconciliationEndToEnd(t *testing.T) {
 		defer func() { _ = shutdown(context.Background()) }()
 	}
 
-	pgStore := gitopsreconciliation.NewPostgresStore(db)
+	pgStore := adapters.NewPostgresGitOpsRepositoryAdapter(db)
 	flakyArgo := NewMockFlakyArgoClient("v3.0.0-bad")
-	svc := gitopsreconciliation.NewService(pgStore, flakyArgo)
+	svc := service.NewGitOpsReconciliationService(pgStore, flakyArgo)
 
 	tenantID := fmt.Sprintf("tenant-e2e-%d", time.Now().UnixNano())
 	serviceID := "auth-gateway"
@@ -124,9 +125,9 @@ func TestLivePostgresConcurrentIdempotencyGate(t *testing.T) {
 	db := getTestPostgresDB(t)
 	defer db.Close()
 
-	pgStore := gitopsreconciliation.NewPostgresStore(db)
+	pgStore := adapters.NewPostgresGitOpsRepositoryAdapter(db)
 	argo := NewMockFlakyArgoClient("")
-	svc := gitopsreconciliation.NewService(pgStore, argo)
+	svc := service.NewGitOpsReconciliationService(pgStore, argo)
 
 	sharedKey := fmt.Sprintf("concurrent-key-%d", time.Now().UnixNano())
 	tenantID := fmt.Sprintf("tenant-concurrency-%d", time.Now().UnixNano())

@@ -7,17 +7,18 @@ import (
 	"testing"
 	"time"
 
-	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 	"internal-developer-platform/src/infra/clients/argocd"
 	"internal-developer-platform/src/infra/clients/resilience"
 )
 
 func TestGitOpsReconciliationServiceExecution(t *testing.T) {
 	ctx := context.Background()
-	store := gitopsreconciliation.NewMemoryStore()
-	argoClient := gitopsreconciliation.NewArgoCDClient("https://argocd.internal:443", "test-token")
-	svc := gitopsreconciliation.NewService(store, argoClient)
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
+	argoClient := adapters.NewArgoCDClientAdapter("https://argocd.internal:443", "test-token")
+	svc := service.NewGitOpsReconciliationService(store, argoClient)
 
 	cmd := contracts.SyncCommand{
 		ID:                 "rec-test-1",
@@ -106,9 +107,9 @@ func TestGitOpsReconciliationWithLiveArgoCDClient(t *testing.T) {
 	resCfg := resilience.DefaultResilienceConfig()
 	liveClient := argocd.NewArgoCDClient(argoCfg, resCfg)
 
-	store := gitopsreconciliation.NewMemoryStore()
-	adapter := gitopsreconciliation.NewLiveArgoCDClient(liveClient)
-	svc := gitopsreconciliation.NewService(store, adapter)
+	store := adapters.NewMemoryGitOpsRepositoryAdapter()
+	adapter := adapters.NewLiveArgoCDClientAdapter(liveClient)
+	svc := service.NewGitOpsReconciliationService(store, adapter)
 
 	cmd := contracts.SyncCommand{
 		ID:                 "rec-live-1",

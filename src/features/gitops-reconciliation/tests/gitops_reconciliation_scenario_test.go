@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"internal-developer-platform/src/features/gitops-reconciliation/contracts"
-	"internal-developer-platform/src/features/gitops-reconciliation/domain/rules"
-	"internal-developer-platform/src/features/gitops-reconciliation/infrastructure/adapters"
-	gitopsService "internal-developer-platform/src/features/gitops-reconciliation/service"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/adapters"
+	gitopsService "internal-developer-platform/src/features/gitops-reconciliation/internal/service"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
 )
