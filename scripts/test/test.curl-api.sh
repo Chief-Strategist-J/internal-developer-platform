@@ -1199,6 +1199,53 @@ else
     exit 1
 fi
 
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 50] GET /api/v1/clusters -> Fetch Provisioned Cluster"
+echo "--------------------------------------------------------------------------------"
+GET_CLUSTER_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/clusters?clusterId=gke-fedramp-prod-01" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-Id: fintech-team")
+echo "${GET_CLUSTER_RESP}"
+if echo "${GET_CLUSTER_RESP}" | grep -q "200 OK" && echo "${GET_CLUSTER_RESP}" | grep -q "gke-fedramp-prod-01"; then
+    echo -e "\033[1;32m[PASS]\033[0m GET /api/v1/clusters returned provisioned cluster"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 200 OK with gke-fedramp-prod-01"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 51] GET /api/v1/clusters -> Non-Existent Cluster Returns 404"
+echo "--------------------------------------------------------------------------------"
+MISS_CLUSTER_RESP=$(curl --noproxy "*" -s -i -X GET "http://127.0.0.1:${CLI_PORT}/api/v1/clusters?clusterId=nonexistent-cluster-999" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "X-Tenant-Id: fintech-team")
+echo "${MISS_CLUSTER_RESP}"
+if echo "${MISS_CLUSTER_RESP}" | grep -q "404 Not Found"; then
+    echo -e "\033[1;32m[PASS]\033[0m GET /api/v1/clusters returned 404 Not Found for missing cluster"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 404 Not Found for missing cluster"
+    exit 1
+fi
+
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "[CURL TEST 52] POST /api/v1/clusters -> Malformed Payload Returns 400"
+echo "--------------------------------------------------------------------------------"
+BAD_CLUSTER_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}/api/v1/clusters" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: fintech-team" \
+  -d '{"clusterId":""}')
+echo "${BAD_CLUSTER_RESP}"
+if echo "${BAD_CLUSTER_RESP}" | grep -q "400 Bad Request"; then
+    echo -e "\033[1;32m[PASS]\033[0m POST /api/v1/clusters rejected invalid payload with 400 Bad Request"
+else
+    echo -e "\033[1;31m[FAIL]\033[0m Expected 400 Bad Request for invalid cluster payload"
+    exit 1
+fi
+
 
 
 

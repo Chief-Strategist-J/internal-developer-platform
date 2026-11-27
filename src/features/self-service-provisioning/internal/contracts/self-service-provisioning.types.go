@@ -23,3 +23,15 @@ type ClusterPostureReport = cluster.ClusterPostureReport
 type WorkloadIdentitySpec = cloudresource.WorkloadIdentityBindingSpec
 type ResourceManifestResult = cloudresource.ManifestResult
 type LedgerReconciliationReport = cloudresource.LedgerReconciliationReport
+
+type ProvisioningIntent struct {
+	ID           string `json:"id"`
+	PublicID     string `json:"publicId"`
+	TenantID     string `json:"tenantId"`
+	ResourceKind string `json:"resourceKind"`
+	TargetID     string `json:"targetId"`
+	Attempt      int    `json:"attempt"`
+	Status       string `json:"status"`
+	OutcomeID    string `json:"outcomeId,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}

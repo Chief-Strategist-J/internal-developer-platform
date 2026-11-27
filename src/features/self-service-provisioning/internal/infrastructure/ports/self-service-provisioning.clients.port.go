@@ -24,3 +24,9 @@ type CloudResourceProvisionerPort interface {
 	ProvisionWorkloadIdentity(ctx context.Context, spec contracts.WorkloadIdentitySpec) (*contracts.ResourceManifestResult, error)
 	ReconcileLedger(ctx context.Context, activeWorkloadIDs []string) (*contracts.LedgerReconciliationReport, error)
 }
+
+type ProvisioningLedgerPort interface {
+	RecordIntent(ctx context.Context, intent contracts.ProvisioningIntent) error
+	RecordOutcome(ctx context.Context, intentID string, attempt int, status string, outcomeID string, errMsg string) error
+	ListIntents(ctx context.Context, tenantID string, limit int) ([]contracts.ProvisioningIntent, error)
+}

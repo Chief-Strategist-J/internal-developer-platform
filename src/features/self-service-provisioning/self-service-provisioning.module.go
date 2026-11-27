@@ -9,6 +9,7 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: SELF-SERVICE PROVISIONING MODULE (V.3 role 1
 package selfserviceprovisioning
 
 import (
+	"database/sql"
 	"net/http"
 
 	restv1 "internal-developer-platform/src/features/self-service-provisioning/internal/api/rest/v1"
@@ -22,6 +23,7 @@ import (
 )
 
 type ModuleDeps struct {
+	DB             *sql.DB
 	ResilienceCfg  resilience.ResilienceConfig
 	RBACMiddleware *middleware.RBACMiddleware
 }
@@ -38,6 +40,11 @@ func BuildModule(deps ModuleDeps) *SelfServiceProvisioningModule {
 	clusterAdapter := adapters.NewGKEClusterClientAdapter(clusterClient)
 	cloudResourceAdapter := adapters.NewCloudResourceClientAdapter(cloudResourceClient)
 	svc := service.NewSelfServiceProvisioningService(clusterAdapter, cloudResourceAdapter)
+	if deps.DB != nil {
+		svc.SetLedgerPort(adapters.NewPostgresProvisioningLedgerAdapter(deps.DB))
+	} else {
+		svc.SetLedgerPort(adapters.NewMemoryProvisioningLedgerAdapter())
+	}
 	handler := restv1.NewSelfServiceProvisioningHandler(svc)
 	router := restv1.NewSelfServiceProvisioningRouter(handler, deps.RBACMiddleware)
 	return &SelfServiceProvisioningModule{

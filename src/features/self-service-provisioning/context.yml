@@ -17,6 +17,8 @@ ports:
     adapters: [gke-client]
   - name: cloudresource
     adapters: [cnrm-client]
+  - name: ledger
+    adapters: [postgres, memory]
 lifecycles: []
 ingress:
   rest: contracts/openapi/v1.yaml

@@ -1,6 +1,6 @@
 {
   "version": "3.0.0",
-  "last_migration": "20261127120003",
+  "last_migration": "20261127164000",
   "checksums": {
     "disaster-recovery/20261115000015_create-disaster-recovery-tables.down.sql": "0c50faf7bc2fe6fc1b13e4104872306ff7255dd86ce5a2e6558e2d41efe92ce9",
     "disaster-recovery/20261115000015_create-disaster-recovery-tables.up.sql": "9f3490f9aa251cfc5680a58ae6170953457cf3841c8e53ccd91db225e897ae9c",
@@ -72,6 +72,10 @@
     "role-based-access-control/20261127120002_move-role-based-access-control-tables-to-schema.up.sql": "ada6bbefcb3c80201366f388537a5a80e5d926c81ccc60c03eb397da35716aef",
     "role-based-access-control/20261127120003_enable-rbac-rls.down.sql": "9b7391ab7b98b50d4057d8e4c04d0e2b0c4b5b08d96cfd15d8ca96431ff9b58d",
     "role-based-access-control/20261127120003_enable-rbac-rls.up.sql": "c81864b4b906ff3ee8483727d7ab1b2d9357932267f4766bf9f6ef9ca79e3918",
+    "self-service-provisioning/20261127163000_create-self-service-provisioning-schema.down.sql": "9a0d0e34980ea2d236fe2aaad089c9b8fb841b7d4629909bd130fbd151dd30bd",
+    "self-service-provisioning/20261127163000_create-self-service-provisioning-schema.up.sql": "fa735ed41c62db40e333e32e1dcf2506e5b93a881c9e51cd481affa61ee2e079",
+    "self-service-provisioning/20261127164000_harden-self-service-provisioning-contract.down.sql": "874ee654850c902c001caf8a0ae4f3706ded4bd52aa72490ec37c9e4dd15207e",
+    "self-service-provisioning/20261127164000_harden-self-service-provisioning-contract.up.sql": "dbc7a8f1dfb823806fa5902a9c45291de9ce66fdf524e694201d09d511f8dbf3",
     "service-catalog/20261101000001_create-service-catalog.down.sql": "a08c014fce46dc6d4c9d72c0145856cbf6135a14d14c9d98e26809f9efd96e17",
     "service-catalog/20261101000001_create-service-catalog.up.sql": "f02be81688e7a74971da9bbf6b49468f4bbb610e0df129a7af225dd6065ca149",
     "service-catalog/20261127120001_create-service-catalog-schema.down.sql": "1ee2d1fe2ddd92834ce16eb55737e30bf49a505496e07ca2b757f55d58d2d449",

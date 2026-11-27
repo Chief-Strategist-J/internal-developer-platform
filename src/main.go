@@ -147,6 +147,7 @@ func describeService() chassis.ServiceSpec {
 			imageSecMod := imagesecurity.BuildModule(nil)
 
 			selfServiceMod := selfserviceprovisioning.BuildModule(selfserviceprovisioning.ModuleDeps{
+				DB:             deps.DB,
 				ResilienceCfg:  resConfig,
 				RBACMiddleware: rbacMW,
 			})
