@@ -25,6 +25,13 @@ var (
 	rxRegionName = regexp.MustCompile(`^[a-z]+-[a-z0-9]+[0-9]?$`)
 )
 
+func ValidateTenantID(tenantID string) error {
+	if tenantID == "" || !rxGenericID.MatchString(tenantID) {
+		return errors.NewValidationError("tenantId header is required and must match identifier format")
+	}
+	return nil
+}
+
 func ValidateCreateDRPlanCommand(cmd CreateDRPlanCommand) error {
 	if cmd.TenantID == "" || !rxGenericID.MatchString(cmd.TenantID) {
 		return errors.NewValidationError("tenantId must match alphanumeric identifier format")

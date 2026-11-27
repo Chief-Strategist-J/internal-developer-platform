@@ -26,6 +26,7 @@ package restv1
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"net/http"
 	"strings"
 
@@ -431,6 +432,10 @@ func (h *DisasterRecoveryHandler) createPlan(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *DisasterRecoveryHandler) listPlans(w http.ResponseWriter, r *http.Request, ctx context.Context, meta utils.IngressMetadata) {
+	if err := contracts.ValidateTenantID(meta.TenantID); err != nil {
+		h.writeError(ctx, w, meta, err)
+		return
+	}
 	plans, err := h.service.ListPlans(ctx, meta.TenantID)
 	if err != nil {
 		h.writeError(ctx, w, meta, err)
@@ -623,9 +628,17 @@ func (h *DisasterRecoveryHandler) writeError(ctx context.Context, w http.Respons
 	}
 
 	statusCode := http.StatusInternalServerError
+	errCode := constants.ErrCodeInternalError
+	errMsg := "internal server error"
 	var appErr *appErrors.ApplicationError
-	if errorsAs(err, &appErr) {
+	if stderrors.As(err, &appErr) {
 		statusCode = appErr.StatusCode
+		if appErr.CanonicalCode != "" {
+			errCode = appErr.CanonicalCode
+		}
+		if statusCode < http.StatusInternalServerError && appErr.Message != "" {
+			errMsg = appErr.Message
+		}
 	}
 
 	w.WriteHeader(statusCode)
@@ -633,18 +646,10 @@ func (h *DisasterRecoveryHandler) writeError(ctx context.Context, w http.Respons
 		Success:    false,
 		StatusCode: statusCode,
 		Error: &types.ResponseError{
-			Code:    "DISASTER_RECOVERY_ERROR",
-			Message: err.Error(),
+			Code:    errCode,
+			Message: errMsg,
 		},
 		Meta: utils.BuildResponseMeta(meta),
 	}
 	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func errorsAs(err error, target **appErrors.ApplicationError) bool {
-	if ae, ok := err.(*appErrors.ApplicationError); ok {
-		*target = ae
-		return true
-	}
-	return false
 }

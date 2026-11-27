@@ -18,6 +18,7 @@ package adapters
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,7 +115,7 @@ func (a *PostgresDRRepositoryAdapter) ListPlans(ctx context.Context, tenantID st
 
 	rows, err := a.db.QueryContext(ctx, queries.FlowListDRPlansByTenant, tenantID)
 	if err != nil {
-		return nil, errors.NewInternalError(err.Error())
+		return nil, mapPostgresError(err)
 	}
 	defer rows.Close()
 
@@ -122,11 +123,25 @@ func (a *PostgresDRRepositoryAdapter) ListPlans(ctx context.Context, tenantID st
 	for rows.Next() {
 		plan, err := scanDRPlan(rows)
 		if err != nil {
-			return nil, errors.NewInternalError(err.Error())
+			return nil, mapPostgresError(err)
 		}
 		result = append(result, *plan)
 	}
 	return result, nil
+}
+
+func mapPostgresError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "22P02") || strings.Contains(msg, "invalid input syntax for type uuid") {
+		return errors.NewValidationError("invalid UUID format for tenantId or resource identifier")
+	}
+	if strings.Contains(msg, "23505") {
+		return errors.NewConflictError("resource already exists")
+	}
+	return errors.NewInternalError("database operation failed")
 }
 
 func (a *PostgresDRRepositoryAdapter) UpdatePlan(ctx context.Context, plan contracts.DRPlanRecord) error {
