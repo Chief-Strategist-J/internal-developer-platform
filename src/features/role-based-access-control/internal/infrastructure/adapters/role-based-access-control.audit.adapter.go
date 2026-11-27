@@ -12,7 +12,9 @@ package adapters
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -49,6 +51,8 @@ func (a *PostgresRBACAuditOutboxAdapter) EnqueueAuditEvent(ctx context.Context, 
 		if occurredAt.IsZero() {
 			occurredAt = time.Now().UTC()
 		}
+		sum := sha256.Sum256([]byte(event.ID + ":" + event.TenantID))
+		publicID := "raud_" + hex.EncodeToString(sum[:16])
 		var err error
 		if tx, ok := TxFromContext(ctx); ok {
 			_, err = tx.ExecContext(
@@ -63,6 +67,7 @@ func (a *PostgresRBACAuditOutboxAdapter) EnqueueAuditEvent(ctx context.Context, 
 				event.Reason,
 				event.ViolationCode,
 				occurredAt,
+				publicID,
 			)
 		} else {
 			_, err = a.db.ExecContext(
@@ -77,6 +82,7 @@ func (a *PostgresRBACAuditOutboxAdapter) EnqueueAuditEvent(ctx context.Context, 
 				event.Reason,
 				event.ViolationCode,
 				occurredAt,
+				publicID,
 			)
 		}
 		if err != nil {

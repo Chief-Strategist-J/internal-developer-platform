@@ -83,10 +83,14 @@ else
     exit 1
 fi
 
-# Step 3: Direct PSQL Verification inside Docker Container
+# Step 3: Direct PSQL Verification
 echo ""
-echo -e "\033[1;34m[TEST 3]\033[0m Direct PSQL query in container idp-db-1 to verify actual row on disk..."
-QUERY_RESULT=$(docker exec idp-db-1 psql -U postgres -d idp_db -c "SELECT id, tenant_id, name, owner, status, version FROM service_descriptors WHERE id = '${SVC_ID}';")
+echo -e "\033[1;34m[TEST 3]\033[0m Direct PSQL query to verify actual row on disk..."
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^idp-db-1$'; then
+    QUERY_RESULT=$(docker exec idp-db-1 psql -U postgres -d idp_db -c "SELECT id, tenant_id, name, owner, status, version FROM service_descriptors WHERE id = '${SVC_ID}';")
+else
+    QUERY_RESULT=$(PGPASSWORD="${DB_PASSWORD:-postgres_dev_password_123}" psql -h "${DB_HOST:-127.0.0.1}" -p "${DB_PORT_PG:-5432}" -U "${DB_USER:-postgres}" -d "${DB_NAME:-idp_db}" -c "SELECT id, tenant_id, name, owner, status, version FROM service_descriptors WHERE id = '${SVC_ID}';")
+fi
 echo "${QUERY_RESULT}"
 
 if echo "${QUERY_RESULT}" | grep -q "${SVC_ID}"; then
