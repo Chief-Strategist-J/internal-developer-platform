@@ -1,0 +1,58 @@
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: SELF-SERVICE PROVISIONING MODULE (V.3 role 15, X-05)
+
+ 1. Role:
+    - Assembles cluster & cloud resource client adapters, service, REST handler, and router.
+ 2. Invariants:
+    - Zero goroutines or tickers in BuildModule (G-11); does not export Service (X-05).
+*/
+package selfserviceprovisioning
+
+import (
+	"net/http"
+
+	restv1 "internal-developer-platform/src/features/self-service-provisioning/internal/api/rest/v1"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/service"
+	"internal-developer-platform/src/infra/clients/cloudresource"
+	"internal-developer-platform/src/infra/clients/cluster"
+	"internal-developer-platform/src/infra/clients/resilience"
+	"internal-developer-platform/src/infra/middleware"
+	"internal-developer-platform/src/shared/kernel"
+)
+
+type ModuleDeps struct {
+	ResilienceCfg  resilience.ResilienceConfig
+	RBACMiddleware *middleware.RBACMiddleware
+}
+
+type SelfServiceProvisioningModule struct {
+	router     *restv1.SelfServiceProvisioningRouter
+	routes     []kernel.Route
+	lifecycles []kernel.Lifecycle
+}
+
+func BuildModule(deps ModuleDeps) *SelfServiceProvisioningModule {
+	clusterClient := cluster.NewGKEClusterClient(deps.ResilienceCfg)
+	cloudResourceClient := cloudresource.NewCloudResourceClient(deps.ResilienceCfg)
+	clusterAdapter := adapters.NewGKEClusterClientAdapter(clusterClient)
+	cloudResourceAdapter := adapters.NewCloudResourceClientAdapter(cloudResourceClient)
+	svc := service.NewSelfServiceProvisioningService(clusterAdapter, cloudResourceAdapter)
+	handler := restv1.NewSelfServiceProvisioningHandler(svc)
+	router := restv1.NewSelfServiceProvisioningRouter(handler, deps.RBACMiddleware)
+	return &SelfServiceProvisioningModule{
+		router: router,
+	}
+}
+
+func (m *SelfServiceProvisioningModule) Name() string                         { return "self-service-provisioning" }
+func (m *SelfServiceProvisioningModule) Routes() []kernel.Route               { return m.routes }
+func (m *SelfServiceProvisioningModule) EventHandlers() []kernel.EventHandler { return nil }
+func (m *SelfServiceProvisioningModule) Lifecycles() []kernel.Lifecycle       { return m.lifecycles }
+func (m *SelfServiceProvisioningModule) Provides() []string                   { return nil }
+
+func (m *SelfServiceProvisioningModule) RegisterRoutes(mux *http.ServeMux) {
+	if m.router != nil {
+		m.router.RegisterRoutes(mux)
+	}
+}

@@ -1,8 +1,10 @@
 /*
-Package handlers tests verify the HTTP REST endpoints for the Cluster and Cloud Resource Offerings API.
-It tests cluster posture validation and cloud resource ledger reconciliation endpoints.
+ALGORITHM & ARCHITECTURE BLUEPRINT: SELF-SERVICE PROVISIONING API TESTS (V.3 role 14)
+
+ 1. Role:
+    - Verifies cluster provisioning, posture validation, workload identity manifests, and ledger reconciliation endpoints.
 */
-package handlers
+package tests
 
 import (
 	"bytes"
@@ -11,6 +13,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	restv1 "internal-developer-platform/src/features/self-service-provisioning/internal/api/rest/v1"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/service"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/cluster"
 	"internal-developer-platform/src/infra/clients/resilience"
@@ -48,10 +53,16 @@ func createTestClusterSpec(id string) cluster.GKEClusterSpec {
 	}
 }
 
-func TestClusterHandler_ProvisionAndValidatePosture(t *testing.T) {
-	clClient := cluster.NewGKEClusterClient(resilience.DefaultResilienceConfig())
-	handler := NewClusterHandler(clClient)
+func newTestHandler() *restv1.SelfServiceProvisioningHandler {
+	resCfg := resilience.DefaultResilienceConfig()
+	clAdapter := adapters.NewGKEClusterClientAdapter(cluster.NewGKEClusterClient(resCfg))
+	crAdapter := adapters.NewCloudResourceClientAdapter(cloudresource.NewCloudResourceClient(resCfg))
+	svc := service.NewSelfServiceProvisioningService(clAdapter, crAdapter)
+	return restv1.NewSelfServiceProvisioningHandler(svc)
+}
 
+func TestSelfServiceCluster_ProvisionAndValidatePosture(t *testing.T) {
+	handler := newTestHandler()
 	spec := createTestClusterSpec("cluster-test-01")
 	body, _ := json.Marshal(spec)
 
@@ -80,10 +91,8 @@ func TestClusterHandler_ProvisionAndValidatePosture(t *testing.T) {
 	}
 }
 
-func TestCloudResourceHandler_ReconcileLedger(t *testing.T) {
-	crClient := cloudresource.NewCloudResourceClient(resilience.DefaultResilienceConfig())
-	handler := NewCloudResourceHandler(crClient)
-
+func TestSelfServiceCloudResource_ReconcileLedger(t *testing.T) {
+	handler := newTestHandler()
 	spec := cloudresource.WorkloadIdentityBindingSpec{
 		GSAEmail:     "app@gov-cloud.iam.gserviceaccount.com",
 		KSAName:      "app-sa",
