@@ -1,0 +1,12 @@
+feature: service-catalog
+type: frontend
+owners: "@platform-core"
+status: active
+provides: []
+exposes: []
+asks: []
+contracts:
+  - /api/v1/services
+tiers: []
+deviations: []
+waivers: []

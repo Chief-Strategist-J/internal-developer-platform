@@ -1,0 +1,12 @@
+name: internal-developer-platform-cpp
+language: cpp
+structure_contract: 3.0.0
+subsystems:
+  contracts: []
+  database: []
+  messaging: []
+  deploy: [docker]
+  frontend: false
+process_roles: [worker]
+features_registry: src/features/health_checks/health_checks.hpp
+owners: "@platform-core"

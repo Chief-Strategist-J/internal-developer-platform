@@ -11,14 +11,13 @@
 #include <thread>
 #include <vector>
 
-#include "api/rest/v1/handlers/health_checks_handler.hpp"
-#include "api/rest/v1/routers/health_checks_router.hpp"
 #include "features/health_checks/health_checks.hpp"
 #include "shared/constants/system_constants.hpp"
 
 using namespace idp;
+using HealthChecksRouterPtr = std::shared_ptr<features::health_checks::api::rest::v1::HealthChecksRouter>;
 
-void handleConnection(int clientFd, std::shared_ptr<api::rest::v1::routers::HealthChecksRouter> router, bool isAdmin) {
+void handleConnection(int clientFd, HealthChecksRouterPtr router, bool isAdmin) {
     std::vector<char> buffer(4096);
     const ssize_t bytesRead = read(clientFd, buffer.data(), buffer.size() - 1);
     if (bytesRead <= 0) {
@@ -59,7 +58,7 @@ void handleConnection(int clientFd, std::shared_ptr<api::rest::v1::routers::Heal
     close(clientFd);
 }
 
-void runListener(const std::string& host, int port, std::shared_ptr<api::rest::v1::routers::HealthChecksRouter> router, bool isAdmin) {
+void runListener(const std::string& host, int port, HealthChecksRouterPtr router, bool isAdmin) {
     const int serverFd = socket(AF_INET, SOCK_STREAM, 0);
     if (serverFd < 0) return;
 
@@ -104,10 +103,7 @@ int main() {
         adminPort = std::atoi(envAdminPort);
     }
 
-    auto repository = std::make_shared<features::health_checks::infrastructure::adapters::HealthChecksRepositoryAdapter>();
-    auto service = std::make_shared<features::health_checks::service::HealthChecksService>(repository);
-    auto handler = std::make_shared<api::rest::v1::handlers::HealthChecksHandler>(service);
-    auto router = std::make_shared<api::rest::v1::routers::HealthChecksRouter>(handler);
+    auto router = features::health_checks::buildHealthChecksRouter();
 
     std::thread adminThread(runListener, shared::constants::DEFAULT_ADMIN_HOST, adminPort, router, true);
     adminThread.detach();

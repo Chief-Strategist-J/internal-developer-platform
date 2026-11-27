@@ -1,4 +1,3 @@
-mod api;
 mod features;
 mod shared;
 
@@ -8,9 +7,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 
-use api::rest::v1::handlers::health_checks_handler::HealthChecksHandler;
-use api::rest::v1::routers::health_checks_router::HealthChecksRouter;
-use features::health_checks::{HealthChecksRepositoryAdapter, HealthChecksService};
+use features::health_checks::{build_health_checks_router, HealthChecksRouter};
 use shared::constants::{DEFAULT_ADMIN_HOST, DEFAULT_ADMIN_PORT, DEFAULT_HOST, DEFAULT_PORT, SERVICE_NAME};
 
 fn handle_connection(mut stream: TcpStream, router: Arc<HealthChecksRouter>, is_admin: bool) {
@@ -84,10 +81,7 @@ fn main() {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(DEFAULT_ADMIN_PORT);
 
-    let repository = Arc::new(HealthChecksRepositoryAdapter::new());
-    let service = Arc::new(HealthChecksService::new(repository));
-    let handler = Arc::new(HealthChecksHandler::new(service));
-    let router = Arc::new(HealthChecksRouter::new(handler));
+    let router = build_health_checks_router();
 
     let admin_addr = format!("{}:{}", DEFAULT_ADMIN_HOST, admin_port);
     let admin_listener = TcpListener::bind(&admin_addr).expect("Failed to bind Rust admin listener");

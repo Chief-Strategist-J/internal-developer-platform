@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::api::rest::v1::handlers::health_checks_handler::HealthChecksHandler;
+use crate::features::health_checks::api::rest::v1::health_checks_handler::HealthChecksHandler;
 
 pub struct HealthChecksRouter {
     handler: Arc<HealthChecksHandler>,

@@ -1,12 +1,12 @@
 import { IncomingMessage, ServerResponse } from "http";
-import { HealthChecksService } from "../../../../features/health-checks/service/health-checks.service.js";
-import { ApiResponseEnvelope } from "../../../../shared/types/envelope.types.js";
+import { HealthChecksService } from "../../../service/health-checks.service.js";
+import { ApiResponseEnvelope } from "../../../../../shared/types/envelope.types.js";
 
 export class HealthChecksHandler {
   constructor(private readonly service: HealthChecksService) {}
 
-  async handleLiveness(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const traceId = (req.headers["x-trace-id"] as string) || "00-typescript-live-00";
+  async handleLiveness(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const traceId = (_req.headers["x-trace-id"] as string) || "00-typescript-live-00";
     try {
       const data = await this.service.checkLiveness();
       const envelope: ApiResponseEnvelope<typeof data> = {
@@ -39,7 +39,7 @@ export class HealthChecksHandler {
       const data = await this.service.checkReadiness();
       const statusCode = data.status === "READY" ? 200 : 503;
       const envelope: ApiResponseEnvelope<typeof data> = {
-        success: data.status === "READY",
+        success: statusCode === 200,
         statusCode,
         data,
         error: null,

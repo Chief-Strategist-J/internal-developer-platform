@@ -1,0 +1,12 @@
+name: internal-developer-platform-typescript
+language: typescript
+structure_contract: 3.0.0
+subsystems:
+  contracts: [openapi]
+  database: []
+  messaging: []
+  deploy: [docker]
+  frontend: true
+process_roles: [api]
+features_registry: src/app/features.ts
+owners: "@platform-core"

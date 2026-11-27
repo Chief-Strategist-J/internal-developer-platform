@@ -1,7 +1,7 @@
 use chrono::Utc;
 use std::sync::Arc;
 
-use crate::features::health_checks::HealthChecksService;
+use crate::features::health_checks::service::health_checks_service::HealthChecksService;
 use crate::shared::types::{ApiErrorEnvelope, ApiMetaEnvelope, ApiResponseEnvelope};
 
 pub struct HealthChecksHandler {
