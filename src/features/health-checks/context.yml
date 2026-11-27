@@ -1,2 +1,29 @@
 feature: health-checks
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
+
+provides: []
+exposes: []
+asks: []
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+ports:
+  - name: repository
+    adapters: [memory]
+
+lifecycles: []
+
+ingress:
+  rest: contracts/openapi/health-checks/v1/openapi.yaml
+
+tiers: []
+
+deviations: []
+waivers: []

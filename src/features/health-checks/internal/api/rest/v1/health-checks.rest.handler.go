@@ -4,7 +4,7 @@
 // - Step 02 Handler: Exposes liveness, readiness, and system health endpoints.
 // - Spawns Tier-2 handler child spans via observability.WithSpan.
 // - 100% comment-free function bodies.
-package handlers
+package restv1
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	healthService "internal-developer-platform/src/features/health-checks/service"
+	healthService "internal-developer-platform/src/features/health-checks/internal/service"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/types"
