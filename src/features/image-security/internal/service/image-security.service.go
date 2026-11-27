@@ -6,9 +6,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"internal-developer-platform/src/features/image-security/contracts"
-	"internal-developer-platform/src/features/image-security/domain/workflows"
-	"internal-developer-platform/src/features/image-security/infrastructure/ports"
+	"internal-developer-platform/src/features/image-security/internal/contracts"
+	"internal-developer-platform/src/features/image-security/internal/domain/workflows"
+	"internal-developer-platform/src/features/image-security/internal/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 )
 

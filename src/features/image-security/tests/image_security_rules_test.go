@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"internal-developer-platform/src/features/image-security/contracts"
-	"internal-developer-platform/src/features/image-security/domain/machines"
-	"internal-developer-platform/src/features/image-security/domain/rules"
-	"internal-developer-platform/src/features/image-security/infrastructure/adapters"
-	"internal-developer-platform/src/features/image-security/service"
+	"internal-developer-platform/src/features/image-security/internal/contracts"
+	"internal-developer-platform/src/features/image-security/internal/domain/machines"
+	"internal-developer-platform/src/features/image-security/internal/domain/rules"
+	"internal-developer-platform/src/features/image-security/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/image-security/internal/service"
 )
 
 func TestEvaluateImageSecurityPolicy_RejectsEmbeddedSecrets(t *testing.T) {

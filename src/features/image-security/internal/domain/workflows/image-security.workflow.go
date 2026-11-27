@@ -6,8 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"internal-developer-platform/src/features/image-security/contracts"
-	"internal-developer-platform/src/features/image-security/domain/rules"
+	"internal-developer-platform/src/features/image-security/internal/contracts"
+	"internal-developer-platform/src/features/image-security/internal/domain/rules"
 	"internal-developer-platform/src/infra/observability"
 )
 
