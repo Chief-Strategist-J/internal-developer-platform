@@ -1,2 +1,25 @@
 feature: self-service-provisioning
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+provides: []
+exposes: []
+asks:
+  - capability: authz
+    reason: "Authorizes cluster and cloud resource provisioning HTTP endpoints via middleware"
+    fallback: fail-closed
+events:
+  produces: []
+  consumes: []
+projections: []
+ports:
+  - name: cluster
+    adapters: [gke-client]
+  - name: cloudresource
+    adapters: [cnrm-client]
+lifecycles: []
+ingress:
+  rest: contracts/openapi/v1.yaml
+tiers: []
+deviations: []
+waivers: []

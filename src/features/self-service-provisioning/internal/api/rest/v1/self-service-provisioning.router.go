@@ -1,35 +1,40 @@
-package routers
+/*
+ALGORITHM & ARCHITECTURE BLUEPRINT: SELF-SERVICE PROVISIONING REST ROUTER (V.3 role 01)
+
+ 1. Role:
+    - Mounts cluster and cloud resource offering HTTP endpoints under self-service-provisioning.
+ 2. Invariants:
+    - Zero inline comments; enforces RBAC middleware when wired.
+*/
+package restv1
 
 import (
 	"net/http"
 
-	"internal-developer-platform/src/api/rest/v1/handlers"
 	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/kernel/capabilities/authz"
 )
 
-type OfferingsRouter struct {
-	clusterHandler       *handlers.ClusterHandler
-	cloudResourceHandler *handlers.CloudResourceHandler
-	rbacMiddle           *middleware.RBACMiddleware
+type SelfServiceProvisioningRouter struct {
+	handler    *SelfServiceProvisioningHandler
+	rbacMiddle *middleware.RBACMiddleware
 }
 
-func NewOfferingsRouter(clh *handlers.ClusterHandler, crh *handlers.CloudResourceHandler, rbacM *middleware.RBACMiddleware) *OfferingsRouter {
-	return &OfferingsRouter{
-		clusterHandler:       clh,
-		cloudResourceHandler: crh,
-		rbacMiddle:           rbacM,
+func NewSelfServiceProvisioningRouter(handler *SelfServiceProvisioningHandler, rbacM *middleware.RBACMiddleware) *SelfServiceProvisioningRouter {
+	return &SelfServiceProvisioningRouter{
+		handler:    handler,
+		rbacMiddle: rbacM,
 	}
 }
 
-func (r *OfferingsRouter) RegisterRoutes(mux *http.ServeMux) {
+func (r *SelfServiceProvisioningRouter) RegisterRoutes(mux *http.ServeMux) {
 	clHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.Method {
 		case http.MethodPost:
-			r.clusterHandler.ProvisionCluster(w, req)
+			r.handler.ProvisionCluster(w, req)
 		case http.MethodGet:
-			r.clusterHandler.GetCluster(w, req)
+			r.handler.GetCluster(w, req)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -37,7 +42,7 @@ func (r *OfferingsRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	crHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
-			r.cloudResourceHandler.ProvisionResource(w, req)
+			r.handler.ProvisionResource(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -45,7 +50,7 @@ func (r *OfferingsRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	postureHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodGet {
-			r.clusterHandler.ValidatePosture(w, req)
+			r.handler.ValidatePosture(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -53,7 +58,7 @@ func (r *OfferingsRouter) RegisterRoutes(mux *http.ServeMux) {
 
 	reconcileHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodPost {
-			r.cloudResourceHandler.ReconcileLedger(w, req)
+			r.handler.ReconcileLedger(w, req)
 			return
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
