@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"internal-developer-platform/src/features/role-based-access-control/domain/machines"
+	"internal-developer-platform/src/features/role-based-access-control/internal/domain/machines"
 )
 
 func TestRoleBasedAccessControlMachine_Transitions(t *testing.T) {

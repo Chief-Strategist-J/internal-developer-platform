@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
+	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/adapters"
 )
 
 func TestRoleBasedAccessControlSchema_CryptographicSignatureAndPayload(t *testing.T) {

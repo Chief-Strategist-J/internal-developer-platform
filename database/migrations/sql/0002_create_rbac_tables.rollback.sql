@@ -1,2 +1,0 @@
-DROP TABLE IF EXISTS rbac_user_bindings CASCADE;
-DROP TABLE IF EXISTS rbac_roles CASCADE;

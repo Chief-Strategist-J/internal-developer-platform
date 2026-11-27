@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
-	rbacService "internal-developer-platform/src/features/role-based-access-control/service"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
+	rbacAdapters "internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/adapters"
+	rbacService "internal-developer-platform/src/features/role-based-access-control/internal/service"
 )
 
 func TestRoleBasedAccessControlIntegration_LiveRedis(t *testing.T) {

@@ -2,25 +2,26 @@
 // infrastructure and returns its public Module surface (V.3 role 15, X-05).
 //
 // Blueprint:
-//  1. This module assembles service, router, authorizer capability, and lifecycles.
-//  2. It provides the kernel authz.Authorizer capability via RBACAuthorizerProvider (X-02).
+//  1. Assembles service, router, authorizer capability, bridge adapter, and lifecycles.
+//  2. Provides the kernel authz.Authorizer capability via RBACAuthorizerProvider (X-02).
 //  3. Lifecycles (prune-scheduler, streaming-reaper, audit-relay) are returned rather than started here (G-11).
 //
 // Invariants:
 //   - No business logic here — only construction and wiring.
-//   - Timer primitives and goroutines are forbidden in this file (G-11).
+//   - Never exports *service.RBACService (X-05, GO-INT-001).
 package rbac
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"time"
 
-	restv1 "internal-developer-platform/src/features/role-based-access-control/api/rest/v1"
-	rbacContracts "internal-developer-platform/src/features/role-based-access-control/contracts"
-	"internal-developer-platform/src/features/role-based-access-control/infrastructure/adapters"
-	rbacLifecycle "internal-developer-platform/src/features/role-based-access-control/infrastructure/lifecycle"
-	"internal-developer-platform/src/features/role-based-access-control/service"
+	restv1 "internal-developer-platform/src/features/role-based-access-control/internal/api/rest/v1"
+	rbacContracts "internal-developer-platform/src/features/role-based-access-control/internal/contracts"
+	"internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/adapters"
+	rbacLifecycle "internal-developer-platform/src/features/role-based-access-control/internal/infrastructure/lifecycle"
+	"internal-developer-platform/src/features/role-based-access-control/internal/service"
 	"internal-developer-platform/src/infra/config"
 	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/shared/kernel"
@@ -32,9 +33,40 @@ type ModuleDeps struct {
 	Config *config.AppConfig
 }
 
+type rbacBridgeAdapter struct {
+	svc *service.RBACService
+}
+
+func (a *rbacBridgeAdapter) EvaluateTaskLease(ctx context.Context, req TaskLeaseEvalRequest) (TaskLeaseEvalResult, error) {
+	res, err := a.svc.EvaluateTaskLease(ctx, rbacContracts.TaskExecutionLeaseRequest{
+		TokenExpired:          req.TokenExpired,
+		HasSignedTaskLease:    req.HasSignedTaskLease,
+		LeaseExpired:          req.LeaseExpired,
+		IsIdempotentBatchStep: req.IsIdempotentBatchStep,
+		RefreshSucceeded:      req.RefreshSucceeded,
+	})
+	return TaskLeaseEvalResult{
+		Granted:       res.Granted,
+		Reason:        res.Reason,
+		Directive:     res.Directive,
+		ViolationCode: res.ViolationCode,
+	}, err
+}
+
+func (a *rbacBridgeAdapter) EvaluateAsyncJobDrift(ctx context.Context, subjectID string, jti string, queueLatency time.Duration) (AsyncJobDriftEvalResult, error) {
+	res, err := a.svc.EvaluateAsyncJobDrift(ctx, subjectID, jti, queueLatency, nil)
+	return AsyncJobDriftEvalResult{
+		Granted:       res.Granted,
+		Reason:        res.Reason,
+		Directive:     res.Directive,
+		ViolationCode: res.ViolationCode,
+	}, err
+}
+
 type RBACModule struct {
 	svc        *service.RBACService
 	authorizer authz.Authorizer
+	bridge     RBACBridgeProvider
 	handler    *restv1.RBACHandler
 	router     *restv1.RBACRouter
 	routes     []kernel.Route
@@ -99,25 +131,17 @@ func BuildModule(deps ModuleDeps) *RBACModule {
 	router := restv1.NewRBACRouter(handler, mw)
 	lifecycles := []kernel.Lifecycle{
 		rbacLifecycle.NewInvalidationListenerLifecycle(revocationRepo, svc.InvalidateLocalCache),
-		rbacLifecycle.NewPruneSchedulerLifecycle(svc, 24*time.Hour),
+		rbacLifecycle.NewPruneSchedulerLifecycle(svc, revocationRepo, 24*time.Hour),
 		rbacLifecycle.NewStreamingReaperLifecycle(svc, 60*time.Second),
 		rbacLifecycle.NewAuditOutboxRelayLifecycle(rbacAuditOutbox, siemEmitter, 5*time.Second),
 	}
 	return &RBACModule{
 		svc:        svc,
 		authorizer: authorizer,
+		bridge:     &rbacBridgeAdapter{svc: svc},
 		handler:    handler,
 		router:     router,
 		lifecycles: lifecycles,
-	}
-}
-
-func NewRBACModule(svc *service.RBACService, routes []kernel.Route, lcs []kernel.Lifecycle) *RBACModule {
-	return &RBACModule{
-		svc:        svc,
-		authorizer: service.NewRBACAuthorizerProvider(svc),
-		routes:     routes,
-		lifecycles: lcs,
 	}
 }
 
@@ -139,4 +163,4 @@ func (m *RBACModule) Provides() []string { return []string{"authz"} }
 
 func (m *RBACModule) Authorizer() authz.Authorizer { return m.authorizer }
 
-func (m *RBACModule) Service() *service.RBACService { return m.svc }
+func (m *RBACModule) BridgeProvider() RBACBridgeProvider { return m.bridge }
