@@ -28,9 +28,9 @@ spec:
                 - -c
                 - |
                   echo "[SWEEPER] Triggering Section C daily sweeper run..."
-                  STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X GET http://platform-api:8081/readyz)
+                  STATUS=$(curl -m 10 -s -o /dev/null -w "%{http_code}" -X GET http://platform-api:8080/readyz)
                   if [ "$STATUS" = "200" ]; then
-                    echo "[SWEEPER] Platform API is healthy. Daily leased sweeper cycle active."
+                    echo "[SWEEPER] Platform API is healthy (status 200). Daily leased sweeper cycle active."
                     exit 0
                   else
                     echo "[SWEEPER] Platform API returned status ${STATUS}. Alerting platform team."

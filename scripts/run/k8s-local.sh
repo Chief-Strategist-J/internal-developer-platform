@@ -120,6 +120,7 @@ apply_idp_project() {
 
     log_info "Deploying backing infrastructure & platform workloads directly via modular Kustomize dev overlay..."
     kubectl apply -k "${root_dir}/deploy/k8s/overlays/dev" --server-side --force-conflicts
+    kubectl rollout restart deployment/platform-api -n "${DEV_NAMESPACE}"
     log_success "Dev environment manifests applied to cluster."
 }
 
