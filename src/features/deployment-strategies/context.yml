@@ -1,2 +1,35 @@
 feature: deployment-strategies
-mode: stateless_hexagonal
+type: backend
+schema: deployment_strategies
+owners: "@platform-core"
+status: active
+provides: []
+exposes: []
+asks:
+  - capability: authz
+    reason: "Authorizes progressive rollout HTTP endpoints via middleware"
+    fallback: fail-closed
+events:
+  produces: []
+  consumes: []
+projections: []
+ports:
+  - name: traffic
+    adapters: [mesh, memory]
+  - name: orchestrator
+    adapters: [argo-rollouts, memory]
+  - name: analysis
+    adapters: [prometheus, memory]
+  - name: repository
+    adapters: [postgres, memory]
+roles:
+  - rules
+  - machine
+  - workflow
+  - queries
+lifecycles: []
+ingress:
+  rest: contracts/openapi/v1.yaml
+tiers: []
+deviations: []
+waivers: []
