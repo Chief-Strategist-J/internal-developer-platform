@@ -185,7 +185,7 @@ func TestLivePostgresConcurrentIdempotencyGate(t *testing.T) {
 
 	var rowCount int
 	err := db.QueryRow(
-		"SELECT COUNT(*) FROM gitops_reconciliations WHERE tenant_id = $1 AND idempotency_key = $2",
+		"SELECT COUNT(*) FROM gitops_reconciliation.gitops_reconciliations WHERE tenant_id = $1 AND idempotency_key = $2",
 		tenantID, sharedKey,
 	).Scan(&rowCount)
 	if err != nil {
