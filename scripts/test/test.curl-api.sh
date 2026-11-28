@@ -1029,6 +1029,8 @@ if echo "${GITOPS_ERR_RESP}" | grep -q "400 Bad Request" && echo "${GITOPS_ERR_R
     echo -e "\033[1;32m[PASS]\033[0m Rejected invalid GitOps sync payload with 400 and X-Trace-Id"
     GITOPS_ERR_TRACE=$(echo "${GITOPS_ERR_RESP}" | grep -i '^x-trace-id:' | awk '{print $2}' | tr -d '\r')
     expect_error_span "${GITOPS_ERR_TRACE}" "gitops.reconciliation.trigger" "must match alphanumeric identifier format"
+    expect_span_attr "${GITOPS_ERR_TRACE}" "gitops.reconciliation.trigger" "app.error_class" "client"
+    expect_span_attr "${GITOPS_ERR_TRACE}" "gitops.reconciliation.trigger" "app.status_code" "400"
 else
     echo -e "\033[1;31m[FAIL]\033[0m Expected 400 Bad Request with X-Trace-Id for invalid GitOps sync payload"
     exit 1
