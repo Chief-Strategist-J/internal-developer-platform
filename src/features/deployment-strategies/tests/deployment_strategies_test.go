@@ -154,7 +154,7 @@ func TestCanaryRolloutWorkflow_EndToEnd(t *testing.T) {
 
 	analysis.SetMockMetricSamples(tenantID, "workload-payment", "sum(rate(http_requests_total{status=~'5..'}[1m])) / sum(rate(http_requests_total[1m])) * 100", []float64{0.2, 0.1})
 
-	wf := workflows.NewCanaryRolloutWorkflow(traffic, orchestrator, analysis, repo)
+	wf := workflows.NewCanaryRolloutWorkflow(traffic, orchestrator, analysis, repo, nil)
 
 	exec := contracts.RolloutExecution{
 		ID:               "exec-001",
@@ -230,7 +230,7 @@ func TestCanaryRolloutWorkflow_AutomatedAbort(t *testing.T) {
 
 	analysis.SetMockMetricSamples(tenantID, "workload-order", "sum(rate(http_requests_total{status=~'5..'}[1m])) / sum(rate(http_requests_total[1m])) * 100", []float64{2.5, 3.1})
 
-	svc := service.NewDeploymentStrategiesService(repo, traffic, orchestrator, analysis)
+	svc := service.NewDeploymentStrategiesService(repo, traffic, orchestrator, analysis, nil)
 	exec, err := svc.StartRollout(ctx, contracts.StartRolloutInput{
 		TenantID:    tenantID,
 		PlanID:      plan.ID,
@@ -246,5 +246,68 @@ func TestCanaryRolloutWorkflow_AutomatedAbort(t *testing.T) {
 	weight, _ := traffic.GetTrafficWeight(ctx, tenantID, "workload-order")
 	if weight != 0 {
 		t.Fatalf("expected mesh weight 0 after abort, got %d", weight)
+	}
+}
+
+type mockDRGuard struct {
+	fenced bool
+}
+
+func (m *mockDRGuard) IsWorkloadFenced(_ context.Context, _, _ string) (bool, error) {
+	return m.fenced, nil
+}
+
+func TestCanaryRolloutWorkflow_DRFencingAbortsRollout(t *testing.T) {
+	ctx := context.Background()
+	tenantID := "tenant-dr"
+	repo := adapters.NewMemoryRepositoryAdapter()
+	traffic := adapters.NewMemoryTrafficAdapter()
+	orchestrator := adapters.NewArgoRolloutsAdapter()
+	analysis := adapters.NewPrometheusAnalysisAdapter()
+	drGuard := &mockDRGuard{fenced: true}
+
+	plan := contracts.RolloutPlan{
+		ID:               "plan-fenced",
+		PublicID:         "dplan_0123456789abcdef012345678f",
+		TenantID:         tenantID,
+		Name:             "canary-fenced-test",
+		StrategyType:     contracts.StrategyTypeCanary,
+		FailureThreshold: 1.0,
+		Version:          1,
+		Steps: []contracts.CanaryStep{
+			{StepIndex: 0, WeightPct: 15, PauseDuration: 1 * time.Second},
+		},
+	}
+	_ = repo.CreatePlan(ctx, plan)
+
+	wf := workflows.NewCanaryRolloutWorkflow(traffic, orchestrator, analysis, repo, drGuard)
+
+	exec := contracts.RolloutExecution{
+		ID:               "exec-fenced-01",
+		PublicID:         "dexec_0123456789abcdef012345678f",
+		TenantID:         tenantID,
+		PlanID:           plan.ID,
+		WorkloadID:       "workload-fenced",
+		TargetImage:      "gcr.io/fenced:v1.0.0",
+		Status:           contracts.RolloutStatusInitializing,
+		CurrentStepIndex: 0,
+		CurrentWeightPct: 0,
+		Version:          1,
+	}
+	_ = repo.CreateExecution(ctx, exec)
+
+	err := wf.ExecuteStepProgression(ctx, tenantID, exec.ID)
+	if err == nil {
+		t.Fatalf("expected step progression to fail due to DR fencing, but got nil")
+	}
+
+	updatedExec, _ := repo.GetExecution(ctx, tenantID, exec.ID)
+	if updatedExec.Status != contracts.RolloutStatusAborted {
+		t.Fatalf("expected status ABORTED, got %s", updatedExec.Status)
+	}
+
+	w, _ := traffic.GetTrafficWeight(ctx, tenantID, "workload-fenced")
+	if w != 0 {
+		t.Fatalf("expected traffic weight to be zeroed under DR fencing, got %d", w)
 	}
 }

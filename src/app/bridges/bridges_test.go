@@ -120,3 +120,35 @@ func TestWorkloadPolicyBridge_FetchesActiveException(t *testing.T) {
 		t.Fatalf("expected active exception EXC-BRIDGE-01 via bridge, got exc=%+v err=%v", exc, err)
 	}
 }
+
+type stubDRBridgeProvider struct {
+	fencedWorkloads map[string]bool
+}
+
+func (s *stubDRBridgeProvider) IsWorkloadFenced(_ context.Context, _ string, workloadID string) (bool, error) {
+	return s.fencedWorkloads[workloadID], nil
+}
+
+func (s *stubDRBridgeProvider) GetFencingEpoch(_ context.Context, _ string) (int64, error) {
+	return 1, nil
+}
+
+func TestDeploymentDRBridge_EvaluatesFencing(t *testing.T) {
+	provider := &stubDRBridgeProvider{
+		fencedWorkloads: map[string]bool{
+			"payments-service": true,
+			"catalog-service":  false,
+		},
+	}
+	bridge := bridges.NewDeploymentDRBridge(provider)
+
+	fenced, err := bridge.IsWorkloadFenced(context.Background(), "tenant-1", "payments-service")
+	if err != nil || !fenced {
+		t.Fatalf("expected payments-service to be fenced, got fenced=%v err=%v", fenced, err)
+	}
+
+	notFenced, err := bridge.IsWorkloadFenced(context.Background(), "tenant-1", "catalog-service")
+	if err != nil || notFenced {
+		t.Fatalf("expected catalog-service to NOT be fenced, got notFenced=%v err=%v", notFenced, err)
+	}
+}

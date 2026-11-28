@@ -10,6 +10,12 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: DEPLOYMENT STRATEGIES INDEX (V.3 role 13, X-
 
 package deploymentstrategies
 
+import "context"
+
+type DRGuardBridge interface {
+	IsWorkloadFenced(ctx context.Context, tenantID, workloadID string) (bool, error)
+}
+
 func NewModule(deps ModuleDeps) *DeploymentStrategiesModule {
 	return BuildModule(deps)
 }

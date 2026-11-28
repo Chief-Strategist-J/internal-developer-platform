@@ -14,6 +14,7 @@ package deploymentstrategies
 
 import (
 	"database/sql"
+	"net/http"
 
 	restv1 "internal-developer-platform/src/features/deployment-strategies/internal/api/rest/v1"
 	"internal-developer-platform/src/features/deployment-strategies/internal/infrastructure/adapters"
@@ -27,6 +28,7 @@ type ModuleDeps struct {
 	DB                    *sql.DB
 	RBACMiddleware        *middleware.RBACMiddleware
 	IdempotencyMiddleware *middleware.IdempotencyMiddleware
+	DRGuard               DRGuardBridge
 }
 
 type DeploymentStrategiesModule struct {
@@ -46,7 +48,7 @@ func BuildModule(deps ModuleDeps) *DeploymentStrategiesModule {
 	orchestrator := adapters.NewArgoRolloutsAdapter()
 	analysis := adapters.NewPrometheusAnalysisAdapter()
 
-	svc := service.NewDeploymentStrategiesService(repo, traffic, orchestrator, analysis)
+	svc := service.NewDeploymentStrategiesService(repo, traffic, orchestrator, analysis, deps.DRGuard)
 	handler := restv1.NewDeploymentStrategiesHandler(svc)
 	router := restv1.NewDeploymentStrategiesRouter(handler, deps.RBACMiddleware, deps.IdempotencyMiddleware)
 
@@ -74,4 +76,10 @@ func (m *DeploymentStrategiesModule) Lifecycles() []kernel.Lifecycle {
 
 func (m *DeploymentStrategiesModule) Provides() []string {
 	return []string{"progressive-delivery", "canary-rollout", "mesh-traffic"}
+}
+
+func (m *DeploymentStrategiesModule) RegisterRoutes(mux *http.ServeMux) {
+	if m.router != nil {
+		m.router.RegisterRoutes(mux)
+	}
 }

@@ -115,6 +115,9 @@ func (l *SelfServiceSweeperLifecycle) runCycleWithLease(ctx context.Context) {
 			logger.Error(ctx, "ssp sweeper cycle execution failed", observability.String("error", err.Error()))
 			return err
 		}
+		metrics := observability.GetSSPMetrics()
+		metrics.SweeperOrphanedDirty.Set(float64(len(report.UntrackedIntents)))
+		metrics.SweeperDuplicates.Set(float64(len(report.DuplicateTargets)))
 		logger.Info(ctx, "ssp sweeper cycle completed",
 			observability.Int("untracked_intents_count", len(report.UntrackedIntents)),
 			observability.Int("duplicate_targets_count", len(report.DuplicateTargets)),
