@@ -1,0 +1,147 @@
+name: CI — Autoscaling
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/features/autoscaling/**'
+      - 'docs/features/autoscaling/**'
+      - 'src/main.go'
+      - 'src/shared/constants/**'
+      - 'src/infra/**'
+      - 'config/endpoints.yaml'
+      - 'contracts/openapi/**'
+      - 'src/api/contracts/openapi/**'
+      - 'deploy/k8s/base/observability/prometheus/**'
+      - 'scripts/test/test.autoscaling.sh'
+      - 'scripts/lib/autoscaling.curl.sh'
+      - '.github/workflows/ci-autoscaling.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/features/autoscaling/**'
+      - 'docs/features/autoscaling/**'
+      - 'src/main.go'
+      - 'src/shared/constants/**'
+      - 'src/infra/**'
+      - 'config/endpoints.yaml'
+      - 'contracts/openapi/**'
+      - 'src/api/contracts/openapi/**'
+      - 'deploy/k8s/base/observability/prometheus/**'
+      - 'scripts/test/test.autoscaling.sh'
+      - 'scripts/lib/autoscaling.curl.sh'
+      - '.github/workflows/ci-autoscaling.yml'
+
+concurrency:
+  group: autoscaling-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit, Architecture & Manifest Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go Vet
+        run: go vet ./src/features/autoscaling/... ./src/
+
+      - name: Run Feature Tests (rules, schema, REST, architecture)
+        run: go test -v -race -timeout 120s ./src/features/autoscaling/...
+
+      - name: Validate OpenAPI Contract Contains The Autoscaling Endpoint
+        run: |
+          pip install --quiet pyyaml
+          python3 - <<'PY'
+          import yaml
+          spec = yaml.safe_load(open('contracts/openapi/v1.yaml'))
+          op = spec['paths']['/api/v1/autoscaling/plans:evaluate']['post']
+          assert set(op['responses']) >= {'200', '400', '401', '403', '405', '422'}, op['responses'].keys()
+          schemas = spec['components']['schemas']
+          for name in ('AutoscalingEvaluatePlanRequest', 'AutoscalingEvaluation', 'AutoscalingClusterState'):
+              assert name in schemas, name
+          print('OpenAPI autoscaling contract OK')
+          PY
+
+      - name: Validate Kubernetes Manifests And Alert Rules
+        run: |
+          kubectl kustomize deploy/k8s/base/observability > /dev/null
+          kubectl kustomize deploy/k8s/overlays/dev > rendered.yaml
+          python3 - <<'PY'
+          import yaml
+          docs = [d for d in yaml.safe_load_all(open('rendered.yaml')) if d]
+          cm = next(d for d in docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'prometheus-rules')
+          rules = yaml.safe_load(cm['data']['autoscaling.rules.yaml'])
+          alerts = {r['alert'] for g in rules['groups'] for r in g['rules']}
+          need = {'DatabaseConnectionsExhaustionApproaching', 'KafkaConsumerLagCritical', 'AutoscalingThresholdConfigMissing'}
+          assert need <= alerts, need - alerts
+          print('alerts:', sorted(alerts))
+          PY
+
+  e2e-real:
+    name: End-to-End Against Real Postgres, Redis & Tempo (no mocks)
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: idp_db
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d idp_db"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:ci_password@127.0.0.1:5432/idp_db?sslmode=disable
+      REDIS_ADDR: 127.0.0.1:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      TEMPO_URL: http://127.0.0.1:3200
+      AS_STRICT: '1'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start Tempo (real tracing backend)
+        run: |
+          docker run -d --name tempo \
+            -v "${{ github.workspace }}/deploy/docker/compose/tempo-config.yaml:/etc/tempo.yaml:ro" \
+            -p 3200:3200 -p 4318:4318 \
+            grafana/tempo:2.6.1 -config.file=/etc/tempo.yaml
+          for i in $(seq 1 60); do
+            [ "$(curl -s http://127.0.0.1:3200/ready)" = "ready" ] && exit 0
+            sleep 2
+          done
+          docker logs tempo
+          exit 1
+
+      - name: Apply Database Roles And Per-Feature Migrations
+        env:
+          DB_PASSWORD: ci_password
+        run: bash scripts/migrate/migrate.sh
+
+      - name: Autoscaling End-To-End (curl, RBAC, trace in Tempo, Postgres audit)
+        run: bash scripts/test/test.autoscaling.sh
+
+      - name: Dump Tempo Logs On Failure
+        if: failure()
+        run: docker logs tempo | tail -60

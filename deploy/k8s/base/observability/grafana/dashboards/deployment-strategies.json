@@ -1,0 +1,180 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Progressive Delivery & Canary Rollout Overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisLabel": "Weight %", "fillOpacity": 20 },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "id": 101,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "platform_mesh_traffic_weight_actual",
+          "legendFormat": "{{workload_id}} actual weight %"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "platform_mesh_traffic_weight_target",
+          "legendFormat": "{{workload_id}} target weight %"
+        }
+      ],
+      "title": "Canary Traffic Shifting (Actual vs Target)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "id": 102,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "platform_rollout_error_rate_percent",
+          "legendFormat": "{{workload_id}} canary error rate %"
+        }
+      ],
+      "title": "Canary Error Rate vs SLO Threshold (P0-04)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+      "id": 103,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "platform_rollout_p99_latency_ms",
+          "legendFormat": "{{workload_id}} p99 latency (ms)"
+        }
+      ],
+      "title": "Canary p99 Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+      "id": 104,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(platform_rollout_pretraffic_failures_total[1h]))",
+          "legendFormat": "Pre-traffic health failures (1h)"
+        }
+      ],
+      "title": "Pre-Traffic Check Breaches (P0-03)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+      "id": 105,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(platform_rollout_aborts_total[1h]))",
+          "legendFormat": "Automated Aborts (1h)"
+        }
+      ],
+      "title": "Automated Abort Operations (1h)",
+      "type": "stat"
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["platform", "deployment-strategies", "canary", "argo-rollouts", "mesh"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+  "timezone": "utc",
+  "title": "Deployment Strategies - Canary & Progressive Delivery",
+  "uid": "deployment-strategies-overview",
+  "version": 1
+}

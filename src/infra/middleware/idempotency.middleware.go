@@ -27,6 +27,7 @@ import (
 
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/types"
+	"internal-developer-platform/src/shared/utils"
 )
 
 const (
@@ -91,7 +92,7 @@ func (m *IdempotencyMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
-			writeIdempotencyError(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, "failed to read request body")
+			writeIdempotencyError(w, r, http.StatusBadRequest, constants.ErrCodeValidationFailed, "failed to read request body")
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -107,11 +108,11 @@ func (m *IdempotencyMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 				var rec idempotencyRecord
 				if decErr := json.Unmarshal(recJSON, &rec); decErr == nil {
 					if rec.InFlight {
-						writeIdempotencyError(w, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
+						writeIdempotencyError(w, r, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
 						return
 					}
 					if rec.BodyHash != bodyHash {
-						writeIdempotencyError(w, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, "idempotency key reused with different payload")
+						writeIdempotencyError(w, r, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, "idempotency key reused with different payload")
 						return
 					}
 					if rec.ContentType != "" {
@@ -127,7 +128,7 @@ func (m *IdempotencyMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 			inFlightBytes, _ := json.Marshal(inFlightRecord)
 			acquired, setErr := m.redisClient.SetNX(ctx, "idemp:"+compositeKey, inFlightBytes, defaultLockTTL).Result()
 			if setErr == nil && !acquired {
-				writeIdempotencyError(w, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
+				writeIdempotencyError(w, r, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
 				return
 			}
 
@@ -156,11 +157,11 @@ func (m *IdempotencyMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 		if exists {
 			m.mu.Unlock()
 			if existing.InFlight {
-				writeIdempotencyError(w, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
+				writeIdempotencyError(w, r, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
 				return
 			}
 			if existing.BodyHash != bodyHash {
-				writeIdempotencyError(w, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, "idempotency key reused with different payload")
+				writeIdempotencyError(w, r, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, "idempotency key reused with different payload")
 				return
 			}
 			if existing.ContentType != "" {
@@ -207,8 +208,12 @@ func buildIdempotencyKey(r *http.Request, key string) string {
 	return principal + "|" + tenant + "|" + r.Method + "|" + r.URL.Path + "|" + key
 }
 
-func writeIdempotencyError(w http.ResponseWriter, status int, code string, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+func writeIdempotencyError(w http.ResponseWriter, r *http.Request, status int, code string, msg string) {
+	meta := ExtractIngressMetadata(r)
+	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	w.Header().Set(constants.HeaderTraceparent, meta.Traceparent)
+	w.Header().Set(constants.HeaderXRequestID, meta.RequestID)
+	w.Header().Set(constants.HeaderXCorrelationID, meta.CorrelationID)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(types.ApiResponse{
 		Success:    false,
@@ -217,6 +222,7 @@ func writeIdempotencyError(w http.ResponseWriter, status int, code string, msg s
 			Code:    code,
 			Message: msg,
 		},
+		Meta: utils.BuildResponseMeta(meta),
 	})
 }
 

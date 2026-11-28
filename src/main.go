@@ -19,6 +19,8 @@ import (
 
 	"internal-developer-platform/src/app"
 	"internal-developer-platform/src/app/bridges"
+	autoscaling "internal-developer-platform/src/features/autoscaling"
+	deploymentstrategies "internal-developer-platform/src/features/deployment-strategies"
 	disasterrecovery "internal-developer-platform/src/features/disaster-recovery"
 	gitopsreconciliation "internal-developer-platform/src/features/gitops-reconciliation"
 	healthchecks "internal-developer-platform/src/features/health-checks"
@@ -48,6 +50,8 @@ type AppServices struct {
 	DRModule          *disasterrecovery.DisasterRecoveryModule
 	ImageSecModule    *imagesecurity.ImageSecurityModule
 	SelfServiceModule *selfserviceprovisioning.SelfServiceProvisioningModule
+	AutoscalingModule *autoscaling.AutoscalingModule
+	DeploymentStrategiesModule *deploymentstrategies.DeploymentStrategiesModule
 }
 
 func main() {
@@ -155,6 +159,20 @@ func describeService() chassis.ServiceSpec {
 				IdempotencyMiddleware: idempotencyMW,
 			})
 
+			autoscalingMod := autoscaling.BuildModule(autoscaling.ModuleDeps{
+				RBACMiddleware:        rbacMW,
+				IdempotencyMiddleware: idempotencyMW,
+			})
+
+			deploymentDRBridge := bridges.NewDeploymentDRBridge(drMod.BridgeProvider())
+
+			deploymentStrategiesMod := deploymentstrategies.BuildModule(deploymentstrategies.ModuleDeps{
+				DB:                    deps.DB,
+				RBACMiddleware:        rbacMW,
+				IdempotencyMiddleware: idempotencyMW,
+				DRGuard:               deploymentDRBridge,
+			})
+
 			registry := app.NewRegistry(
 				rbacMod,
 				regimeMod,
@@ -166,6 +184,8 @@ func describeService() chassis.ServiceSpec {
 				drMod,
 				imageSecMod,
 				selfServiceMod,
+				autoscalingMod,
+				deploymentStrategiesMod,
 			)
 
 			return &AppServices{
@@ -181,6 +201,8 @@ func describeService() chassis.ServiceSpec {
 				DRModule:          drMod,
 				ImageSecModule:    imageSecMod,
 				SelfServiceModule: selfServiceMod,
+				AutoscalingModule: autoscalingMod,
+				DeploymentStrategiesModule: deploymentStrategiesMod,
 			}, nil
 		},
 		RegisterApiRoutes: func(mux *http.ServeMux, services interface{}) {
@@ -193,6 +215,8 @@ func describeService() chassis.ServiceSpec {
 			appServices.PolicyModule.RegisterRoutes(mux)
 			appServices.DRModule.RegisterRoutes(mux)
 			appServices.SelfServiceModule.RegisterRoutes(mux)
+			appServices.AutoscalingModule.RegisterRoutes(mux)
+			appServices.DeploymentStrategiesModule.RegisterRoutes(mux)
 			appServices.HealthModule.RegisterPublicRoutes(mux)
 		},
 		RegisterAdminRoutes: func(mux *http.ServeMux, services interface{}) {

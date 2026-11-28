@@ -114,9 +114,12 @@ const (
 	EndpointDRRestores               = "/api/v1/dr/restores"
 	EndpointDRRestoresPrefix         = "/api/v1/dr/restores/"
 	EndpointDRBreakglassActivate     = "/api/v1/dr/breakglass:activate"
+
+	EndpointAutoscalingEvaluatePlan = "/api/v1/autoscaling/plans:evaluate"
 )
 
 const (
+	ErrCodeInvalidPayload     = "INVALID_PAYLOAD"
 	ErrCodeValidationFailed   = "VALIDATION_FAILED"
 	ErrCodeConflict           = "CONFLICT"
 	ErrCodeNotFound           = "RESOURCE_NOT_FOUND"

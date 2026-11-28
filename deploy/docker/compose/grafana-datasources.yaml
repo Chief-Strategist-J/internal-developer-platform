@@ -3,6 +3,7 @@ apiVersion: 1
 datasources:
   - name: Prometheus
     type: prometheus
+    uid: Prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
@@ -18,7 +19,7 @@ datasources:
     jsonData:
       httpMethod: GET
       serviceMap:
-        datasourceUid: prometheus
+        datasourceUid: Prometheus
       nodeGraph:
         enabled: true
       search:

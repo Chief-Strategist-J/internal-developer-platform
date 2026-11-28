@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/deployment-strategies/internal/contracts"
@@ -24,6 +25,13 @@ import (
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
+
+func sanitizeUUID(val string) string {
+	if _, err := uuid.Parse(val); err != nil {
+		return uuid.New().String()
+	}
+	return val
+}
 
 type PostgresRepositoryAdapter struct {
 	db *sql.DB
@@ -52,7 +60,7 @@ func (a *PostgresRepositoryAdapter) CreatePlan(ctx context.Context, plan contrac
 			string(plan.StrategyType),
 			stepsJSON,
 			plan.FailureThreshold,
-			plan.CorrelationID,
+			sanitizeUUID(plan.CorrelationID),
 			plan.Version,
 		)
 		if err != nil {
@@ -133,7 +141,7 @@ func (a *PostgresRepositoryAdapter) CreateExecution(ctx context.Context, executi
 			execution.CurrentStepIndex,
 			execution.CurrentWeightPct,
 			execution.ErrorMessage,
-			execution.CorrelationID,
+			sanitizeUUID(execution.CorrelationID),
 			execution.Version,
 		)
 		if err != nil {
@@ -293,7 +301,7 @@ func (a *PostgresRepositoryAdapter) RecordAnalysisRun(ctx context.Context, run c
 			run.MeasuredValue,
 			run.ThresholdValue,
 			string(run.Verdict),
-			run.CorrelationID,
+			sanitizeUUID(run.CorrelationID),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to record analysis run: %w", err)
