@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}/../.."
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../lib/autoscaling.curl.sh"
 
 echo "================================================================================"
 echo "          VERIFYING FULL HTTP API SERVER & HANDLERS VIA CURL REQUESTS           "
@@ -1025,6 +1027,8 @@ GITOPS_ERR_RESP=$(curl --noproxy "*" -s -i -X POST "http://127.0.0.1:${CLI_PORT}
 echo "${GITOPS_ERR_RESP}"
 if echo "${GITOPS_ERR_RESP}" | grep -q "400 Bad Request" && echo "${GITOPS_ERR_RESP}" | grep -qi "X-Trace-Id:"; then
     echo -e "\033[1;32m[PASS]\033[0m Rejected invalid GitOps sync payload with 400 and X-Trace-Id"
+    GITOPS_ERR_TRACE=$(echo "${GITOPS_ERR_RESP}" | grep -i '^x-trace-id:' | awk '{print $2}' | tr -d '\r')
+    expect_error_span "${GITOPS_ERR_TRACE}" "gitops.reconciliation.trigger" "must match alphanumeric identifier format"
 else
     echo -e "\033[1;31m[FAIL]\033[0m Expected 400 Bad Request with X-Trace-Id for invalid GitOps sync payload"
     exit 1
@@ -1260,3 +1264,5 @@ fi
 
 
 
+
+run_autoscaling_checks

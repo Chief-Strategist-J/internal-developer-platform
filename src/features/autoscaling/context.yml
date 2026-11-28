@@ -1,2 +1,41 @@
 feature: autoscaling
-mode: stateless_hexagonal
+type: backend
+owners: "@platform-core"
+status: active
+aliases: []
+
+provides: []
+exposes: []
+asks:
+  - capability: authz
+    reason: "Authorizes the evaluate endpoint via middleware"
+    fallback: fail-closed
+
+events:
+  produces: []
+  consumes: []
+
+projections: []
+
+ports: []
+
+lifecycles: []
+
+ingress:
+  rest: contracts/openapi/v1.yaml
+
+tiers: [rules]
+
+inheritance_chain:
+  - class: AutoscalingService
+    parents: []
+    linearization: [AutoscalingService]
+    shared_ancestors: []
+    ports: [AutoscalingServicePort]
+
+deviations:
+  - rule: F-05 / Appendix A (Go file naming <feature>_{role}.go)
+    reason: "Repository-wide convention uses dotted <feature>.<role>.go names across all active Go features"
+  - rule: XI.1 ingress path contracts/openapi/<feature>/v1/openapi.yaml
+    reason: "API rule Guardrail 10 mandates the single package contract contracts/openapi/v1.yaml"
+waivers: []

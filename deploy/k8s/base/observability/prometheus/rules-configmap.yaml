@@ -109,3 +109,82 @@ data:
             annotations:
               summary: "Resource reported READY but zero healthy endpoints observed"
               description: "INV-12 observed READY gate flagged missing active pods or endpoint reachability."
+  autoscaling.rules.yaml: |
+    groups:
+    - name: autoscaling.rules
+      rules:
+      - alert: DatabaseConnectionsExhaustionApproaching
+        expr: max by (database_id) (cloudsql_googleapis_com:database_postgresql_num_backends)
+          > scalar(autoscaling_cfg_threshold{name="db_conn_page"})
+        for: 5m
+        labels:
+          severity: page
+          team: platform
+          tier: tier-1
+        annotations:
+          summary: Database connections approaching the connection budget during pod scale-out
+          description: Active PostgreSQL connections exceed cfg.db.conn_page. Pod scale-out
+            multiplies connections (AS-INV-16).
+          runbook_url: docs/features/autoscaling/failure-cases.md#runbook-db-connection-exhaustion
+      - alert: KafkaConsumerLagCritical
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > scalar(autoscaling_cfg_threshold{name="kafka_lag_critical"})
+        for: 15m
+        labels:
+          severity: page
+          team: data-platform
+          tier: tier-1
+        annotations:
+          summary: Kafka consumer lag is critical; check whether replicas are capped at
+            the partition count
+          description: Lag exceeds cfg.ingest.lag_critical. Consumers cannot scale past
+            the partition count (AS-INV-19).
+          runbook_url: docs/features/autoscaling/failure-cases.md#runbook-kafka-partition-lag
+      - alert: AutoscalingThresholdConfigMissing
+        expr: absent(autoscaling_cfg_threshold{name="db_conn_page"}) or absent(autoscaling_cfg_threshold{name="kafka_lag_critical"})
+        for: 10m
+        labels:
+          severity: ticket
+          team: platform
+          tier: tier-1
+        annotations:
+          summary: Autoscaling alert thresholds are not published
+          description: autoscaling_cfg_threshold series are missing, so the connection
+            and lag alerts cannot fire. Platform must publish the cfg.* values.
+          runbook_url: docs/features/autoscaling/failure-cases.md#runbook-db-connection-exhaustion
+  deployment-strategies.rules.yaml: |
+    groups:
+      - name: deployment-strategies.rules
+        rules:
+          - alert: CanaryPreTrafficHealthFailure
+            expr: sum by (tenant_id, workload_id) (rate(platform_rollout_pretraffic_failures_total[5m])) > 0
+            for: 1m
+            labels:
+              severity: warning
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: Canary pods unready before traffic shift (Invariant P0-03 breach)
+              description: Traffic shifting attempted before canary replicas reached healthy state or sidecar injection.
+              runbook_url: docs/features/deployment-strategies/failure-cases.md#runbook-canary-pretraffic-failure
+          - alert: CanaryRolloutAbortedOnMetricBreach
+            expr: sum by (tenant_id, workload_id) (rate(platform_rollout_aborts_total{reason="metric_breach"}[5m])) > 0
+            for: 1m
+            labels:
+              severity: page
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: Progressive rollout aborted due to metric SLO breach (Invariant P0-04)
+              description: Canary analysis detected error rate or latency exceeding threshold. Traffic weight rolled back to 0%.
+              runbook_url: docs/features/deployment-strategies/failure-cases.md#runbook-canary-metric-abort
+          - alert: RolloutMeshWeightDesynchronized
+            expr: abs(platform_mesh_traffic_weight_actual - platform_mesh_traffic_weight_target) > 5
+            for: 3m
+            labels:
+              severity: page
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: Service Mesh traffic weight desynchronized from rollout ledger (EC-03)
+              description: Cloud Service Mesh actual weight differs from the rollout ledger state by more than 5%.
+              runbook_url: docs/features/deployment-strategies/failure-cases.md#runbook-mesh-weight-desync
