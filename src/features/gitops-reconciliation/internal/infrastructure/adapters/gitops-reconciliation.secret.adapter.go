@@ -9,6 +9,7 @@ import (
 
 	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
 	"internal-developer-platform/src/features/gitops-reconciliation/internal/domain/rules"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/errors"
@@ -56,22 +57,7 @@ func (a *ConfigurableSecretAdapter) ConfigureSecretMechanism(
 	}
 
 	if a.db != nil {
-		const query = `
-			INSERT INTO gitops_secret_mechanisms (
-				tenant_id, mechanism, vault_endpoint, cluster_scope,
-				secret_store_ref, csi_driver_name, encryption_key_ref, enabled, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-			ON CONFLICT (tenant_id) DO UPDATE SET
-				mechanism = EXCLUDED.mechanism,
-				vault_endpoint = EXCLUDED.vault_endpoint,
-				cluster_scope = EXCLUDED.cluster_scope,
-				secret_store_ref = EXCLUDED.secret_store_ref,
-				csi_driver_name = EXCLUDED.csi_driver_name,
-				encryption_key_ref = EXCLUDED.encryption_key_ref,
-				enabled = EXCLUDED.enabled,
-				version = gitops_secret_mechanisms.version + 1,
-				updated_at = NOW()`
-		if _, err := a.db.ExecContext(ctx, query,
+		if _, err := a.db.ExecContext(ctx, queries.FLOW_UPSERT_SECRET_MECHANISM_CONFIG,
 			cfg.TenantID, string(cfg.Mechanism), cfg.VaultEndpoint, cfg.ClusterScope,
 			cfg.SecretStoreRef, cfg.CSIDriverName, cfg.EncryptionKeyRef, cfg.Enabled,
 		); err != nil {
@@ -99,14 +85,9 @@ func (a *ConfigurableSecretAdapter) GetSecretMechanismConfig(
 	defer span.End()
 
 	if a.db != nil {
-		const query = `
-			SELECT tenant_id, mechanism, COALESCE(vault_endpoint, ''), COALESCE(cluster_scope, ''),
-				COALESCE(secret_store_ref, ''), COALESCE(csi_driver_name, ''), COALESCE(encryption_key_ref, ''), enabled
-			FROM gitops_secret_mechanisms
-			WHERE tenant_id = $1 AND deleted_at IS NULL`
 		var cfg contracts.SecretBackendConfig
 		var mech string
-		err := a.db.QueryRowContext(ctx, query, tenantID).Scan(
+		err := a.db.QueryRowContext(ctx, queries.FLOW_SELECT_SECRET_MECHANISM_CONFIG, tenantID).Scan(
 			&cfg.TenantID, &mech, &cfg.VaultEndpoint, &cfg.ClusterScope,
 			&cfg.SecretStoreRef, &cfg.CSIDriverName, &cfg.EncryptionKeyRef, &cfg.Enabled,
 		)

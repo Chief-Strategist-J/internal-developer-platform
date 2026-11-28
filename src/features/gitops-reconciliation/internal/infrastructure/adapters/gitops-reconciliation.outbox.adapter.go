@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/gitops-reconciliation/internal/contracts"
+	"internal-developer-platform/src/features/gitops-reconciliation/internal/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -29,13 +30,9 @@ func (a *PostgresOutboxAdapter) Enqueue(ctx context.Context, event contracts.Out
 			logger.Error(ctx, "postgres outbox enqueue failed: nil db connection", observability.String("error", err.Error()))
 			return err
 		}
-		const query = `
-			INSERT INTO gitops_outbox_events (id, tenant_id, aggregate_id, event_type, app_name, revision, occurred_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`
 		_, err := a.db.ExecContext(
 			ctx,
-			query,
+			queries.FLOW_INSERT_OUTBOX_EVENT,
 			event.ID,
 			event.TenantID,
 			event.AggregateID,
@@ -72,14 +69,7 @@ func (a *PostgresOutboxAdapter) FetchUnpublished(ctx context.Context, limit int)
 		if limit <= 0 {
 			limit = 50
 		}
-		const query = `
-			SELECT id, tenant_id, aggregate_id, event_type, app_name, revision, occurred_at
-			FROM gitops_outbox_events
-			WHERE published_at IS NULL
-			ORDER BY occurred_at ASC
-			LIMIT $1
-		`
-		rows, err := a.db.QueryContext(ctx, query, limit)
+		rows, err := a.db.QueryContext(ctx, queries.FLOW_FETCH_UNPUBLISHED_OUTBOX_EVENTS, limit)
 		if err != nil {
 			logger.Error(ctx, "postgres outbox fetch query failed",
 				observability.String("db.system", "postgresql"),
@@ -129,8 +119,7 @@ func (a *PostgresOutboxAdapter) MarkPublished(ctx context.Context, eventID strin
 			logger.Error(ctx, "postgres outbox mark_published failed: nil db connection", observability.String("error", err.Error()))
 			return err
 		}
-		const query = `UPDATE gitops_outbox_events SET published_at = NOW() WHERE id = $1 AND published_at IS NULL`
-		_, err := a.db.ExecContext(ctx, query, eventID)
+		_, err := a.db.ExecContext(ctx, queries.FLOW_MARK_OUTBOX_EVENT_PUBLISHED, eventID)
 		if err != nil {
 			logger.Error(ctx, "postgres outbox mark_published query failed",
 				observability.String("db.system", "postgresql"),

@@ -87,3 +87,40 @@ type ApprovalRecord struct {
 	Status      string    `json:"status"`
 	ExpiresAt   time.Time `json:"expiresAt"`
 }
+
+type RetentionDecision struct {
+	ID            string    `json:"id"`
+	TenantID      string    `json:"tenantId"`
+	ResourceID    string    `json:"resourceId"`
+	ResourceClass string    `json:"resourceClass"`
+	Decision      string    `json:"decision"`
+	DecidedBy     string    `json:"decidedBy"`
+	DecidedAt     time.Time `json:"decidedAt"`
+}
+
+type DNSCooldownRecord struct {
+	DNSName       string    `json:"dnsName"`
+	TenantID      string    `json:"tenantId"`
+	ReleasedAt    time.Time `json:"releasedAt"`
+	CooldownUntil time.Time `json:"cooldownUntil"`
+}
+
+type SagaLockRecord struct {
+	ServiceKey      string `json:"serviceKey"`
+	TenantID        string `json:"tenantId"`
+	ActiveOperation string `json:"activeOperation"`
+	State           string `json:"state"`
+}
+
+type SweeperReport struct {
+	UntrackedIntents []string `json:"untrackedIntents"`
+	DuplicateTargets []string `json:"duplicateTargets"`
+}
+
+type SagaStepSpec struct {
+	StepID          string `json:"stepId"`
+	Name            string `json:"name"`
+	IdempotencyMode string `json:"idempotencyMode"`
+	Compensation    string `json:"compensation"`
+	PastPointOfNoReturn bool `json:"pastPointOfNoReturn"`
+}

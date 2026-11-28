@@ -1,13 +1,15 @@
 /*
-ALGORITHM & ARCHITECTURE BLUEPRINT: HTTP IDEMPOTENCY MIDDLEWARE (V.3 Part VI.1 M-01, EC-02)
+ALGORITHM & ARCHITECTURE BLUEPRINT: DURABLE HTTP IDEMPOTENCY MIDDLEWARE (V.3 Part VI.1 M-01, EC-02)
 
  1. Role (Layer 1, G-05):
     - Enforces Idempotency-Key / X-Idempotency-Key deduplication for unsafe HTTP methods.
+    - Persists keys, locks, and responses in durable Redis storage with automatic memory fallback.
     - Replays stored responses for identical (principal, tenant, method, path, key, payloadHash).
     - Rejects mismatched payloads for an existing key with 422 Unprocessable Entity and concurrent in-flight duplicates with 409 Conflict.
  2. Invariants:
-    - Concurrency-safe in-memory store safe to lose on restart (F-02).
-    - Zero inline comments below this header.
+    - Distributed Redis locks with 30s TTL to prevent deadlock on handler crash.
+    - Distributed response caching with 24h TTL for deterministic safe replay.
+    - Zero inline comments inside function bodies below this header.
 */
 package middleware
 
@@ -19,27 +21,56 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/types"
 )
 
+const (
+	defaultLockTTL      = 30 * time.Second
+	defaultRetentionTTL = 24 * time.Hour
+)
+
 type idempotencyRecord struct {
-	inFlight    bool
-	bodyHash    string
-	statusCode  int
-	contentType string
-	body        []byte
+	InFlight    bool   `json:"inFlight"`
+	BodyHash    string `json:"bodyHash"`
+	StatusCode  int    `json:"statusCode"`
+	ContentType string `json:"contentType"`
+	Body        []byte `json:"body"`
 }
 
 type IdempotencyMiddleware struct {
-	mu      sync.Mutex
-	records map[string]idempotencyRecord
+	mu          sync.Mutex
+	records     map[string]idempotencyRecord
+	redisClient *redis.Client
 }
 
 func NewIdempotencyMiddleware() *IdempotencyMiddleware {
 	return &IdempotencyMiddleware{
 		records: make(map[string]idempotencyRecord),
+	}
+}
+
+func NewIdempotencyMiddlewareWithAddr(addr string) *IdempotencyMiddleware {
+	m := NewIdempotencyMiddleware()
+	if addr != "" {
+		m.redisClient = redis.NewClient(&redis.Options{
+			Addr:         addr,
+			DialTimeout:  2 * time.Second,
+			ReadTimeout:  2 * time.Second,
+			WriteTimeout: 2 * time.Second,
+		})
+	}
+	return m
+}
+
+func NewIdempotencyMiddlewareWithRedis(client *redis.Client) *IdempotencyMiddleware {
+	return &IdempotencyMiddleware{
+		records:     make(map[string]idempotencyRecord),
+		redisClient: client,
 	}
 }
 
@@ -69,26 +100,77 @@ func (m *IdempotencyMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 
 		compositeKey := buildIdempotencyKey(r, key)
 
+		if m.redisClient != nil {
+			ctx := r.Context()
+			recJSON, getErr := m.redisClient.Get(ctx, "idemp:"+compositeKey).Bytes()
+			if getErr == nil {
+				var rec idempotencyRecord
+				if decErr := json.Unmarshal(recJSON, &rec); decErr == nil {
+					if rec.InFlight {
+						writeIdempotencyError(w, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
+						return
+					}
+					if rec.BodyHash != bodyHash {
+						writeIdempotencyError(w, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, "idempotency key reused with different payload")
+						return
+					}
+					if rec.ContentType != "" {
+						w.Header().Set("Content-Type", rec.ContentType)
+					}
+					w.WriteHeader(rec.StatusCode)
+					_, _ = w.Write(rec.Body)
+					return
+				}
+			}
+
+			inFlightRecord := idempotencyRecord{InFlight: true, BodyHash: bodyHash}
+			inFlightBytes, _ := json.Marshal(inFlightRecord)
+			acquired, setErr := m.redisClient.SetNX(ctx, "idemp:"+compositeKey, inFlightBytes, defaultLockTTL).Result()
+			if setErr == nil && !acquired {
+				writeIdempotencyError(w, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
+				return
+			}
+
+			capWriter := &responseCaptureWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			next(capWriter, r)
+
+			if capWriter.statusCode >= http.StatusInternalServerError {
+				_ = m.redisClient.Del(ctx, "idemp:"+compositeKey).Err()
+				return
+			}
+
+			finalRecord := idempotencyRecord{
+				InFlight:    false,
+				BodyHash:    bodyHash,
+				StatusCode:  capWriter.statusCode,
+				ContentType: capWriter.Header().Get("Content-Type"),
+				Body:        capWriter.buf.Bytes(),
+			}
+			finalBytes, _ := json.Marshal(finalRecord)
+			_ = m.redisClient.Set(ctx, "idemp:"+compositeKey, finalBytes, defaultRetentionTTL).Err()
+			return
+		}
+
 		m.mu.Lock()
 		existing, exists := m.records[compositeKey]
 		if exists {
 			m.mu.Unlock()
-			if existing.inFlight {
+			if existing.InFlight {
 				writeIdempotencyError(w, http.StatusConflict, constants.ErrCodeConflict, "idempotent request is currently in flight")
 				return
 			}
-			if existing.bodyHash != bodyHash {
+			if existing.BodyHash != bodyHash {
 				writeIdempotencyError(w, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, "idempotency key reused with different payload")
 				return
 			}
-			if existing.contentType != "" {
-				w.Header().Set("Content-Type", existing.contentType)
+			if existing.ContentType != "" {
+				w.Header().Set("Content-Type", existing.ContentType)
 			}
-			w.WriteHeader(existing.statusCode)
-			_, _ = w.Write(existing.body)
+			w.WriteHeader(existing.StatusCode)
+			_, _ = w.Write(existing.Body)
 			return
 		}
-		m.records[compositeKey] = idempotencyRecord{inFlight: true, bodyHash: bodyHash}
+		m.records[compositeKey] = idempotencyRecord{InFlight: true, BodyHash: bodyHash}
 		m.mu.Unlock()
 
 		capWriter := &responseCaptureWriter{ResponseWriter: w, statusCode: http.StatusOK}
@@ -101,11 +183,11 @@ func (m *IdempotencyMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		m.records[compositeKey] = idempotencyRecord{
-			inFlight:    false,
-			bodyHash:    bodyHash,
-			statusCode:  capWriter.statusCode,
-			contentType: capWriter.Header().Get("Content-Type"),
-			body:        capWriter.buf.Bytes(),
+			InFlight:    false,
+			BodyHash:    bodyHash,
+			StatusCode:  capWriter.statusCode,
+			ContentType: capWriter.Header().Get("Content-Type"),
+			Body:        capWriter.buf.Bytes(),
 		}
 	}
 }

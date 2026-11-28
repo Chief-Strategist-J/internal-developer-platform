@@ -13,11 +13,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/self-service-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -38,18 +38,9 @@ func (a *PostgresProvisioningLedgerAdapter) RecordIntent(ctx context.Context, in
 			logger.Error(ctx, "postgres provisioning intent insert failed: nil db", observability.String("error", err.Error()))
 			return err
 		}
-		const query = `
-			INSERT INTO self_service_provisioning.provisioning_intents (
-				id, public_id, tenant_id, resource_kind, target_id, attempt, status, outcome_id, error_message
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			ON CONFLICT (id) DO UPDATE SET
-				attempt = EXCLUDED.attempt,
-				status = EXCLUDED.status,
-				updated_at = NOW()
-		`
 		_, err := a.db.ExecContext(
 			ctx,
-			query,
+			queries.UpsertProvisioningIntentSQL,
 			intent.ID,
 			intent.PublicID,
 			intent.TenantID,
@@ -86,12 +77,7 @@ func (a *PostgresProvisioningLedgerAdapter) RecordOutcome(ctx context.Context, i
 			logger.Error(ctx, "postgres provisioning outcome update failed: nil db", observability.String("error", err.Error()))
 			return err
 		}
-		const query = `
-			UPDATE self_service_provisioning.provisioning_intents
-			SET status = $3, outcome_id = $4, error_message = $5, version = version + 1, updated_at = NOW()
-			WHERE id = $1 AND attempt = $2
-		`
-		res, err := a.db.ExecContext(ctx, query, intentID, attempt, status, outcomeID, errMsg)
+		res, err := a.db.ExecContext(ctx, queries.UpdateProvisioningOutcomeFencedSQL, intentID, attempt, status, outcomeID, errMsg)
 		if err != nil {
 			logger.Error(ctx, "postgres provisioning outcome update failed",
 				observability.String("db.system", "postgresql"),
@@ -127,14 +113,7 @@ func (a *PostgresProvisioningLedgerAdapter) ListIntents(ctx context.Context, ten
 		if limit <= 0 {
 			limit = 50
 		}
-		const query = `
-			SELECT id, public_id, tenant_id, resource_kind, target_id, attempt, status, outcome_id, error_message
-			FROM self_service_provisioning.provisioning_intents
-			WHERE tenant_id = $1
-			ORDER BY created_at DESC
-			LIMIT $2
-		`
-		rows, err := a.db.QueryContext(ctx, query, tenantID, limit)
+		rows, err := a.db.QueryContext(ctx, queries.ListProvisioningIntentsByTenantSQL, tenantID, limit)
 		if err != nil {
 			logger.Error(ctx, "postgres provisioning intents query failed",
 				observability.String("db.system", "postgresql"),
@@ -158,57 +137,4 @@ func (a *PostgresProvisioningLedgerAdapter) ListIntents(ctx context.Context, ten
 		attribute.String("db.operation", "SELECT"),
 		attribute.String("db.sql.table", "self_service_provisioning.provisioning_intents"),
 	)
-}
-
-type MemoryProvisioningLedgerAdapter struct {
-	mu      sync.Mutex
-	Intents map[string]contracts.ProvisioningIntent
-}
-
-func NewMemoryProvisioningLedgerAdapter() *MemoryProvisioningLedgerAdapter {
-	return &MemoryProvisioningLedgerAdapter{
-		Intents: make(map[string]contracts.ProvisioningIntent),
-	}
-}
-
-func (a *MemoryProvisioningLedgerAdapter) RecordIntent(ctx context.Context, intent contracts.ProvisioningIntent) error {
-	return observability.WithClientSpan(ctx, "self_service.ledger.memory.record_intent", func(ctx context.Context) error {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		a.Intents[intent.ID] = intent
-		return nil
-	}, attribute.String("db.system", "memory"), attribute.String("intent.id", intent.ID))
-}
-
-func (a *MemoryProvisioningLedgerAdapter) RecordOutcome(ctx context.Context, intentID string, attempt int, status string, outcomeID string, errMsg string) error {
-	return observability.WithClientSpan(ctx, "self_service.ledger.memory.record_outcome", func(ctx context.Context) error {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		it, ok := a.Intents[intentID]
-		if !ok || it.Attempt != attempt {
-			return errors.NewConflictError("stale attempt fencing conflict on provisioning intent")
-		}
-		it.Status = status
-		it.OutcomeID = outcomeID
-		it.ErrorMessage = errMsg
-		a.Intents[intentID] = it
-		return nil
-	}, attribute.String("db.system", "memory"), attribute.String("intent.id", intentID))
-}
-
-func (a *MemoryProvisioningLedgerAdapter) ListIntents(ctx context.Context, tenantID string, limit int) ([]contracts.ProvisioningIntent, error) {
-	return observability.RunTracedClient(ctx, "self_service.ledger.memory.list_intents", func(ctx context.Context) ([]contracts.ProvisioningIntent, error) {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		items := make([]contracts.ProvisioningIntent, 0)
-		for _, it := range a.Intents {
-			if it.TenantID == tenantID {
-				items = append(items, it)
-				if limit > 0 && len(items) >= limit {
-					break
-				}
-			}
-		}
-		return items, nil
-	}, attribute.String("db.system", "memory"))
 }
