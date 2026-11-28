@@ -12,6 +12,10 @@ on:
       - 'src/features/kubernetes-workload-provisioning/**'
       - '.github/workflows/ci-kubernetes-workload-provisioning.yml'
 
+concurrency:
+  group: k8s-workload-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Kubernetes Workload Provisioning Tests

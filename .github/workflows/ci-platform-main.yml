@@ -3,8 +3,34 @@ name: CI — Platform Comprehensive Integration Gate
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/shared/**'
+      - 'src/infra/**'
+      - 'src/app/**'
+      - 'src/main.go'
+      - 'contracts/**'
+      - 'deploy/k8s/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/ci-platform-main.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/shared/**'
+      - 'src/infra/**'
+      - 'src/app/**'
+      - 'src/main.go'
+      - 'contracts/**'
+      - 'deploy/k8s/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/ci-platform-main.yml'
+
+concurrency:
+  group: platform-main-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   comprehensive-gate:

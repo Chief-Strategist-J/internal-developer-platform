@@ -12,6 +12,10 @@ on:
       - 'src/features/image-security/**'
       - '.github/workflows/ci-image-security.yml'
 
+concurrency:
+  group: image-sec-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Image Security Tests
