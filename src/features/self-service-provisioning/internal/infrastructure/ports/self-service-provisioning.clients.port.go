@@ -30,3 +30,15 @@ type ProvisioningLedgerPort interface {
 	RecordOutcome(ctx context.Context, intentID string, attempt int, status string, outcomeID string, errMsg string) error
 	ListIntents(ctx context.Context, tenantID string, limit int) ([]contracts.ProvisioningIntent, error)
 }
+
+type ProvisioningReservationPort interface {
+	Reserve(ctx context.Context, req contracts.ReservationRequest) (*contracts.ReservationRecord, error)
+	Commit(ctx context.Context, reservationID string) error
+	Release(ctx context.Context, reservationID string) error
+	SetTenantCeiling(ctx context.Context, ceiling contracts.TenantCapacityCeiling) error
+}
+
+type ProvisioningApprovalPort interface {
+	RecordApproval(ctx context.Context, approval contracts.ApprovalRecord) error
+	VerifyAndConsumeApproval(ctx context.Context, approvalID string, expectedPlan contracts.PinnedPlan, maxPeriodBudget int) error
+}

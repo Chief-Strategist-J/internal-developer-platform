@@ -17,14 +17,16 @@ import (
 )
 
 type SelfServiceProvisioningRouter struct {
-	handler    *SelfServiceProvisioningHandler
-	rbacMiddle *middleware.RBACMiddleware
+	handler     *SelfServiceProvisioningHandler
+	rbacMiddle  *middleware.RBACMiddleware
+	idempMiddle *middleware.IdempotencyMiddleware
 }
 
-func NewSelfServiceProvisioningRouter(handler *SelfServiceProvisioningHandler, rbacM *middleware.RBACMiddleware) *SelfServiceProvisioningRouter {
+func NewSelfServiceProvisioningRouter(handler *SelfServiceProvisioningHandler, rbacM *middleware.RBACMiddleware, idempM *middleware.IdempotencyMiddleware) *SelfServiceProvisioningRouter {
 	return &SelfServiceProvisioningRouter{
-		handler:    handler,
-		rbacMiddle: rbacM,
+		handler:     handler,
+		rbacMiddle:  rbacM,
+		idempMiddle: idempM,
 	}
 }
 
@@ -63,6 +65,12 @@ func (r *SelfServiceProvisioningRouter) RegisterRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
+
+	if r.idempMiddle != nil {
+		clHandler = r.idempMiddle.Wrap(clHandler)
+		crHandler = r.idempMiddle.Wrap(crHandler)
+		reconcileHandler = r.idempMiddle.Wrap(reconcileHandler)
+	}
 
 	if r.rbacMiddle != nil {
 		mux.HandleFunc(constants.EndpointClusters, r.rbacMiddle.RequirePermission(

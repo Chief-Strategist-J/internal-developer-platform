@@ -9,6 +9,8 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: SELF-SERVICE PROVISIONING CONTRACTS (V.3 rol
 package contracts
 
 import (
+	"time"
+
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/cluster"
 )
@@ -34,4 +36,54 @@ type ProvisioningIntent struct {
 	Status       string `json:"status"`
 	OutcomeID    string `json:"outcomeId,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
+type ReservationRequest struct {
+	TenantID         string `json:"tenantId"`
+	ResourceKind     string `json:"resourceKind"`
+	RawName          string `json:"rawName"`
+	NormalizedName   string `json:"normalizedName"`
+	QuotaUnits       int    `json:"quotaUnits"`
+	IPCIDRBlocks     int    `json:"ipCidrBlocks"`
+	ClusterIPUtilPct int    `json:"clusterIpUtilPct"`
+	TTLSeconds       int    `json:"ttlSeconds"`
+}
+
+type ReservationRecord struct {
+	ID             string `json:"id"`
+	PublicID       string `json:"publicId"`
+	TenantID       string `json:"tenantId"`
+	ResourceKind   string `json:"resourceKind"`
+	NormalizedName string `json:"normalizedName"`
+	QuotaUnits     int    `json:"quotaUnits"`
+	IPCIDRBlocks   int    `json:"ipCidrBlocks"`
+	Status         string `json:"status"`
+}
+
+type TenantCapacityCeiling struct {
+	TenantID            string `json:"tenantId"`
+	MaxQuotaUnits       int    `json:"maxQuotaUnits"`
+	MaxIPCIDRBlocks     int    `json:"maxIpCidrBlocks"`
+	MaxClusterIPUtilPct int    `json:"maxClusterIpUtilPct"`
+}
+
+type PinnedPlan struct {
+	TemplateSHA    string `json:"templateSha"`
+	PolicySHA      string `json:"policySha"`
+	Sizing         string `json:"sizing"`
+	NormalizedName string `json:"normalizedName"`
+}
+
+type ApprovalRecord struct {
+	ID          string    `json:"id"`
+	PublicID    string    `json:"publicId"`
+	TenantID    string    `json:"tenantId"`
+	RequesterID string    `json:"requesterId"`
+	ApproverID  string    `json:"approverId"`
+	PlanHash    string    `json:"planHash"`
+	TemplateSHA string    `json:"templateSha"`
+	PolicySHA   string    `json:"policySha"`
+	BudgetUnits int       `json:"budgetUnits"`
+	Status      string    `json:"status"`
+	ExpiresAt   time.Time `json:"expiresAt"`
 }

@@ -19,6 +19,7 @@ import (
 	"internal-developer-platform/src/infra/middleware"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/constants"
+	"internal-developer-platform/src/shared/errors"
 )
 
 type SelfServiceProvisioningHandler struct {
@@ -46,12 +47,13 @@ func (h *SelfServiceProvisioningHandler) ProvisionCluster(w http.ResponseWriter,
 		}
 		rec, err := h.svc.ProvisionCluster(ctx, spec)
 		if err != nil {
+			status, code := mapProvisionError(err)
 			observability.GetLogger().Warn(ctx, "cluster provision rejected",
-				observability.String("error.type", constants.ErrCodeValidationFailed),
-				observability.Int("http.status_code", http.StatusBadRequest),
+				observability.String("error.type", code),
+				observability.Int("http.status_code", status),
 				observability.String("error", err.Error()),
 			)
-			contracts.WriteErrorEnvelope(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error())
+			contracts.WriteErrorEnvelope(w, status, code, err.Error())
 			return err
 		}
 		return contracts.WriteSuccessEnvelope(w, http.StatusCreated, meta.Traceparent, meta.RequestID, meta.CorrelationID, start, rec)
@@ -117,12 +119,13 @@ func (h *SelfServiceProvisioningHandler) ProvisionResource(w http.ResponseWriter
 		}
 		res, err := h.svc.ProvisionWorkloadIdentity(ctx, spec)
 		if err != nil {
+			status, code := mapProvisionError(err)
 			observability.GetLogger().Warn(ctx, "cloud resource provision rejected",
-				observability.String("error.type", constants.ErrCodeValidationFailed),
-				observability.Int("http.status_code", http.StatusBadRequest),
+				observability.String("error.type", code),
+				observability.Int("http.status_code", status),
 				observability.String("error", err.Error()),
 			)
-			contracts.WriteErrorEnvelope(w, http.StatusBadRequest, constants.ErrCodeValidationFailed, err.Error())
+			contracts.WriteErrorEnvelope(w, status, code, err.Error())
 			return err
 		}
 		return contracts.WriteSuccessEnvelope(w, http.StatusCreated, meta.Traceparent, meta.RequestID, meta.CorrelationID, start, res)
@@ -156,4 +159,11 @@ func (h *SelfServiceProvisioningHandler) ReconcileLedger(w http.ResponseWriter, 
 		}
 		return contracts.WriteSuccessEnvelope(w, http.StatusOK, meta.Traceparent, meta.RequestID, meta.CorrelationID, start, report)
 	})
+}
+
+func mapProvisionError(err error) (int, string) {
+	if errors.IsConflictError(err) {
+		return http.StatusConflict, constants.ErrCodeConflict
+	}
+	return http.StatusBadRequest, constants.ErrCodeValidationFailed
 }

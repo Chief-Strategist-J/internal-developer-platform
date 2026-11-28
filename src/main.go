@@ -100,6 +100,7 @@ func describeService() chassis.ServiceSpec {
 				Authorizer: rbacMod.Authorizer(),
 			}
 			rbacMW := middleware.NewRBACMiddleware(bindings.Authorizer)
+			idempotencyMW := middleware.NewIdempotencyMiddleware()
 
 			regimeBaseline := platformregime.DefaultBaselinePolicyConfig()
 
@@ -147,9 +148,10 @@ func describeService() chassis.ServiceSpec {
 			imageSecMod := imagesecurity.BuildModule(nil)
 
 			selfServiceMod := selfserviceprovisioning.BuildModule(selfserviceprovisioning.ModuleDeps{
-				DB:             deps.DB,
-				ResilienceCfg:  resConfig,
-				RBACMiddleware: rbacMW,
+				DB:                    deps.DB,
+				ResilienceCfg:         resConfig,
+				RBACMiddleware:        rbacMW,
+				IdempotencyMiddleware: idempotencyMW,
 			})
 
 			registry := app.NewRegistry(
