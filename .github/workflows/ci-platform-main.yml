@@ -1,0 +1,33 @@
+name: CI — Platform Comprehensive Integration Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  comprehensive-gate:
+    name: Full Test Suite & Manifest Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Verify Dependencies
+        run: go mod verify
+
+      - name: Full Test Suite
+        run: go test -v -race -timeout 300s ./...
+
+      - name: Validate Kubernetes Manifests
+        run: |
+          kubectl kustomize deploy/k8s/base/observability > /dev/null
+          kubectl kustomize deploy/k8s/base/apps > /dev/null
+          kubectl kustomize deploy/k8s/overlays/dev > /dev/null

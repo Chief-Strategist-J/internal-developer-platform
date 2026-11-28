@@ -1,0 +1,33 @@
+name: CI — Health Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/features/health-checks/**'
+      - '.github/workflows/ci-health-checks.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/features/health-checks/**'
+      - '.github/workflows/ci-health-checks.yml'
+
+jobs:
+  test:
+    name: Health Checks Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Go Vet
+        run: go vet ./src/features/health-checks/...
+
+      - name: Run Feature Tests
+        run: go test -v -race -timeout 120s ./src/features/health-checks/...
