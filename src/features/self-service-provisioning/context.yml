@@ -26,12 +26,14 @@ ports:
     adapters: [postgres, memory]
   - name: governance
     adapters: [postgres, memory]
+  - name: sweeper
+    adapters: [postgres]
 roles:
   - rules
   - machine
   - workflow
   - queries
-lifecycles: []
+lifecycles: [sweeper]
 ingress:
   rest: contracts/openapi/v1.yaml
 tiers: []
