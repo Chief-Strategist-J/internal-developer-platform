@@ -20,6 +20,12 @@ export JWT_SECRET="${SECRET}"
 export RBAC_BOOTSTRAP_SECRET="real-curl-bootstrap-secret-32bytes"
 export REDIS_ADDR="127.0.0.1:6379"
 
+cleanup_ssp_test_data() {
+    if [ -n "${DATABASE_URL:-}" ] && command -v psql >/dev/null 2>&1; then
+        psql "${DATABASE_URL}" -c "DELETE FROM self_service_provisioning.provisioning_reservations WHERE normalized_name IN ('gke-fedramp-prod-01', 'gov-cloud-production/orders-prod/orders-sa'); DELETE FROM self_service_provisioning.provisioning_intents WHERE target_id IN ('gke-fedramp-prod-01', 'gov-cloud-production/orders-prod/orders-sa');" >/dev/null 2>&1 || true
+    fi
+}
+
 if [ -f "${PROJECT_ROOT}/.env" ]; then
     set -a
     # shellcheck disable=SC1091
@@ -30,9 +36,7 @@ if [ -f "${PROJECT_ROOT}/.env" ]; then
     export JWT_SECRET="${SECRET}"
     export REDIS_ADDR="127.0.0.1:6379"
     export ARGOCD_TOKEN=""
-    if command -v psql >/dev/null 2>&1; then
-        PGPASSWORD=postgres psql "${DATABASE_URL}" -c "DELETE FROM self_service_provisioning.provisioning_reservations WHERE normalized_name IN ('gke-fedramp-prod-01', 'gov-cloud-production/orders-prod/orders-sa'); DELETE FROM self_service_provisioning.provisioning_intents WHERE target_id IN ('gke-fedramp-prod-01', 'gov-cloud-production/orders-prod/orders-sa');" >/dev/null 2>&1 || true
-    fi
+    cleanup_ssp_test_data
 fi
 
 echo -e "\033[1;34m[BUILD]\033[0m Compiling platform binary..."
@@ -48,6 +52,7 @@ cleanup() {
     kill -15 "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
     rm -f /tmp/platform-api-server
+    cleanup_ssp_test_data
 }
 trap cleanup EXIT
 

@@ -3,6 +3,5 @@ kind: Kustomization
 resources:
   - configmap.yaml
   - rules-configmap.yaml
-  - rules/self-service-provisioning.rules.yaml
   - deployment.yaml
   - service.yaml
