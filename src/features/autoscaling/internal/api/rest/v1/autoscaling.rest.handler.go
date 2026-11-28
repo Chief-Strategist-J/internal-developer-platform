@@ -9,6 +9,8 @@ ALGORITHM & ARCHITECTURE BLUEPRINT: AUTOSCALING REST HANDLER (V.3 role 02, API G
    - Unknown JSON fields are rejected (additionalProperties: false).
    - The tenant never comes from the body (P1-2); traceparent, x-request-id and x-correlation-id are echoed.
    - A rule violation is a 200 with allowed=false; only malformed input is a 4xx.
+   - The handler span records the outcome (allowed, denied, invalid_payload, validation_failed), the HTTP status
+     and the reject reason so a rejected request explains itself in the trace.
    - Zero inline comments below this header.
 */
 
@@ -25,6 +27,8 @@ import (
 	"internal-developer-platform/src/shared/constants"
 	"internal-developer-platform/src/shared/types"
 	"internal-developer-platform/src/shared/utils"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type AutoscalingHandler struct {
@@ -38,19 +42,41 @@ func NewAutoscalingHandler(svc contracts.AutoscalingServicePort) *AutoscalingHan
 func (h *AutoscalingHandler) HandleEvaluatePlan(w http.ResponseWriter, r *http.Request) {
 	meta := middleware.ExtractIngressMetadata(r)
 	_ = observability.WithSpan(r.Context(), "autoscaling.api.evaluate_plan", func(ctx context.Context) error {
+		observability.AnnotateSpan(ctx, attribute.Bool("autoscaling.tenant_header_present", meta.TenantID != ""))
 		input, err := mapRequestToInput(r, meta)
 		if err != nil {
+			annotateOutcome(ctx, "invalid_payload", http.StatusBadRequest, err)
 			writeErrorResponse(w, meta, http.StatusBadRequest, constants.ErrCodeInvalidPayload, err.Error())
 			return err
 		}
 		evaluation, err := h.svc.EvaluatePlan(ctx, input)
 		if err != nil {
+			annotateOutcome(ctx, "validation_failed", http.StatusUnprocessableEntity, err)
 			writeErrorResponse(w, meta, http.StatusUnprocessableEntity, constants.ErrCodeValidationFailed, err.Error())
 			return err
 		}
+		annotateOutcome(ctx, evaluationOutcome(evaluation), http.StatusOK, nil)
 		writeSuccessResponse(w, meta, http.StatusOK, evaluation)
 		return nil
 	})
+}
+
+func evaluationOutcome(evaluation contracts.Evaluation) string {
+	if evaluation.Allowed {
+		return "allowed"
+	}
+	return "denied"
+}
+
+func annotateOutcome(ctx context.Context, outcome string, status int, cause error) {
+	attrs := []attribute.KeyValue{
+		attribute.String("autoscaling.outcome", outcome),
+		attribute.Int("http.response.status_code", status),
+	}
+	if cause != nil {
+		attrs = append(attrs, attribute.String("autoscaling.reject_reason", cause.Error()))
+	}
+	observability.AnnotateSpan(ctx, attrs...)
 }
 
 func mapRequestToInput(r *http.Request, meta utils.IngressMetadata) (contracts.EvaluatePlanInput, error) {
