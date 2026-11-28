@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: autoscaling-alerts
+  namespace: dev
+  labels:
+    role: alert-rules
+    app.kubernetes.io/name: autoscaling
+spec:
+  groups:
+    - name: autoscaling.rules
+      rules:
+        - alert: DatabaseConnectionsExhaustionApproaching
+          expr: max by (database_id) (cloudsql_googleapis_com:database_postgresql_num_backends) > scalar(autoscaling_cfg_threshold{name="db_conn_page"})
+          for: 5m
+          labels:
+            severity: page
+            team: platform
+            tier: tier-1
+          annotations:
+            summary: "Database connections approaching the connection budget during pod scale-out"
+            description: "Active PostgreSQL connections exceed cfg.db.conn_page. Pod scale-out multiplies connections (AS-INV-16)."
+            runbook_url: "docs/features/autoscaling/failure-cases.md#runbook-db-connection-exhaustion"
+
+        - alert: KafkaConsumerLagCritical
+          expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > scalar(autoscaling_cfg_threshold{name="kafka_lag_critical"})
+          for: 15m
+          labels:
+            severity: page
+            team: data-platform
+            tier: tier-1
+          annotations:
+            summary: "Kafka consumer lag is critical; check whether replicas are capped at the partition count"
+            description: "Lag exceeds cfg.ingest.lag_critical. Consumers cannot scale past the partition count (AS-INV-19)."
+            runbook_url: "docs/features/autoscaling/failure-cases.md#runbook-kafka-partition-lag"
+
+        - alert: AutoscalingThresholdConfigMissing
+          expr: absent(autoscaling_cfg_threshold{name="db_conn_page"}) or absent(autoscaling_cfg_threshold{name="kafka_lag_critical"})
+          for: 10m
+          labels:
+            severity: ticket
+            team: platform
+            tier: tier-1
+          annotations:
+            summary: "Autoscaling alert thresholds are not published"
+            description: "autoscaling_cfg_threshold series are missing, so the connection and lag alerts cannot fire. Platform must publish the cfg.* values."
+            runbook_url: "docs/features/autoscaling/failure-cases.md#runbook-db-connection-exhaustion"
