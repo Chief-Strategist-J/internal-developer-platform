@@ -1966,6 +1966,90 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardResponse'
 
+  /api/v1/autoscaling/plans:evaluate:
+    post:
+      summary: Evaluate a scaling plan against the autoscaling invariants AS-INV-01..15
+      operationId: evaluateAutoscalingPlan
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-request-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-correlation-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-tenant-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-client-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-idempotency-key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-api-version
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoscalingEvaluatePlanRequest'
+      responses:
+        '200':
+          description: Evaluation result; allowed=false lists every violated invariant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoscalingEvaluationResponseWrapper'
+        '400':
+          description: Malformed body or unknown fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, invalid or revoked token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Caller lacks infrastructure:scale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '405':
+          description: Only POST is supported
+        '422':
+          description: Input failed validation (including missing tenant context)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
 
   schemas:
@@ -3172,5 +3256,315 @@ components:
           type: integer
         data:
           $ref: '#/components/schemas/DRPlanRecord'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    AutoscalingWorkloadRef:
+      type: object
+      additionalProperties: false
+      required:
+        - namespace
+        - name
+        - kind
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+    AutoscalingContainerRequests:
+      type: object
+      additionalProperties: false
+      required:
+        - cpuMilli
+        - memoryBytes
+      properties:
+        cpuMilli:
+          type: string
+          pattern: '^[0-9]+$'
+        memoryBytes:
+          type: string
+          pattern: '^[0-9]+$'
+    AutoscalingVerticalScaling:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - metrics
+      properties:
+        mode:
+          type: string
+          enum: [OFF, RECOMMEND_ONLY, IN_PLACE_OR_RECREATE]
+        metrics:
+          type: array
+          items:
+            type: string
+    AutoscalingScalingPlan:
+      type: object
+      additionalProperties: false
+      required:
+        - workload
+        - environment
+        - tier
+        - minReplicas
+        - maxReplicas
+        - requests
+        - vertical
+      properties:
+        workload:
+          $ref: '#/components/schemas/AutoscalingWorkloadRef'
+        environment:
+          type: string
+          enum: [PRODUCTION, NON_PRODUCTION]
+        tier:
+          type: string
+        replicaWriters:
+          type: array
+          items:
+            type: string
+          enum: [HPA, KEDA, NONE]
+        replicasPinnedInGit:
+          type: boolean
+        minReplicas:
+          type: integer
+        maxReplicas:
+          type: integer
+        zones:
+          type: integer
+        topologySpreadDeclared:
+          type: boolean
+        scaleToZero:
+          type: boolean
+        synchronousApi:
+          type: boolean
+        horizontalMetrics:
+          type: array
+          items:
+            type: string
+        requests:
+          $ref: '#/components/schemas/AutoscalingContainerRequests'
+        vertical:
+          $ref: '#/components/schemas/AutoscalingVerticalScaling'
+        rolloutSurgePods:
+          type: integer
+        canaryPods:
+          type: integer
+    AutoscalingTierPolicy:
+      type: object
+      additionalProperties: false
+      required:
+        - tier
+        - minReplicasFloor
+        - minZones
+      properties:
+        tier:
+          type: string
+        minReplicasFloor:
+          type: integer
+        minZones:
+          type: integer
+        scaleToZero:
+          type: boolean
+        topologySpread:
+          type: boolean
+        tierCritical:
+          type: boolean
+    AutoscalingCapacityCeilings:
+      type: object
+      additionalProperties: false
+      required:
+        - quotaCpuMilli
+        - quotaPods
+        - nodePoolMaxPods
+        - ipHeadroomPods
+        - budgetMaxPods
+      properties:
+        quotaCpuMilli:
+          type: string
+          pattern: '^[0-9]+$'
+        quotaPods:
+          type: string
+          pattern: '^[0-9]+$'
+        nodePoolMaxPods:
+          type: string
+          pattern: '^[0-9]+$'
+        ipHeadroomPods:
+          type: string
+          pattern: '^[0-9]+$'
+        budgetMaxPods:
+          type: string
+          pattern: '^[0-9]+$'
+    AutoscalingSignalObservation:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - currentReplicas
+        - proposedReplicas
+      properties:
+        state:
+          type: string
+          enum: [AVAILABLE, UNAVAILABLE]
+        currentReplicas:
+          type: integer
+        proposedReplicas:
+          type: integer
+    AutoscalingClusterState:
+      type: object
+      additionalProperties: false
+      properties:
+        spot:
+          type: object
+          additionalProperties: false
+          properties:
+            onSpot: {type: boolean}
+            classAllowedOnSpot: {type: boolean}
+            stateful: {type: boolean}
+            shutdownSeconds: {type: integer}
+            effectiveGraceSeconds: {type: integer}
+            statefulBudgetSeconds: {type: integer}
+            standardNonGpuPoolPresent: {type: boolean}
+        reservation:
+          type: object
+          additionalProperties: false
+          properties:
+            reserved: {type: boolean}
+            fallbackClassesListed: {type: boolean}
+        ip:
+          type: object
+          additionalProperties: false
+          properties:
+            nodePoolMaxNodes: {type: string, pattern: '^[0-9]+$'}
+            podsPerNodeRange: {type: string, pattern: '^[0-9]+$'}
+            podRangeSize: {type: string, pattern: '^[0-9]+$'}
+        disruption:
+          type: object
+          additionalProperties: false
+          properties:
+            allowedDisruptions: {type: integer}
+            unhealthyPodEviction: {type: string}
+            barePods: {type: integer}
+        canary:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: {type: boolean}
+            analysisPerRevision: {type: boolean}
+            dynamicStableScale: {type: boolean}
+            trafficRouting: {type: boolean}
+        budget:
+          type: object
+          additionalProperties: false
+          required: [currency]
+          properties:
+            currency: {type: string, minLength: 3, maxLength: 3}
+            projectedMaxSpendMinor: {type: string, pattern: '^[0-9]+$'}
+            tenantBudgetMinor: {type: string, pattern: '^[0-9]+$'}
+            overrunApproved: {type: boolean}
+        database:
+          type: object
+          additionalProperties: false
+          properties:
+            talksToDatabase: {type: boolean}
+            perPodPoolSize: {type: integer}
+            dbConnectionBudget: {type: integer}
+            automatedVerticalScaleRequested: {type: boolean}
+            inScheduledMaintenanceWindow: {type: boolean}
+            operatorApprovalRecorded: {type: boolean}
+            storageAutoIncreaseLimit: {type: string, pattern: '^[0-9]+$'}
+            usesTransactionPooler: {type: boolean}
+            requiresSessionState: {type: boolean}
+        ingestion:
+          type: object
+          additionalProperties: false
+          properties:
+            backbone: {type: string, enum: ['', KAFKA, PUBSUB]}
+            topicPartitions: {type: integer}
+            consumerMaxReplicas: {type: integer}
+            consumerMinReplicas: {type: integer}
+            dualMetricConfigured: {type: boolean}
+            signal: {type: string, enum: ['', BACKLOG, OLDEST_AGE, LAG, ACK_RATE, CPU_ONLY]}
+            deadLetterConfigured: {type: boolean}
+            limitToPartitionsWithLag: {type: boolean}
+            invalidOffsetDecided: {type: boolean}
+        serverless:
+          type: object
+          additionalProperties: false
+          properties:
+            httpScaleToZero: {type: boolean}
+            behindInterceptor: {type: boolean}
+            coldStartSeconds: {type: integer}
+            coldStartBudgetSeconds: {type: integer}
+            toleratesReconnectStorm: {type: boolean}
+        migAutoscalerEnabled:
+          type: boolean
+        scalingEventsRetained:
+          type: boolean
+    AutoscalingEvaluatePlanRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - plan
+        - policy
+        - ceilings
+        - signal
+        - cluster
+      properties:
+        plan:
+          $ref: '#/components/schemas/AutoscalingScalingPlan'
+        policy:
+          $ref: '#/components/schemas/AutoscalingTierPolicy'
+        ceilings:
+          $ref: '#/components/schemas/AutoscalingCapacityCeilings'
+        signal:
+          $ref: '#/components/schemas/AutoscalingSignalObservation'
+        cluster:
+          $ref: '#/components/schemas/AutoscalingClusterState'
+    AutoscalingViolation:
+      type: object
+      additionalProperties: false
+      required:
+        - invariant
+        - code
+        - severity
+        - message
+      properties:
+        invariant:
+          type: string
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [PAGE, TICKET]
+        message:
+          type: string
+    AutoscalingEvaluation:
+      type: object
+      additionalProperties: false
+      required:
+        - allowed
+        - violations
+      properties:
+        allowed:
+          type: boolean
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AutoscalingViolation'
+    AutoscalingEvaluationResponseWrapper:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - statusCode
+        - data
+        - meta
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          $ref: '#/components/schemas/AutoscalingEvaluation'
         meta:
           $ref: '#/components/schemas/ResponseMeta'

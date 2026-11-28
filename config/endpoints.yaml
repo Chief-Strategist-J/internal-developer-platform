@@ -24,6 +24,8 @@ routes:
     drills: "/api/v1/dr/drills"
     restores: "/api/v1/dr/restores"
     breakglass_activate: "/api/v1/dr/breakglass:activate"
+  autoscaling:
+    evaluate_plan: "/api/v1/autoscaling/plans:evaluate"
   health:
     live: "/healthz"
     ready: "/readyz"
