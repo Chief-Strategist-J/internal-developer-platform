@@ -25,3 +25,11 @@ deploy/helm/dist/
 dist-test/
 .next/
 *.tsbuildinfo
+
+# Binaries
+/main
+main
+
+# Binaries
+/main
+main
