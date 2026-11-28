@@ -35,6 +35,26 @@ expect_error_span() {
     as_fail "Expected error span '${span_name}' containing '${fragment}' not found in Tempo trace ${trace_id}"
 }
 
+# expect_span_attr <trace-id> <span-name> <attribute-key> <value-fragment>
+# Asserts a span in Tempo carries an explanatory attribute (why it failed / what was decided).
+expect_span_attr() {
+    local trace_id="$1" span_name="$2" key="$3" fragment="$4" url="${TEMPO_URL:-http://127.0.0.1:3200}" body=""
+    if ! curl --noproxy "*" -s -o /dev/null "${url}/ready" 2>/dev/null; then
+        as_skip "Tempo not reachable at ${url}; cannot verify attribute ${key} on '${span_name}'"
+        return 0
+    fi
+    for _ in {1..20}; do
+        body=$(curl --noproxy "*" -s "${url}/api/traces/${trace_id}" || true)
+        if echo "${body}" | jq -e --arg n "${span_name}" --arg k "${key}" --arg v "${fragment}" \
+            '[.batches[]?.scopeSpans[]?.spans[]? | select(.name==$n) | .attributes[]? | select(.key==$k and ((.value | tostring) | contains($v)))] | length > 0' >/dev/null 2>&1; then
+            as_pass "Span '${span_name}' carries ${key}=${fragment} in trace ${trace_id}"
+            return 0
+        fi
+        sleep 1
+    done
+    as_fail "Span '${span_name}' lacks attribute ${key} containing '${fragment}' in Tempo trace ${trace_id}"
+}
+
 run_autoscaling_checks() {
 
 AS_URL="http://127.0.0.1:${CLI_PORT}/api/v1/autoscaling/plans:evaluate"
@@ -81,7 +101,10 @@ echo "${AS_BAD_RESP}" | grep -q '"allowed":false' || as_fail "Expected allowed=f
 for code in MULTIPLE_REPLICA_WRITERS MAX_SCALE_EXCEEDS_POD_QUOTA MAX_SCALE_EXCEEDS_CPU_QUOTA; do
     echo "${AS_BAD_RESP}" | grep -q "\"${code}\"" || as_fail "Missing violation ${code}"
 done
-as_pass "AS-INV-01 and AS-INV-03 violations returned (Phase 0 exit gate)"
+AS_BAD_TRACE=$(echo "${AS_BAD_RESP}" | grep -i '^x-trace-id:' | awk '{print $2}' | tr -d '\r')
+expect_span_attr "${AS_BAD_TRACE}" "autoscaling.service.evaluate_plan" "autoscaling.violation.codes" "MULTIPLE_REPLICA_WRITERS"
+expect_span_attr "${AS_BAD_TRACE}" "autoscaling.api.evaluate_plan" "autoscaling.outcome" "denied"
+as_pass "AS-INV-01 and AS-INV-03 violations returned and explained in the trace (Phase 0 exit gate)"
 
 echo ""
 echo "--------------------------------------------------------------------------------"
@@ -141,6 +164,9 @@ AS_NOTENANT_CODE=$(echo "${AS_NOTENANT_RESP}" | head -1 | awk '{print $2}')
 AS_NOTENANT_TRACE=$(echo "${AS_NOTENANT_RESP}" | grep -i '^x-trace-id:' | awk '{print $2}' | tr -d '\r')
 as_pass "Missing tenant context rejected with 422"
 expect_error_span "${AS_NOTENANT_TRACE}" "autoscaling.service.evaluate_plan" "tenant context is required"
+expect_span_attr "${AS_NOTENANT_TRACE}" "autoscaling.service.evaluate_plan" "autoscaling.validation.reason" "tenant context is required"
+expect_span_attr "${AS_NOTENANT_TRACE}" "autoscaling.service.evaluate_plan" "app.error_class" "client"
+expect_span_attr "${AS_NOTENANT_TRACE}" "autoscaling.api.evaluate_plan" "autoscaling.outcome" "validation_failed"
 
 echo ""
 echo "--------------------------------------------------------------------------------"
@@ -196,6 +222,8 @@ if curl --noproxy "*" -s -o /dev/null "${TEMPO_URL}/ready" 2>/dev/null; then
         echo "${AS_SPANS}" | grep -q "${span}" || as_fail "Span '${span}' missing from Tempo trace ${AS_TRACE_ID}"
     done
     as_pass "Tempo holds the full span tree for trace ${AS_TRACE_ID}"
+    expect_span_attr "${AS_TRACE_ID}" "autoscaling.service.evaluate_plan" "autoscaling.allowed" "true"
+    expect_span_attr "${AS_TRACE_ID}" "autoscaling.service.evaluate_plan" "autoscaling.tier" "gold"
 else
     as_skip "Tempo not reachable at ${TEMPO_URL}; set TEMPO_URL (e.g. kubectl -n dev port-forward svc/tempo 3200)"
 fi

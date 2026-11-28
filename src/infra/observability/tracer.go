@@ -120,6 +120,30 @@ func RecordError(span trace.Span, err error) {
 		attribute.String("error.type", fmt.Sprintf("%T", err)),
 		attribute.String("error.message", err.Error()),
 	)
+	if stdErrors.As(err, &appErr) {
+		span.SetAttributes(describeApplicationError(appErr)...)
+	}
+}
+
+func describeApplicationError(appErr *appErrors.ApplicationError) []attribute.KeyValue {
+	class := "server"
+	if appErr.StatusCode >= 400 && appErr.StatusCode < 500 {
+		class = "client"
+	}
+	return []attribute.KeyValue{
+		attribute.Int("app.status_code", appErr.StatusCode),
+		attribute.String("app.error_code", appErr.CanonicalCode),
+		attribute.String("app.error_class", class),
+		attribute.Bool("app.error_retryable", appErr.Retryable),
+	}
+}
+
+func AnnotateSpan(ctx context.Context, attrs ...attribute.KeyValue) {
+	trace.SpanFromContext(ctx).SetAttributes(attrs...)
+}
+
+func AddSpanEvent(ctx context.Context, name string, attrs ...attribute.KeyValue) {
+	trace.SpanFromContext(ctx).AddEvent(name, trace.WithAttributes(attrs...))
 }
 
 func CurrentSpan(ctx context.Context) trace.Span {
