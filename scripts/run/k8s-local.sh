@@ -14,7 +14,42 @@ POSTGRES_PORT=5432
 REDIS_PORT=6379
 DEV_NAMESPACE="dev"
 
+start_docker_backing_services() {
+    log_info "Step 1/5: Starting backing stateful infrastructure (Postgres 18, Redis 7.4, Prometheus, Loki, Tempo, OTel Collector, Caddy)..."
+    
+    local secrets_dir="${ROOT_DIR}/deploy/docker/compose/secrets"
+    mkdir -p "${secrets_dir}"
+    if [[ ! -f "${secrets_dir}/db_password.txt" ]]; then
+        echo -n "postgres_dev_password_123" > "${secrets_dir}/db_password.txt"
+        log_info "Generated default secrets/db_password.txt"
+    fi
+
+    docker compose -f "${INFRA_COMPOSE}" up -d
+
+    log_info "Waiting for backing services (PostgreSQL & Redis) to reach healthy status..."
+    local timeout=60
+    local elapsed=0
+    while [[ ${elapsed} -lt ${timeout} ]]; do
+        if docker exec idp-db-1 pg_isready -U postgres -d idp_db >/dev/null 2>&1 && \
+           docker exec idp-cache-1 redis-cli ping | grep -q "PONG"; then
+            log_success "Backing infrastructure is healthy (Postgres 18 & Redis 7.4 ready)."
+            break
+        fi
+        sleep 3
+        elapsed=$((elapsed + 3))
+    done
+
+    log_info "Applying database schema migrations to PostgreSQL..."
+    for migration in "${ROOT_DIR}"/database/migrations/sql/[0-9]*.sql; do
+        if [[ ! "${migration}" =~ rollback\.sql$ ]]; then
+            docker exec -i idp-db-1 psql -U postgres -d idp_db < "${migration}" >/dev/null 2>&1 || true
+        fi
+    done
+    log_success "PostgreSQL database migrations applied."
+}
+
 create_cluster() {
+    log_info "Step 2/5: Creating or connecting to Kubernetes cluster '${CLUSTER_NAME}'..."
     if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
         log_info "kind cluster '${CLUSTER_NAME}' already exists. Ensuring control-plane container is running..."
         docker start "${CLUSTER_NAME}-control-plane" >/dev/null 2>&1 || true
@@ -69,7 +104,7 @@ install_metrics_server() {
 }
 
 install_argocd() {
-    log_info "Creating namespace '${ARGOCD_NAMESPACE}'..."
+    log_info "Step 4/5: Installing ArgoCD control plane..."
     kubectl get ns "${ARGOCD_NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${ARGOCD_NAMESPACE}"
 
     log_info "Applying official ArgoCD manifests using server-side apply..."
@@ -188,6 +223,7 @@ main() {
 
     case "${action}" in
         up)
+            start_docker_backing_services
             create_cluster
             install_crd_dependencies
             install_metrics_server
@@ -200,7 +236,7 @@ main() {
             get_credentials
             ;;
         down)
-            down_cluster
+            down_all
             ;;
         status)
             echo "--- ArgoCD Pods ---"

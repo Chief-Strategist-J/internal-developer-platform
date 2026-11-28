@@ -13,6 +13,10 @@ spec:
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
+    - group: 'external-secrets.io'
+      kind: ClusterSecretStore
+    - group: 'external-secrets.io'
+      kind: '*'
   namespaceResourceWhitelist:
     - group: '*'
       kind: '*'
