@@ -33,8 +33,9 @@ func NewDeploymentStrategiesService(
 	traffic ports.TrafficPort,
 	orchestrator ports.OrchestratorPort,
 	analysis ports.AnalysisPort,
+	drGuard ports.DRGuardPort,
 ) *DeploymentStrategiesService {
-	workflow := workflows.NewCanaryRolloutWorkflow(traffic, orchestrator, analysis, repo)
+	workflow := workflows.NewCanaryRolloutWorkflow(traffic, orchestrator, analysis, repo, drGuard)
 	return &DeploymentStrategiesService{
 		repo:     repo,
 		traffic:  traffic,

@@ -14,6 +14,7 @@ type ServerConfig struct {
 	Name                    string `yaml:"name"`
 	Port                    int    `yaml:"port"`
 	AdminPort               int    `yaml:"admin_port"`
+	MetricsPort             int    `yaml:"metrics_port"`
 	IdleTimeoutSeconds      int    `yaml:"idle_timeout_seconds"`
 	HeaderTimeoutSeconds    int    `yaml:"header_timeout_seconds"`
 	DrainDeadlineSeconds    int    `yaml:"drain_deadline_seconds"`
@@ -183,6 +184,15 @@ func applyEnvironmentOverrides(cfg *AppConfig) {
 		if p, err := strconv.Atoi(adminPortStr); err == nil && p > 0 {
 			cfg.Server.AdminPort = p
 		}
+	}
+
+	if metricsPortStr := os.Getenv("METRICS_PORT"); metricsPortStr != "" {
+		if p, err := strconv.Atoi(metricsPortStr); err == nil && p > 0 {
+			cfg.Server.MetricsPort = p
+		}
+	}
+	if cfg.Server.MetricsPort <= 0 {
+		cfg.Server.MetricsPort = 9090
 	}
 
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
@@ -359,4 +369,12 @@ func (c *AppConfig) PublicBindAddress() string {
 
 func (c *AppConfig) AdminBindAddress() string {
 	return fmt.Sprintf("0.0.0.0:%d", c.Server.AdminPort)
+}
+
+func (c *AppConfig) MetricsBindAddress() string {
+	port := c.Server.MetricsPort
+	if port <= 0 {
+		port = 9090
+	}
+	return fmt.Sprintf("0.0.0.0:%d", port)
 }

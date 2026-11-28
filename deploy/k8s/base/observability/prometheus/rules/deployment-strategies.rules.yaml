@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: deployment-strategies-alerts
+  namespace: dev
+  labels:
+    role: alert-rules
+    app.kubernetes.io/name: deployment-strategies
+spec:
+  groups:
+    - name: deployment-strategies.rules
+      rules:
+        - alert: CanaryPreTrafficHealthFailure
+          expr: sum by (tenant_id, workload_id) (rate(platform_rollout_pretraffic_failures_total[5m])) > 0
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+            tier: tier-1
+          annotations:
+            summary: "Canary pods unready before traffic shift (Invariant P0-03 breach)"
+            description: "Traffic shifting attempted before canary replicas reached healthy state or sidecar injection (Invariant P0-03)."
+            runbook_url: "docs/features/deployment-strategies/failure-cases.md#runbook-canary-pretraffic-failure"
+
+        - alert: CanaryRolloutAbortedOnMetricBreach
+          expr: sum by (tenant_id, workload_id) (rate(platform_rollout_aborts_total{reason="metric_breach"}[5m])) > 0
+          for: 1m
+          labels:
+            severity: page
+            team: platform
+            tier: tier-1
+          annotations:
+            summary: "Progressive rollout aborted due to metric SLO breach (Invariant P0-04)"
+            description: "Canary analysis detected error rate or latency exceeding threshold. Traffic weight immediately rolled back to stable 0%."
+            runbook_url: "docs/features/deployment-strategies/failure-cases.md#runbook-canary-metric-abort"
+
+        - alert: RolloutMeshWeightDesynchronized
+          expr: abs(platform_mesh_traffic_weight_actual - platform_mesh_traffic_weight_target) > 5
+          for: 3m
+          labels:
+            severity: page
+            team: platform
+            tier: tier-1
+          annotations:
+            summary: "Service Mesh traffic weight desynchronized from rollout ledger (EC-03)"
+            description: "Cloud Service Mesh actual weight differs from the rollout ledger state by more than 5% for over 3 minutes."
+            runbook_url: "docs/features/deployment-strategies/failure-cases.md#runbook-mesh-weight-desync"
