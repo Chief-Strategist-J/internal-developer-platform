@@ -100,7 +100,7 @@ func describeService() chassis.ServiceSpec {
 				Authorizer: rbacMod.Authorizer(),
 			}
 			rbacMW := middleware.NewRBACMiddleware(bindings.Authorizer)
-			idempotencyMW := middleware.NewIdempotencyMiddleware()
+			idempotencyMW := middleware.NewIdempotencyMiddlewareWithAddr(deps.Config.Redis.Address)
 
 			regimeBaseline := platformregime.DefaultBaselinePolicyConfig()
 

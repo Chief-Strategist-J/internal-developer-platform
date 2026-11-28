@@ -30,6 +30,7 @@ type SelfServiceProvisioningService struct {
 	ledgerPort        ports.ProvisioningLedgerPort
 	reservationPort   ports.ProvisioningReservationPort
 	approvalPort      ports.ProvisioningApprovalPort
+	governancePort    ports.ProvisioningGovernancePort
 }
 
 func NewSelfServiceProvisioningService(clusterPort ports.ClusterProvisionerPort, cloudResourcePort ports.CloudResourceProvisionerPort) *SelfServiceProvisioningService {
@@ -49,6 +50,10 @@ func (s *SelfServiceProvisioningService) SetReservationPort(port ports.Provision
 
 func (s *SelfServiceProvisioningService) SetApprovalPort(port ports.ProvisioningApprovalPort) {
 	s.approvalPort = port
+}
+
+func (s *SelfServiceProvisioningService) SetGovernancePort(port ports.ProvisioningGovernancePort) {
+	s.governancePort = port
 }
 
 func (s *SelfServiceProvisioningService) ProvisionCluster(ctx context.Context, spec contracts.ClusterSpec) (*contracts.ClusterRecord, error) {
@@ -359,4 +364,14 @@ func (s *SelfServiceProvisioningService) verifyApprovalIfPresent(ctx context.Con
 		return nil
 	}
 	return s.approvalPort.VerifyAndConsumeApproval(ctx, pin.approvalID, pin.plan, pin.maxPeriodBudget)
+}
+
+func (s *SelfServiceProvisioningService) RunSweeper(ctx context.Context) (*contracts.SweeperReport, error) {
+	if s.governancePort == nil {
+		return &contracts.SweeperReport{
+			UntrackedIntents: make([]string, 0),
+			DuplicateTargets: make([]string, 0),
+		}, nil
+	}
+	return s.governancePort.RunSweeper(ctx)
 }

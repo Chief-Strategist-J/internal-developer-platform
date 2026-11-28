@@ -17,13 +17,13 @@ import (
 	stderrors "errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/self-service-provisioning/internal/contracts"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/domain/rules"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/queries"
 	"internal-developer-platform/src/infra/observability"
 	"internal-developer-platform/src/shared/errors"
 )
@@ -57,12 +57,7 @@ func (a *PostgresProvisioningApprovalAdapter) RecordApproval(ctx context.Context
 		if status == "" {
 			status = "APPROVED"
 		}
-		const stmt = `
-			INSERT INTO self_service_provisioning.provisioning_approvals (
-				id, public_id, tenant_id, requester_id, approver_id, plan_hash, template_sha, policy_sha, budget_units, status, expires_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		`
-		_, err := a.db.ExecContext(ctx, stmt, approval.ID, publicID, approval.TenantID, approval.RequesterID, approval.ApproverID, approval.PlanHash, approval.TemplateSHA, approval.PolicySHA, budget, status, approval.ExpiresAt)
+		_, err := a.db.ExecContext(ctx, queries.InsertProvisioningApprovalSQL, approval.ID, publicID, approval.TenantID, approval.RequesterID, approval.ApproverID, approval.PlanHash, approval.TemplateSHA, approval.PolicySHA, budget, status, approval.ExpiresAt)
 		return err
 	}, attribute.String("db.system", "postgresql"), attribute.String("approval.id", approval.ID))
 }
@@ -81,13 +76,7 @@ func (a *PostgresProvisioningApprovalAdapter) VerifyAndConsumeApproval(ctx conte
 		}()
 
 		var rec contracts.ApprovalRecord
-		const selectStmt = `
-			SELECT id, public_id, tenant_id, requester_id, approver_id, plan_hash, template_sha, policy_sha, budget_units, status, expires_at
-			FROM self_service_provisioning.provisioning_approvals
-			WHERE id = $1
-			FOR UPDATE
-		`
-		if err := tx.QueryRowContext(ctx, selectStmt, approvalID).Scan(
+		if err := tx.QueryRowContext(ctx, queries.SelectApprovalForUpdateSQL, approvalID).Scan(
 			&rec.ID, &rec.PublicID, &rec.TenantID, &rec.RequesterID, &rec.ApproverID,
 			&rec.PlanHash, &rec.TemplateSHA, &rec.PolicySHA, &rec.BudgetUnits, &rec.Status, &rec.ExpiresAt,
 		); err != nil {
@@ -98,12 +87,7 @@ func (a *PostgresProvisioningApprovalAdapter) VerifyAndConsumeApproval(ctx conte
 		}
 
 		var periodUsed int
-		const budgetStmt = `
-			SELECT COALESCE(SUM(budget_units), 0)
-			FROM self_service_provisioning.provisioning_approvals
-			WHERE tenant_id = $1 AND status = 'CONSUMED' AND created_at >= NOW() - INTERVAL '30 days'
-		`
-		if err := tx.QueryRowContext(ctx, budgetStmt, rec.TenantID).Scan(&periodUsed); err != nil {
+		if err := tx.QueryRowContext(ctx, queries.SumConsumedApprovalBudget30dSQL, rec.TenantID).Scan(&periodUsed); err != nil {
 			return err
 		}
 
@@ -111,66 +95,9 @@ func (a *PostgresProvisioningApprovalAdapter) VerifyAndConsumeApproval(ctx conte
 			return err
 		}
 
-		const consumeStmt = `
-			UPDATE self_service_provisioning.provisioning_approvals
-			SET status = 'CONSUMED', updated_at = NOW()
-			WHERE id = $1 AND status = 'APPROVED'
-		`
-		if _, err := tx.ExecContext(ctx, consumeStmt, approvalID); err != nil {
+		if _, err := tx.ExecContext(ctx, queries.ConsumeProvisioningApprovalSQL, approvalID); err != nil {
 			return err
 		}
 		return tx.Commit()
 	}, attribute.String("db.system", "postgresql"), attribute.String("approval.id", approvalID))
-}
-
-type MemoryProvisioningApprovalAdapter struct {
-	mu        sync.Mutex
-	approvals map[string]contracts.ApprovalRecord
-}
-
-func NewMemoryProvisioningApprovalAdapter() *MemoryProvisioningApprovalAdapter {
-	return &MemoryProvisioningApprovalAdapter{
-		approvals: make(map[string]contracts.ApprovalRecord),
-	}
-}
-
-func (a *MemoryProvisioningApprovalAdapter) RecordApproval(ctx context.Context, approval contracts.ApprovalRecord) error {
-	return observability.WithClientSpan(ctx, "self_service.approval.memory.record", func(ctx context.Context) error {
-		if strings.TrimSpace(approval.RequesterID) == "" || strings.TrimSpace(approval.ApproverID) == "" || strings.EqualFold(strings.TrimSpace(approval.RequesterID), strings.TrimSpace(approval.ApproverID)) {
-			return errors.NewForbiddenError("self-approval is forbidden: approver must differ from requester")
-		}
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if approval.BudgetUnits <= 0 {
-			approval.BudgetUnits = 1
-		}
-		if approval.Status == "" {
-			approval.Status = "APPROVED"
-		}
-		a.approvals[approval.ID] = approval
-		return nil
-	}, attribute.String("db.system", "memory"), attribute.String("approval.id", approval.ID))
-}
-
-func (a *MemoryProvisioningApprovalAdapter) VerifyAndConsumeApproval(ctx context.Context, approvalID string, expectedPlan contracts.PinnedPlan, maxPeriodBudget int) error {
-	return observability.WithClientSpan(ctx, "self_service.approval.memory.verify_consume", func(ctx context.Context) error {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		rec, ok := a.approvals[approvalID]
-		if !ok {
-			return errors.NewNotFoundError("approval record not found")
-		}
-		periodUsed := 0
-		for _, item := range a.approvals {
-			if item.TenantID == rec.TenantID && item.Status == "CONSUMED" {
-				periodUsed += item.BudgetUnits
-			}
-		}
-		if err := rules.ValidateApprovalAndPin(rec, expectedPlan, periodUsed, maxPeriodBudget, time.Now()); err != nil {
-			return err
-		}
-		rec.Status = "CONSUMED"
-		a.approvals[approvalID] = rec
-		return nil
-	}, attribute.String("db.system", "memory"), attribute.String("approval.id", approvalID))
 }

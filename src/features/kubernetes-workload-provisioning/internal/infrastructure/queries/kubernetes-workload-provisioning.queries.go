@@ -6,7 +6,7 @@ package queries
 
 const (
 	FLOW_INSERT_WORKLOAD_PROVISION = `
-		INSERT INTO workload_provisions (
+		INSERT INTO kubernetes_workload_provisioning.workload_provisions (
 			id, public_id, tenant_id, source, external_id, correlation_id,
 			spec_hash, approved_spec_hash, approver_role,
 			image_pull_policy, breakglass_justification,
@@ -29,7 +29,7 @@ const (
 		       enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
 		       on_call_pager, runbook_url, incident_tier,
 		       idempotency_key, version, created_at, updated_at
-		FROM workload_provisions
+		FROM kubernetes_workload_provisioning.workload_provisions
 		WHERE tenant_id = $1 AND id = $2
 	`
 
@@ -43,7 +43,7 @@ const (
 		       enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
 		       on_call_pager, runbook_url, incident_tier,
 		       idempotency_key, version, created_at, updated_at
-		FROM workload_provisions
+		FROM kubernetes_workload_provisioning.workload_provisions
 		WHERE tenant_id = $1 AND idempotency_key = $2
 	`
 
@@ -57,27 +57,27 @@ const (
 		       enable_data_access_logs, audit_destination_bucket, audit_retention_days, audit_locked_retention,
 		       on_call_pager, runbook_url, incident_tier,
 		       idempotency_key, version, created_at, updated_at
-		FROM workload_provisions
+		FROM kubernetes_workload_provisioning.workload_provisions
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
 	FLOW_UPDATE_WORKLOAD_PROVISION = `
-		UPDATE workload_provisions
+		UPDATE kubernetes_workload_provisioning.workload_provisions
 		SET status = $1, version = version + 1, updated_at = $2
 		WHERE tenant_id = $3 AND id = $4 AND version = $5
 	`
 
 	FLOW_INSERT_INCIDENT_TIMELINE_EVENT = `
-		INSERT INTO incident_timeline_events (
+		INSERT INTO kubernetes_workload_provisioning.incident_timeline_events (
 			id, tenant_id, workload_id, event_type, description, actor, metadata, created_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
 	FLOW_LIST_INCIDENT_TIMELINE_EVENTS = `
 		SELECT id, tenant_id, workload_id, event_type, description, actor, metadata, created_at
-		FROM incident_timeline_events
+		FROM kubernetes_workload_provisioning.incident_timeline_events
 		WHERE tenant_id = $1 AND workload_id = $2
 		ORDER BY created_at DESC
 		LIMIT $3 OFFSET $4

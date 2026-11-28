@@ -24,6 +24,13 @@ ports:
     adapters: [postgres, memory]
   - name: approval
     adapters: [postgres, memory]
+  - name: governance
+    adapters: [postgres, memory]
+roles:
+  - rules
+  - machine
+  - workflow
+  - queries
 lifecycles: []
 ingress:
   rest: contracts/openapi/v1.yaml

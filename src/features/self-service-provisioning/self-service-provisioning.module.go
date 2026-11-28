@@ -45,10 +45,12 @@ func BuildModule(deps ModuleDeps) *SelfServiceProvisioningModule {
 		svc.SetLedgerPort(adapters.NewPostgresProvisioningLedgerAdapter(deps.DB))
 		svc.SetReservationPort(adapters.NewPostgresProvisioningReservationAdapter(deps.DB))
 		svc.SetApprovalPort(adapters.NewPostgresProvisioningApprovalAdapter(deps.DB))
+		svc.SetGovernancePort(adapters.NewPostgresProvisioningGovernanceAdapter(deps.DB))
 	} else {
 		svc.SetLedgerPort(adapters.NewMemoryProvisioningLedgerAdapter())
 		svc.SetReservationPort(adapters.NewMemoryProvisioningReservationAdapter())
 		svc.SetApprovalPort(adapters.NewMemoryProvisioningApprovalAdapter())
+		svc.SetGovernancePort(adapters.NewMemoryProvisioningGovernanceAdapter())
 	}
 	handler := restv1.NewSelfServiceProvisioningHandler(svc)
 	router := restv1.NewSelfServiceProvisioningRouter(handler, deps.RBACMiddleware, deps.IdempotencyMiddleware)

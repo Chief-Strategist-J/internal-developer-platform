@@ -22,7 +22,9 @@ import (
 
 	restv1 "internal-developer-platform/src/features/self-service-provisioning/internal/api/rest/v1"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/domain/machines"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/domain/rules"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/domain/workflows"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/adapters"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/service"
 	"internal-developer-platform/src/infra/clients/cloudresource"
@@ -498,5 +500,84 @@ func TestSelfService_INV09_INV10_EC09_ApprovalAndPlanPinning(t *testing.T) {
 	validCtx := service.WithApprovalPin(context.Background(), "app-valid-01", plan, 5)
 	if _, okErr := svc.ProvisionCluster(validCtx, createTestClusterSpec("cluster-pin-01")); okErr != nil {
 		t.Fatalf("expected valid pinned plan to provision, got: %v", okErr)
+	}
+}
+
+func TestSelfService_GovernanceRules_StateMachine_And_Saga(t *testing.T) {
+	if err := rules.ValidateDataSafeCompensation(true, false, false); !errors.IsConflictError(err) {
+		t.Fatalf("INV-06: expected conflict when data-bearing resource lacks retention decision, got: %v", err)
+	}
+	if err := rules.ValidateDataSafeCompensation(true, true, true); !errors.IsConflictError(err) {
+		t.Fatalf("EC-14: expected conflict when ephemeral TTL touches data-bearing resource, got: %v", err)
+	}
+	if err := rules.ValidateDataSafeCompensation(true, true, false); err != nil {
+		t.Fatalf("INV-06: expected valid retention decision to pass, got: %v", err)
+	}
+
+	dag := rules.BuildTeardownDAGOrder()
+	if len(dag) != 3 || dag[0] != "DNS" || dag[2] != "RESOURCE" {
+		t.Fatalf("INV-07: unexpected teardown DAG order: %v", dag)
+	}
+
+	if err := rules.ValidateSingleMutationPath("orchestrator-sa", false); err == nil {
+		t.Fatal("INV-08: expected direct mutation outside owning API to be forbidden")
+	}
+
+	retryable, waitSec := rules.ClassifyStepError(429, 45, 1, 5)
+	if !retryable || waitSec != 45 {
+		t.Fatalf("INV-11/EC-04: expected retryable=true wait=45 on 429, got retryable=%v wait=%d", retryable, waitSec)
+	}
+	retryableMax, _ := rules.ClassifyStepError(503, 0, 5, 5)
+	if retryableMax {
+		t.Fatal("INV-11: expected bounded retries to stop at maxAttempts")
+	}
+
+	if ready, _ := rules.EvaluateObservedReady("Synced", "Healthy", 0); ready {
+		t.Fatal("INV-12: expected READY=false when availableReplicas=0")
+	}
+	if ready, _ := rules.EvaluateObservedReady("Synced", "Healthy", 2); !ready {
+		t.Fatal("INV-12: expected READY=true when Synced, Healthy, and replicas>=1")
+	}
+
+	if err := rules.ScanManifestsForSecrets(map[string]string{"deploy.yaml": "token: ghp_secret123"}); err == nil {
+		t.Fatal("INV-13: expected secret scan to reject embedded token")
+	}
+	if err := rules.ValidateTraceabilityLabels("req-1", "team-a", "cc-1", ""); err == nil {
+		t.Fatal("INV-14: expected traceability validation to reject empty userId")
+	}
+
+	altZone, zoneErr := rules.SelectAlternateZoneOrFamily("us-central1-a", []string{"us-central1-a", "us-central1-b"})
+	if zoneErr != nil || altZone != "us-central1-b" {
+		t.Fatalf("EC-06: expected fallback zone us-central1-b, got %q (%v)", altZone, zoneErr)
+	}
+
+	if err := machines.ValidateTransition(machines.StateCompensating, machines.StateOrphanedDirty); err != nil {
+		t.Fatalf("EC-07: expected COMPENSATING -> ORPHANED_DIRTY to be valid, got: %v", err)
+	}
+	if err := machines.ValidateTransition(machines.StateReady, machines.StatePending); err == nil {
+		t.Fatal("expected invalid transition READY -> PENDING to fail")
+	}
+
+	steps := workflows.BuildProvisioningSagaSteps()
+	if len(steps) != 4 {
+		t.Fatalf("expected 4 saga steps, got %d", len(steps))
+	}
+	if act := workflows.ResolvePointOfNoReturnAction(true, true); act != "FORWARD_COMPLETE" {
+		t.Fatalf("EC-08: expected FORWARD_COMPLETE, got %s", act)
+	}
+
+	gov := adapters.NewMemoryProvisioningGovernanceAdapter()
+	if err := gov.EnterDNSCooldown(context.Background(), "tenant-a", "Api.Example.COM", time.Minute); err != nil {
+		t.Fatalf("unexpected EnterDNSCooldown error: %v", err)
+	}
+	inCooldown, _ := gov.IsDNSInCooldown(context.Background(), "api.example.com")
+	if !inCooldown {
+		t.Fatal("INV-07: expected normalized DNS name to be in cooldown")
+	}
+	if err := gov.AcquireSagaLock(context.Background(), "svc-1", "tenant-a", "PROVISION"); err != nil {
+		t.Fatalf("unexpected AcquireSagaLock error: %v", err)
+	}
+	if err := gov.AcquireSagaLock(context.Background(), "svc-1", "tenant-a", "DECOMMISSION"); !errors.IsConflictError(err) {
+		t.Fatalf("EC-13: expected conflict when decommission races active provision lock, got: %v", err)
 	}
 }

@@ -10,6 +10,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"internal-developer-platform/src/features/self-service-provisioning/internal/contracts"
 )
@@ -41,4 +42,15 @@ type ProvisioningReservationPort interface {
 type ProvisioningApprovalPort interface {
 	RecordApproval(ctx context.Context, approval contracts.ApprovalRecord) error
 	VerifyAndConsumeApproval(ctx context.Context, approvalID string, expectedPlan contracts.PinnedPlan, maxPeriodBudget int) error
+}
+
+type ProvisioningGovernancePort interface {
+	RecordOperationID(ctx context.Context, intentID string, operationID string) error
+	RecordRetentionDecision(ctx context.Context, decision contracts.RetentionDecision) error
+	HasRetentionDecision(ctx context.Context, tenantID string, resourceID string) (bool, error)
+	EnterDNSCooldown(ctx context.Context, tenantID string, dnsName string, cooldown time.Duration) error
+	IsDNSInCooldown(ctx context.Context, dnsName string) (bool, error)
+	AcquireSagaLock(ctx context.Context, serviceKey string, tenantID string, operation string) error
+	ReleaseSagaLock(ctx context.Context, serviceKey string, finalState string) error
+	RunSweeper(ctx context.Context) (*contracts.SweeperReport, error)
 }

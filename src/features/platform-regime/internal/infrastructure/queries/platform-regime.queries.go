@@ -9,7 +9,7 @@ package queries
 
 const (
 	FlowInsertRegimePolicy = `
-INSERT INTO platform_regime_policies (
+INSERT INTO platform_regime.platform_regime_policies (
     id, public_id, tenant_id, source, external_id, correlation_id,
     jurisdiction, audit_retention_days, data_residency_regions, kms_key_custody_mode,
     rto_minutes_tier0, rpo_minutes_tier0, rto_minutes_tier1, rpo_minutes_tier1,
@@ -24,7 +24,7 @@ INSERT INTO platform_regime_policies (
 ) RETURNING id;`
 
 	FlowSupersedePreviousActive = `
-UPDATE platform_regime_policies
+UPDATE platform_regime.platform_regime_policies
 SET status = 'SUPERSEDED', updated_at = NOW()
 WHERE tenant_id = $1 AND status = 'ACTIVE' AND id != $2;`
 
@@ -35,7 +35,7 @@ SELECT
     rto_minutes_tier0, rpo_minutes_tier0, rto_minutes_tier1, rpo_minutes_tier1,
     cluster_mode, primary_region_count, standby_region_count, tenant_isolation_mode,
     status, version, created_at, updated_at
-FROM platform_regime_policies
+FROM platform_regime.platform_regime_policies
 WHERE tenant_id = $1 AND status = 'ACTIVE'
 ORDER BY created_at DESC
 LIMIT 1;`
@@ -47,6 +47,6 @@ SELECT
     rto_minutes_tier0, rpo_minutes_tier0, rto_minutes_tier1, rpo_minutes_tier1,
     cluster_mode, primary_region_count, standby_region_count, tenant_isolation_mode,
     status, version, created_at, updated_at
-FROM platform_regime_policies
+FROM platform_regime.platform_regime_policies
 WHERE tenant_id = $1 AND id = $2;`
 )
