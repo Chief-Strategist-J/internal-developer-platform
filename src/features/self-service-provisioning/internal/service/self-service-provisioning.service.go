@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"internal-developer-platform/src/features/self-service-provisioning/internal/contracts"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/domain/rules"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/ports"
 	"internal-developer-platform/src/infra/observability"
 )
@@ -27,6 +28,8 @@ type SelfServiceProvisioningService struct {
 	clusterPort       ports.ClusterProvisionerPort
 	cloudResourcePort ports.CloudResourceProvisionerPort
 	ledgerPort        ports.ProvisioningLedgerPort
+	reservationPort   ports.ProvisioningReservationPort
+	approvalPort      ports.ProvisioningApprovalPort
 }
 
 func NewSelfServiceProvisioningService(clusterPort ports.ClusterProvisionerPort, cloudResourcePort ports.CloudResourceProvisionerPort) *SelfServiceProvisioningService {
@@ -40,6 +43,14 @@ func (s *SelfServiceProvisioningService) SetLedgerPort(port ports.ProvisioningLe
 	s.ledgerPort = port
 }
 
+func (s *SelfServiceProvisioningService) SetReservationPort(port ports.ProvisioningReservationPort) {
+	s.reservationPort = port
+}
+
+func (s *SelfServiceProvisioningService) SetApprovalPort(port ports.ProvisioningApprovalPort) {
+	s.approvalPort = port
+}
+
 func (s *SelfServiceProvisioningService) ProvisionCluster(ctx context.Context, spec contracts.ClusterSpec) (*contracts.ClusterRecord, error) {
 	return observability.RunTraced(ctx, "self_service.service.provision_cluster", func(ctx context.Context) (*contracts.ClusterRecord, error) {
 		logger := observability.GetLogger()
@@ -49,10 +60,42 @@ func (s *SelfServiceProvisioningService) ProvisionCluster(ctx context.Context, s
 			return nil, err
 		}
 
-		intentID := s.recordIntentBeforeEffect(ctx, spec.ProjectID, "CLUSTER", spec.ClusterID)
+		if err := s.verifyApprovalIfPresent(ctx); err != nil {
+			logger.Warn(ctx, "provision cluster rejected by approval/plan pinning gate",
+				observability.String("cluster_id", spec.ClusterID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
+
+		reservationID, err := s.reserveBeforeEffect(ctx, spec.ProjectID, "CLUSTER", spec.ClusterID, 1, 1)
+		if err != nil {
+			logger.Warn(ctx, "provision cluster rejected by capacity/name reservation",
+				observability.String("cluster_id", spec.ClusterID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
+
+		intentID, attempt, err := s.recordIntentBeforeEffect(ctx, spec.ProjectID, "CLUSTER", spec.ClusterID)
+		if err != nil {
+			s.releaseReservation(ctx, reservationID)
+			logger.Error(ctx, "provision cluster aborted: intent persistence failed",
+				observability.String("cluster_id", spec.ClusterID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
 		rec, err := s.clusterPort.ProvisionCluster(ctx, spec)
 		if err != nil {
-			s.recordOutcomeAfterEffect(ctx, intentID, "FAILED", "", err.Error())
+			s.releaseReservation(ctx, reservationID)
+			if outcomeErr := s.recordOutcomeAfterEffect(ctx, intentID, attempt, "FAILED", "", err.Error()); outcomeErr != nil {
+				logger.Warn(ctx, "provision cluster outcome fenced",
+					observability.String("cluster_id", spec.ClusterID),
+					observability.String("error", outcomeErr.Error()),
+				)
+				return nil, outcomeErr
+			}
 			logger.Warn(ctx, "provision cluster failed",
 				observability.String("cluster_id", spec.ClusterID),
 				observability.String("project_id", spec.ProjectID),
@@ -61,7 +104,15 @@ func (s *SelfServiceProvisioningService) ProvisionCluster(ctx context.Context, s
 			return nil, err
 		}
 
-		s.recordOutcomeAfterEffect(ctx, intentID, "READY", spec.ClusterID, "")
+		s.commitReservation(ctx, reservationID)
+
+		if err := s.recordOutcomeAfterEffect(ctx, intentID, attempt, "READY", spec.ClusterID, ""); err != nil {
+			logger.Warn(ctx, "provision cluster outcome fenced",
+				observability.String("cluster_id", spec.ClusterID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
 		logger.Info(ctx, "provisioned cluster",
 			observability.String("cluster_id", spec.ClusterID),
 			observability.String("project_id", spec.ProjectID),
@@ -118,10 +169,42 @@ func (s *SelfServiceProvisioningService) ProvisionWorkloadIdentity(ctx context.C
 		}
 
 		targetID := spec.ProjectID + "/" + spec.Namespace + "/" + spec.KSAName
-		intentID := s.recordIntentBeforeEffect(ctx, spec.Metadata.Owner, "WORKLOAD_IDENTITY", targetID)
+		if err := s.verifyApprovalIfPresent(ctx); err != nil {
+			logger.Warn(ctx, "provision workload identity rejected by approval/plan pinning gate",
+				observability.String("target_id", targetID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
+
+		reservationID, err := s.reserveBeforeEffect(ctx, spec.Metadata.Owner, "WORKLOAD_IDENTITY", targetID, 1, 0)
+		if err != nil {
+			logger.Warn(ctx, "provision workload identity rejected by capacity/name reservation",
+				observability.String("target_id", targetID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
+
+		intentID, attempt, err := s.recordIntentBeforeEffect(ctx, spec.Metadata.Owner, "WORKLOAD_IDENTITY", targetID)
+		if err != nil {
+			s.releaseReservation(ctx, reservationID)
+			logger.Error(ctx, "provision workload identity aborted: intent persistence failed",
+				observability.String("target_id", targetID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
 		res, err := s.cloudResourcePort.ProvisionWorkloadIdentity(ctx, spec)
 		if err != nil {
-			s.recordOutcomeAfterEffect(ctx, intentID, "FAILED", "", err.Error())
+			s.releaseReservation(ctx, reservationID)
+			if outcomeErr := s.recordOutcomeAfterEffect(ctx, intentID, attempt, "FAILED", "", err.Error()); outcomeErr != nil {
+				logger.Warn(ctx, "provision workload identity outcome fenced",
+					observability.String("target_id", targetID),
+					observability.String("error", outcomeErr.Error()),
+				)
+				return nil, outcomeErr
+			}
 			logger.Warn(ctx, "provision workload identity failed",
 				observability.String("target_id", targetID),
 				observability.String("error", err.Error()),
@@ -129,7 +212,15 @@ func (s *SelfServiceProvisioningService) ProvisionWorkloadIdentity(ctx context.C
 			return nil, err
 		}
 
-		s.recordOutcomeAfterEffect(ctx, intentID, "READY", targetID, "")
+		s.commitReservation(ctx, reservationID)
+
+		if err := s.recordOutcomeAfterEffect(ctx, intentID, attempt, "READY", targetID, ""); err != nil {
+			logger.Warn(ctx, "provision workload identity outcome fenced",
+				observability.String("target_id", targetID),
+				observability.String("error", err.Error()),
+			)
+			return nil, err
+		}
 		logger.Info(ctx, "provisioned workload identity",
 			observability.String("target_id", targetID),
 			observability.String("project_id", spec.ProjectID),
@@ -154,9 +245,23 @@ func (s *SelfServiceProvisioningService) ReconcileLedger(ctx context.Context, ac
 	}, attribute.Int("active_workloads.count", len(activeWorkloadIDs)))
 }
 
-func (s *SelfServiceProvisioningService) recordIntentBeforeEffect(ctx context.Context, fallbackTenant string, resourceKind string, targetID string) string {
+type attemptContextKey struct{}
+
+func WithProvisionAttempt(ctx context.Context, attempt int) context.Context {
+	return context.WithValue(ctx, attemptContextKey{}, attempt)
+}
+
+func extractProvisionAttempt(ctx context.Context) int {
+	if val, ok := ctx.Value(attemptContextKey{}).(int); ok && val > 0 {
+		return val
+	}
+	return 1
+}
+
+func (s *SelfServiceProvisioningService) recordIntentBeforeEffect(ctx context.Context, fallbackTenant string, resourceKind string, targetID string) (string, int, error) {
+	attempt := extractProvisionAttempt(ctx)
 	if s.ledgerPort == nil || targetID == "" {
-		return ""
+		return "", attempt, nil
 	}
 	tenantID := observability.ExtractTenantID(ctx)
 	if tenantID == "" {
@@ -168,21 +273,90 @@ func (s *SelfServiceProvisioningService) recordIntentBeforeEffect(ctx context.Co
 	intentID := fmt.Sprintf("ssp-%s-%d", resourceKind, time.Now().UnixNano())
 	sum := sha256.Sum256([]byte(intentID + ":" + tenantID + ":" + targetID))
 	publicID := "sspi_" + hex.EncodeToString(sum[:13])
-	_ = s.ledgerPort.RecordIntent(ctx, contracts.ProvisioningIntent{
+	err := s.ledgerPort.RecordIntent(ctx, contracts.ProvisioningIntent{
 		ID:           intentID,
 		PublicID:     publicID,
 		TenantID:     tenantID,
 		ResourceKind: resourceKind,
 		TargetID:     targetID,
-		Attempt:      1,
+		Attempt:      attempt,
 		Status:       "PENDING",
 	})
-	return intentID
+	if err != nil {
+		return "", attempt, err
+	}
+	return intentID, attempt, nil
 }
 
-func (s *SelfServiceProvisioningService) recordOutcomeAfterEffect(ctx context.Context, intentID string, status string, outcomeID string, errMsg string) {
+func (s *SelfServiceProvisioningService) recordOutcomeAfterEffect(ctx context.Context, intentID string, attempt int, status string, outcomeID string, errMsg string) error {
 	if s.ledgerPort == nil || intentID == "" {
+		return nil
+	}
+	return s.ledgerPort.RecordOutcome(ctx, intentID, attempt, status, outcomeID, errMsg)
+}
+
+func (s *SelfServiceProvisioningService) reserveBeforeEffect(ctx context.Context, fallbackTenant string, resourceKind string, rawName string, quotaUnits int, ipBlocks int) (string, error) {
+	if s.reservationPort == nil || rules.NormalizeResourceName(rawName) == "" {
+		return "", nil
+	}
+	tenantID := observability.ExtractTenantID(ctx)
+	if tenantID == "" {
+		tenantID = fallbackTenant
+	}
+	if tenantID == "" {
+		tenantID = "platform-default"
+	}
+	rec, err := s.reservationPort.Reserve(ctx, contracts.ReservationRequest{
+		TenantID:       tenantID,
+		ResourceKind:   resourceKind,
+		RawName:        rawName,
+		NormalizedName: rules.NormalizeResourceName(rawName),
+		QuotaUnits:     quotaUnits,
+		IPCIDRBlocks:   ipBlocks,
+	})
+	if err != nil {
+		return "", err
+	}
+	return rec.ID, nil
+}
+
+func (s *SelfServiceProvisioningService) commitReservation(ctx context.Context, reservationID string) {
+	if s.reservationPort == nil || reservationID == "" {
 		return
 	}
-	_ = s.ledgerPort.RecordOutcome(ctx, intentID, 1, status, outcomeID, errMsg)
+	_ = s.reservationPort.Commit(ctx, reservationID)
+}
+
+func (s *SelfServiceProvisioningService) releaseReservation(ctx context.Context, reservationID string) {
+	if s.reservationPort == nil || reservationID == "" {
+		return
+	}
+	_ = s.reservationPort.Release(ctx, reservationID)
+}
+
+type approvalPinContextKey struct{}
+
+type approvalPinContext struct {
+	approvalID      string
+	plan            contracts.PinnedPlan
+	maxPeriodBudget int
+}
+
+func WithApprovalPin(ctx context.Context, approvalID string, plan contracts.PinnedPlan, maxPeriodBudget int) context.Context {
+	return context.WithValue(ctx, approvalPinContextKey{}, approvalPinContext{
+		approvalID:      approvalID,
+		plan:            plan,
+		maxPeriodBudget: maxPeriodBudget,
+	})
+}
+
+func (s *SelfServiceProvisioningService) verifyApprovalIfPresent(ctx context.Context) error {
+	if s.approvalPort == nil {
+		return nil
+	}
+	pin, ok := ctx.Value(approvalPinContextKey{}).(approvalPinContext)
+	if !ok || pin.approvalID == "" {
+		return nil
+	}
+	return s.approvalPort.VerifyAndConsumeApproval(ctx, pin.approvalID, pin.plan, pin.maxPeriodBudget)
 }

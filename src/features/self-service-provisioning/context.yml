@@ -1,5 +1,6 @@
 feature: self-service-provisioning
 type: backend
+schema: self_service_provisioning
 owners: "@platform-core"
 status: active
 provides: []
@@ -18,6 +19,10 @@ ports:
   - name: cloudresource
     adapters: [cnrm-client]
   - name: ledger
+    adapters: [postgres, memory]
+  - name: reservation
+    adapters: [postgres, memory]
+  - name: approval
     adapters: [postgres, memory]
 lifecycles: []
 ingress:

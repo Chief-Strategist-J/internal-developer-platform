@@ -23,9 +23,10 @@ import (
 )
 
 type ModuleDeps struct {
-	DB             *sql.DB
-	ResilienceCfg  resilience.ResilienceConfig
-	RBACMiddleware *middleware.RBACMiddleware
+	DB                    *sql.DB
+	ResilienceCfg         resilience.ResilienceConfig
+	RBACMiddleware        *middleware.RBACMiddleware
+	IdempotencyMiddleware *middleware.IdempotencyMiddleware
 }
 
 type SelfServiceProvisioningModule struct {
@@ -42,11 +43,15 @@ func BuildModule(deps ModuleDeps) *SelfServiceProvisioningModule {
 	svc := service.NewSelfServiceProvisioningService(clusterAdapter, cloudResourceAdapter)
 	if deps.DB != nil {
 		svc.SetLedgerPort(adapters.NewPostgresProvisioningLedgerAdapter(deps.DB))
+		svc.SetReservationPort(adapters.NewPostgresProvisioningReservationAdapter(deps.DB))
+		svc.SetApprovalPort(adapters.NewPostgresProvisioningApprovalAdapter(deps.DB))
 	} else {
 		svc.SetLedgerPort(adapters.NewMemoryProvisioningLedgerAdapter())
+		svc.SetReservationPort(adapters.NewMemoryProvisioningReservationAdapter())
+		svc.SetApprovalPort(adapters.NewMemoryProvisioningApprovalAdapter())
 	}
 	handler := restv1.NewSelfServiceProvisioningHandler(svc)
-	router := restv1.NewSelfServiceProvisioningRouter(handler, deps.RBACMiddleware)
+	router := restv1.NewSelfServiceProvisioningRouter(handler, deps.RBACMiddleware, deps.IdempotencyMiddleware)
 	return &SelfServiceProvisioningModule{
 		router: router,
 	}

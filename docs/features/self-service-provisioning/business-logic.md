@@ -272,4 +272,4 @@ Leaf   : Why │ Enforce │ Detect │ Production handling (runbook) │ Proof 
   - [Certain] GitHub says to wait for the `retry-after` or reset time. Continuing to send requests while rate-limited can get an integration banned.
 - **V-91 extended:** [Certain] Config Connector can only acquire resources with a service-generated ID through the `resourceID` field. Some resource types can't be acquired at all, which is why INV-02 relies on recorded IDs and label lookup rather than names.
 
-The blockers from the previous tree are unchanged: D-IAC, D-WF, D-SCM, D-CI, D-TPL, D-BUDGET and B-1. D-WF now matters more, because INV-02, INV-03 and INV-11 depend on its retry and history semantics. No codebase changes have been made.
+The blockers from the previous tree are unchanged: D-IAC, D-WF, D-SCM, D-CI, D-TPL, D-BUDGET and B-1. D-WF now matters more, because INV-02, INV-03 and INV-11 depend on its retry and history semantics. Slices 1-3 (`INV-01`, `INV-03`, `INV-04`, `INV-05`, `INV-09`, `INV-10`, `INV-15`, `EC-02`, `EC-03`, `EC-09`) are implemented in Go + PostgreSQL migrations; `INV-02`, `INV-06`–`INV-08`, `INV-11`–`INV-14`, and remaining edge cases await those decisions.
