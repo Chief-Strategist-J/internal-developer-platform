@@ -149,6 +149,7 @@ func describeService() chassis.ServiceSpec {
 
 			selfServiceMod := selfserviceprovisioning.BuildModule(selfserviceprovisioning.ModuleDeps{
 				DB:                    deps.DB,
+				RedisAddr:             deps.Config.Redis.Address,
 				ResilienceCfg:         resConfig,
 				RBACMiddleware:        rbacMW,
 				IdempotencyMiddleware: idempotencyMW,

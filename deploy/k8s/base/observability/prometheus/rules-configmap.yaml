@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: prometheus
+data:
+  self-service-provisioning.rules.yaml: |
+    groups:
+      - name: self-service-provisioning.rules
+        rules:
+          - alert: SSPOrphanedDirtyDetected
+            expr: ssp_sweeper_orphaned_dirty_count > 0
+            for: 15m
+            labels:
+              severity: page
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: "Orphaned dirty resource detected during provisioning compensation"
+              description: "Saga compensation failed on one or more resources. Requires two-person manual completion runbook."
+              runbook_url: "docs/features/self-service-provisioning/failure-cases.md#runbook-orphaned-dirty"
+
+          - alert: SSPDuplicateResourceDetected
+            expr: ssp_sweeper_duplicates_count > 0
+            for: 5m
+            labels:
+              severity: page
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: "Duplicate resources detected for request key"
+              description: "Duplicate scan found >1 resource per (request, step, type). Freeze step type and quarantine extras."
+              runbook_url: "docs/features/self-service-provisioning/failure-cases.md#runbook-duplicate-resources"
+
+          - alert: SSPSagaStallDetected
+            expr: ssp_saga_stalled_count > 0
+            for: 30m
+            labels:
+              severity: page
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: "Provisioning saga stalled beyond threshold"
+              description: "One or more active sagas have not advanced state for >30 minutes. Check workflow engine or ledger connection."
+              runbook_url: "docs/features/self-service-provisioning/failure-cases.md#runbook-saga-stall"
+
+          - alert: SSPIPSpaceNearExhaustion
+            expr: (ssp_ip_cidr_allocated_count / ssp_ip_cidr_total_capacity) > 0.90
+            for: 10m
+            labels:
+              severity: page
+              team: platform
+              tier: tier-1
+            annotations:
+              summary: "IP space quota utilization exceeds 90%"
+              description: "Subnet CIDR pool is nearing exhaustion. Provision additional address space before new clusters fail."
+
+          - alert: SSPDataClassDeletionWithoutDecision
+            expr: ssp_retention_unauthorized_deletion_attempts_total > 0
+            for: 0m
+            labels:
+              severity: page
+              team: security
+              tier: tier-1
+            annotations:
+              summary: "Data-bearing resource deletion attempted without retention decision"
+              description: "Attempted teardown of data-bearing resource violating INV-06 without owner retention record."
+
+          - alert: SSPDanglingDNSDetected
+            expr: ssp_sweeper_dangling_dns_count > 0
+            for: 15m
+            labels:
+              severity: page
+              team: security
+              tier: tier-1
+            annotations:
+              summary: "Dangling DNS record found during cooldown audit"
+              description: "Decommissioned DNS record is still resolving or was reclaimed before cooldown expiry (INV-07)."
+
+          - alert: SSPSecretsInRepositoryDetected
+            expr: ssp_repo_secret_scan_violations_total > 0
+            for: 0m
+            labels:
+              severity: page
+              team: security
+              tier: tier-1
+            annotations:
+              summary: "Plaintext secrets detected in newly scaffolded repository"
+              description: "INV-13 scanner flagged private keys or hardcoded tokens in manifest repository."
+
+          - alert: SSPTenantQuotaDrift
+            expr: (ssp_tenant_quota_units_used / ssp_tenant_quota_units_limit) > 0.85
+            for: 30m
+            labels:
+              severity: ticket
+              team: platform
+            annotations:
+              summary: "Tenant capacity approaching quota ceiling"
+              description: "Tenant capacity usage is above 85% of assigned ceiling. Trigger tenant capacity review."
+
+          - alert: SSPReadyWithoutReplicas
+            expr: ssp_observed_ready_no_healthy_replicas > 0
+            for: 10m
+            labels:
+              severity: ticket
+              team: owners
+            annotations:
+              summary: "Resource reported READY but zero healthy endpoints observed"
+              description: "INV-12 observed READY gate flagged missing active pods or endpoint reachability."
