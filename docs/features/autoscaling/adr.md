@@ -53,3 +53,19 @@
   Admission checks verify application session requirements before assigning transaction-mode poolers. Workloads requiring session state must use session-mode pooling or private dedicated pools.
 - **Consequences:**
   - Prevents silent runtime failures caused by dropped session state in connection proxies.
+
+---
+
+## Invariant ID Map (`business-logic.md` AS-xx and code/ADR AS-INV-xx)
+
+`business-logic.md` numbers invariants `AS-01..AS-20`; the code, tests and ADRs use `AS-INV-01..AS-INV-23`. They agree for 01 to 16 and differ after that.
+
+| business-logic.md | Code / ADR | Meaning |
+| --- | --- | --- |
+| AS-01 to AS-15 | AS-INV-01 to AS-INV-15 | Same invariant, same number |
+| AS-16 | AS-INV-16 | Connections within the database budget at max scale |
+| AS-17 | AS-INV-18 | Bounded storage increase limit |
+| AS-18 | AS-INV-17 | No unattended production database scaling |
+| AS-19 | AS-INV-22 (and AS-INV-02) | Scale-to-zero safety; sync production services keep the tier floor |
+| AS-20 | AS-INV-19, AS-INV-20, AS-INV-23 | Ingestion: partition cap, Pub/Sub floor and dual metric, signal and dead-letter |
+| EC-16 (edge case, no AS id) | AS-INV-21 | Transaction pooler incompatible with session state |

@@ -1,7 +1,9 @@
 {
   "version": "3.0.0",
-  "last_migration": "20261128133000",
+  "last_migration": "20261128160000",
   "checksums": {
+    "deployment-strategies/20261128160000_create_deployment_strategies_schema.down.sql": "895ef9774e260df7e5fa7ca6ec2c80e09deebc4d5781cf3c32b88c1c62a22e17",
+    "deployment-strategies/20261128160000_create_deployment_strategies_schema.up.sql": "490eb1b8696563c781e21c953ccf12d68eeda32f0bc344e09d3b918e1bf9905e",
     "disaster-recovery/20261115000015_create-disaster-recovery-tables.down.sql": "0c50faf7bc2fe6fc1b13e4104872306ff7255dd86ce5a2e6558e2d41efe92ce9",
     "disaster-recovery/20261115000015_create-disaster-recovery-tables.up.sql": "9f3490f9aa251cfc5680a58ae6170953457cf3841c8e53ccd91db225e897ae9c",
     "disaster-recovery/20261116000016_create-dr-evidence-and-operations.down.sql": "ab0680481e931ad9f6cb1d4be49ed0ab82d53ed1183a3dd57877228e5d6b2464",
