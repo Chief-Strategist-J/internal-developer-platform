@@ -82,11 +82,11 @@ func Run(spec ServiceSpec, args []string, env []string) int {
 		spec.StartBackgroundWorkers(bootCtx.rootCtx, app.services)
 	}
 
-	publicServer, adminServer := wireCommand(app, cfg, spec)
+	publicServer, adminServer, metricsServer := wireCommand(app, cfg, spec)
 
-	stopReason := runLongLived(bootCtx.rootCtx, publicServer, adminServer, cfg, logger)
+	stopReason := runLongLived(bootCtx.rootCtx, publicServer, adminServer, metricsServer, cfg, logger)
 
-	return shutdown(publicServer, adminServer, cfg, logger, stopReason)
+	return shutdown(publicServer, adminServer, metricsServer, cfg, logger, stopReason)
 }
 
 func preflight(args []string) (*bootContext, int) {
@@ -183,15 +183,28 @@ func compose(ctx context.Context, cfg *config.AppConfig, spec ServiceSpec, logge
 	}, ExitSuccess
 }
 
-func wireCommand(app *composedApp, cfg *config.AppConfig, spec ServiceSpec) (*http.Server, *http.Server) {
+func wireCommand(app *composedApp, cfg *config.AppConfig, spec ServiceSpec) (*http.Server, *http.Server, *http.Server) {
+	metricsHandler := observability.MetricsHandler()
+
 	adminMux := http.NewServeMux()
 	if spec.RegisterAdminRoutes != nil {
 		spec.RegisterAdminRoutes(adminMux, app.services)
 	}
+	adminMux.Handle("/metrics", metricsHandler)
 
 	adminServer := &http.Server{
 		Addr:         cfg.AdminBindAddress(),
 		Handler:      adminMux,
+		ReadTimeout:  time.Duration(cfg.Server.HeaderTimeoutSeconds) * time.Second,
+		WriteTimeout: time.Duration(cfg.Server.HeaderTimeoutSeconds) * time.Second,
+	}
+
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", metricsHandler)
+
+	metricsServer := &http.Server{
+		Addr:         cfg.MetricsBindAddress(),
+		Handler:      metricsMux,
 		ReadTimeout:  time.Duration(cfg.Server.HeaderTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.HeaderTimeoutSeconds) * time.Second,
 	}
@@ -211,15 +224,21 @@ func wireCommand(app *composedApp, cfg *config.AppConfig, spec ServiceSpec) (*ht
 		IdleTimeout:  time.Duration(cfg.Server.IdleTimeoutSeconds) * time.Second,
 	}
 
-	return publicServer, adminServer
+	return publicServer, adminServer, metricsServer
 }
 
-func runLongLived(rootCtx context.Context, publicServer *http.Server, adminServer *http.Server, cfg *config.AppConfig, logger *observability.Logger) string {
-	fatalChan := make(chan error, 2)
+func runLongLived(rootCtx context.Context, publicServer *http.Server, adminServer *http.Server, metricsServer *http.Server, cfg *config.AppConfig, logger *observability.Logger) string {
+	fatalChan := make(chan error, 3)
 
 	go func() {
 		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fatalChan <- fmt.Errorf("admin listener failed: %w", err)
+		}
+	}()
+
+	go func() {
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fatalChan <- fmt.Errorf("metrics listener failed: %w", err)
 		}
 	}()
 
@@ -232,6 +251,7 @@ func runLongLived(rootCtx context.Context, publicServer *http.Server, adminServe
 	logger.Info(rootCtx, "chassis servers running",
 		observability.String("public_addr", cfg.PublicBindAddress()),
 		observability.String("admin_addr", cfg.AdminBindAddress()),
+		observability.String("metrics_addr", cfg.MetricsBindAddress()),
 	)
 
 	select {
@@ -243,7 +263,7 @@ func runLongLived(rootCtx context.Context, publicServer *http.Server, adminServe
 	}
 }
 
-func shutdown(publicServer *http.Server, adminServer *http.Server, cfg *config.AppConfig, logger *observability.Logger, stopReason string) int {
+func shutdown(publicServer *http.Server, adminServer *http.Server, metricsServer *http.Server, cfg *config.AppConfig, logger *observability.Logger, stopReason string) int {
 	ctx := context.Background()
 	logger.Info(ctx, "beginning graceful shutdown", observability.String("reason", stopReason))
 
@@ -259,6 +279,11 @@ func shutdown(publicServer *http.Server, adminServer *http.Server, cfg *config.A
 
 	if err := adminServer.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "admin server graceful drain failed", observability.String("error", err.Error()))
+		hasError = true
+	}
+
+	if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "metrics server graceful drain failed", observability.String("error", err.Error()))
 		hasError = true
 	}
 

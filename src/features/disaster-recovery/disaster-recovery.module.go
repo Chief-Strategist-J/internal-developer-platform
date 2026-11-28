@@ -33,10 +33,40 @@ type ModuleDeps struct {
 
 type DisasterRecoveryModule struct {
 	svc        *service.DisasterRecoveryService
+	bridge     DRBridgeProvider
 	handler    *restv1.DisasterRecoveryHandler
 	router     *restv1.DisasterRecoveryRouter
 	cliHandler *cliv1.DisasterRecoveryCLIHandler
 	lifecycles []kernel.Lifecycle
+}
+
+type drBridgeProviderImpl struct {
+	svc *service.DisasterRecoveryService
+}
+
+func (b *drBridgeProviderImpl) IsWorkloadFenced(ctx context.Context, tenantID, workloadID string) (bool, error) {
+	if b.svc == nil {
+		return false, nil
+	}
+	epoch, err := b.svc.GetFencingEpoch(ctx, workloadID)
+	if err != nil {
+		return false, nil
+	}
+	if epoch != nil && epoch.Epoch > 0 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (b *drBridgeProviderImpl) GetFencingEpoch(ctx context.Context, datasetID string) (int64, error) {
+	if b.svc == nil {
+		return 0, nil
+	}
+	rec, err := b.svc.GetFencingEpoch(ctx, datasetID)
+	if err != nil || rec == nil {
+		return 0, err
+	}
+	return rec.Epoch, nil
 }
 
 func BuildModule(deps ModuleDeps) *DisasterRecoveryModule {
@@ -45,6 +75,7 @@ func BuildModule(deps ModuleDeps) *DisasterRecoveryModule {
 	svc := service.NewDisasterRecoveryService(store, cloud, cloud, cloud, cloud, cloud)
 	handler := restv1.NewDisasterRecoveryHandler(svc)
 	router := restv1.NewDisasterRecoveryRouter(handler, deps.RBACMiddleware)
+	bridge := &drBridgeProviderImpl{svc: svc}
 	var cliBaseURL, cliTenantID, cliToken string
 	if deps.Config != nil {
 		cliBaseURL = deps.Config.DRCLI.APIBaseURL
@@ -57,6 +88,7 @@ func BuildModule(deps ModuleDeps) *DisasterRecoveryModule {
 	}
 	return &DisasterRecoveryModule{
 		svc:        svc,
+		bridge:     bridge,
 		handler:    handler,
 		router:     router,
 		cliHandler: cliHandler,
@@ -69,6 +101,7 @@ func (m *DisasterRecoveryModule) Routes() []kernel.Route               { return 
 func (m *DisasterRecoveryModule) EventHandlers() []kernel.EventHandler { return nil }
 func (m *DisasterRecoveryModule) Lifecycles() []kernel.Lifecycle       { return m.lifecycles }
 func (m *DisasterRecoveryModule) Provides() []string                   { return nil }
+func (m *DisasterRecoveryModule) BridgeProvider() DRBridgeProvider     { return m.bridge }
 
 func (m *DisasterRecoveryModule) ExecuteCLI(ctx context.Context, args []string) int {
 	if m.cliHandler == nil {

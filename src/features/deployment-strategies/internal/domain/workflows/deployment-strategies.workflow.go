@@ -28,6 +28,7 @@ type CanaryRolloutWorkflow struct {
 	orchestrator ports.OrchestratorPort
 	analysis     ports.AnalysisPort
 	repo         ports.RepositoryPort
+	drGuard      ports.DRGuardPort
 }
 
 func NewCanaryRolloutWorkflow(
@@ -35,12 +36,14 @@ func NewCanaryRolloutWorkflow(
 	orchestrator ports.OrchestratorPort,
 	analysis ports.AnalysisPort,
 	repo ports.RepositoryPort,
+	drGuard ports.DRGuardPort,
 ) *CanaryRolloutWorkflow {
 	return &CanaryRolloutWorkflow{
 		traffic:      traffic,
 		orchestrator: orchestrator,
 		analysis:     analysis,
 		repo:         repo,
+		drGuard:      drGuard,
 	}
 }
 
@@ -53,6 +56,17 @@ func (w *CanaryRolloutWorkflow) ExecuteStepProgression(ctx context.Context, tena
 	if err != nil {
 		return err
 	}
+
+	if w.drGuard != nil {
+		fenced, fenceErr := w.drGuard.IsWorkloadFenced(ctx, tenantID, exec.WorkloadID)
+		if fenceErr != nil {
+			return fenceErr
+		}
+		if fenced {
+			return w.abortRollout(ctx, tenantID, exec, fmt.Sprintf("disaster recovery fencing active for workload %s", exec.WorkloadID))
+		}
+	}
+
 	if exec.CurrentStepIndex >= len(plan.Steps) {
 		return w.promoteRollout(ctx, tenantID, exec)
 	}
