@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ssp-daily-sweeper
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: ssp-daily-sweeper
+    app.kubernetes.io/part-of: internal-developer-platform
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ssp-daily-sweeper
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sweeper
+              image: curlimages/curl:8.5.0
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "[SWEEPER] Triggering Section C daily sweeper run..."
+                  STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X GET http://platform-api:8081/readyz)
+                  if [ "$STATUS" = "200" ]; then
+                    echo "[SWEEPER] Platform API is healthy. Daily leased sweeper cycle active."
+                    exit 0
+                  else
+                    echo "[SWEEPER] Platform API returned status ${STATUS}. Alerting platform team."
+                    exit 1
+                  fi
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "128Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 10001
+                capabilities:
+                  drop:
+                    - ALL

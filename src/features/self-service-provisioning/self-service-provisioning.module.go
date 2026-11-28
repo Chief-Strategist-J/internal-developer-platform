@@ -2,18 +2,23 @@
 ALGORITHM & ARCHITECTURE BLUEPRINT: SELF-SERVICE PROVISIONING MODULE (V.3 role 15, X-05)
 
  1. Role:
-    - Assembles cluster & cloud resource client adapters, service, REST handler, and router.
+    - Assembles cluster & cloud resource client adapters, service, REST handler, router, and sweeper lifecycle.
  2. Invariants:
     - Zero goroutines or tickers in BuildModule (G-11); does not export Service (X-05).
+    - Zero inline comments below this header.
 */
 package selfserviceprovisioning
 
 import (
 	"database/sql"
 	"net/http"
+	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	restv1 "internal-developer-platform/src/features/self-service-provisioning/internal/api/rest/v1"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/adapters"
+	"internal-developer-platform/src/features/self-service-provisioning/internal/infrastructure/lifecycle"
 	"internal-developer-platform/src/features/self-service-provisioning/internal/service"
 	"internal-developer-platform/src/infra/clients/cloudresource"
 	"internal-developer-platform/src/infra/clients/cluster"
@@ -24,6 +29,7 @@ import (
 
 type ModuleDeps struct {
 	DB                    *sql.DB
+	RedisAddr             string
 	ResilienceCfg         resilience.ResilienceConfig
 	RBACMiddleware        *middleware.RBACMiddleware
 	IdempotencyMiddleware *middleware.IdempotencyMiddleware
@@ -54,8 +60,22 @@ func BuildModule(deps ModuleDeps) *SelfServiceProvisioningModule {
 	}
 	handler := restv1.NewSelfServiceProvisioningHandler(svc)
 	router := restv1.NewSelfServiceProvisioningRouter(handler, deps.RBACMiddleware, deps.IdempotencyMiddleware)
+
+	var lcs []kernel.Lifecycle
+	var redisClient *redis.Client
+	if deps.RedisAddr != "" {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:        deps.RedisAddr,
+			DialTimeout: 2 * time.Second,
+		})
+	}
+	if deps.DB != nil {
+		lcs = append(lcs, lifecycle.NewSelfServiceSweeperLifecycle(svc, redisClient, 24*time.Hour))
+	}
+
 	return &SelfServiceProvisioningModule{
-		router: router,
+		router:     router,
+		lifecycles: lcs,
 	}
 }
 
