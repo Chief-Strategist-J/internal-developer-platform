@@ -12,6 +12,10 @@ on:
       - 'src/features/service-catalog/**'
       - '.github/workflows/ci-service-catalog.yml'
 
+concurrency:
+  group: service-catalog-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Service Catalog Tests

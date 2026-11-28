@@ -12,6 +12,10 @@ on:
       - 'src/features/role-based-access-control/**'
       - '.github/workflows/ci-role-based-access-control.yml'
 
+concurrency:
+  group: rbac-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: RBAC Feature Tests

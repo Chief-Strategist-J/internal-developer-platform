@@ -12,6 +12,10 @@ on:
       - 'src/features/disaster-recovery/**'
       - '.github/workflows/ci-disaster-recovery.yml'
 
+concurrency:
+  group: dr-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Disaster Recovery Tests

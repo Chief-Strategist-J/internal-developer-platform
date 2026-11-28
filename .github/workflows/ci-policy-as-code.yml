@@ -12,6 +12,10 @@ on:
       - 'src/features/policy-as-code/**'
       - '.github/workflows/ci-policy-as-code.yml'
 
+concurrency:
+  group: pac-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Policy as Code Tests

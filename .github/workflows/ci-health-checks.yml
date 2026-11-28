@@ -12,6 +12,10 @@ on:
       - 'src/features/health-checks/**'
       - '.github/workflows/ci-health-checks.yml'
 
+concurrency:
+  group: health-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Health Checks Tests

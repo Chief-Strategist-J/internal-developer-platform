@@ -20,6 +20,10 @@ on:
       - 'scripts/test/test.sweeper.sh'
       - '.github/workflows/ci-self-service-provisioning.yml'
 
+concurrency:
+  group: ssp-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Unit & Architectural Tests

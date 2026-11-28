@@ -12,6 +12,10 @@ on:
       - 'src/features/gitops-reconciliation/**'
       - '.github/workflows/ci-gitops-reconciliation.yml'
 
+concurrency:
+  group: gitops-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: GitOps Reconciliation Tests
